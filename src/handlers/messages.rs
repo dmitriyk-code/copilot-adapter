@@ -32,6 +32,14 @@ pub async fn messages(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AnthropicRequest>,
 ) -> Result<Response, AppError> {
+    tracing::debug!(
+        model = %request.model,
+        stream = ?request.stream,
+        num_messages = request.messages.len(),
+        max_tokens = request.max_tokens,
+        "Received Anthropic messages request"
+    );
+
     // Validate: messages must be non-empty
     if request.messages.is_empty() {
         return Err(AppError::InvalidRequest(
@@ -68,6 +76,11 @@ pub async fn messages(
         // Convert Anthropic tool definitions to internal format and inject.
         if let Some(ref tools) = request.tools {
             if !tools.is_empty() {
+                tracing::debug!(
+                    num_tools = tools.len(),
+                    tool_names = ?tools.iter().map(|t| &t.name).collect::<Vec<_>>(),
+                    "Injecting Anthropic tools into prompt"
+                );
                 let internal_tools: Vec<_> =
                     tools.iter().map(|t| t.to_internal_tool()).collect();
                 injector::inject_tools_into_messages(
@@ -115,6 +128,11 @@ pub async fn messages(
             let tool_calls = parser::parse_tool_calls(&content_text);
 
             if !tool_calls.is_empty() {
+                tracing::debug!(
+                    num_tool_calls = tool_calls.len(),
+                    tool_call_names = ?tool_calls.iter().map(|tc| &tc.function.name).collect::<Vec<_>>(),
+                    "Parsed tool calls from Anthropic response"
+                );
                 let stripped = parser::strip_tool_calls(&content_text);
                 choice.message.content = if stripped.is_empty() {
                     MessageContent::Text(String::new())

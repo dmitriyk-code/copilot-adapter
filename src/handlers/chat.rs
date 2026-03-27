@@ -29,6 +29,13 @@ pub async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ChatCompletionRequest>,
 ) -> Result<Response, AppError> {
+    tracing::debug!(
+        model = %request.model,
+        stream = ?request.stream,
+        num_messages = request.messages.len(),
+        "Received chat completion request"
+    );
+
     // Validate: messages must be non-empty
     if request.messages.is_empty() {
         return Err(AppError::InvalidRequest(
@@ -60,6 +67,11 @@ pub async fn chat_completions(
         // Inject tool definitions into the system prompt.
         if let Some(ref tools) = request.tools {
             if !tools.is_empty() {
+                tracing::debug!(
+                    num_tools = tools.len(),
+                    tool_names = ?tools.iter().map(|t| &t.function.name).collect::<Vec<_>>(),
+                    "Injecting tools into prompt"
+                );
                 injector::inject_tools_into_messages(&mut upstream_request.messages, tools);
             }
         }
@@ -146,6 +158,11 @@ pub async fn chat_completions(
             let tool_calls = parser::parse_tool_calls(&content_text);
 
             if !tool_calls.is_empty() {
+                tracing::debug!(
+                    num_tool_calls = tool_calls.len(),
+                    tool_call_names = ?tool_calls.iter().map(|tc| &tc.function.name).collect::<Vec<_>>(),
+                    "Parsed tool calls from response"
+                );
                 let stripped = parser::strip_tool_calls(&content_text);
                 choice.message.content = if stripped.is_empty() {
                     MessageContent::Text(String::new())
