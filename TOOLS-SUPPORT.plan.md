@@ -381,6 +381,8 @@ Request with tools
 
 ### Epic 4: OpenAI Endpoint Integration
 
+**Status:** COMPLETE
+
 **Goal:** Integrate tool injection and parsing into `/v1/chat/completions` handler.
 
 **Prerequisites:** Epics 1, 2, 3
@@ -389,27 +391,27 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `--experimental-tools` flag to CLI `Start` command | `src/cli.rs` | |
-| E4-T2 | IMPL | Create `AdapterConfig` struct with `experimental_tools: bool` | `src/server.rs` | |
-| E4-T3 | IMPL | Add `config: AdapterConfig` to `AppState` | `src/server.rs` | |
-| E4-T4 | IMPL | Pass config from CLI to server startup | `src/main.rs` | |
-| E4-T5 | IMPL | In `chat_completions` handler: check for tools in request | `src/handlers/chat.rs` | |
-| E4-T6 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/chat.rs` | |
-| E4-T7 | IMPL | If tools present and flag enabled: call `inject_tools_into_messages()` | `src/handlers/chat.rs` | |
-| E4-T8 | IMPL | After response: call `parse_tool_calls()` on content | `src/handlers/chat.rs` | |
-| E4-T9 | IMPL | If tool calls found: add to `message.tool_calls`, strip from content | `src/handlers/chat.rs` | |
-| E4-T10 | IMPL | Handle `tool` role messages in request (translate to user message with result) | `src/handlers/chat.rs` | |
-| E4-T11 | TEST | Integration test: request with tools and flag disabled returns 400 | `tests/integration/tools_chat_tests.rs` | |
-| E4-T12 | TEST | Integration test: request with tools and flag enabled succeeds | `tests/integration/tools_chat_tests.rs` | |
-| E4-T13 | TEST | Integration test: tool call parsed from mock response | `tests/integration/tools_chat_tests.rs` | |
-| E4-T14 | TEST | Integration test: tool role message handled correctly | `tests/integration/tools_chat_tests.rs` | |
+| E4-T1 | IMPL | Add `--experimental-tools` flag to CLI `Start` command | `src/cli.rs` | DONE |
+| E4-T2 | IMPL | Create `AdapterConfig` struct with `experimental_tools: bool` | `src/server.rs` | DONE |
+| E4-T3 | IMPL | Add `config: AdapterConfig` to `AppState` | `src/server.rs` | DONE |
+| E4-T4 | IMPL | Pass config from CLI to server startup | `src/main.rs` | DONE |
+| E4-T5 | IMPL | In `chat_completions` handler: check for tools in request | `src/handlers/chat.rs` | DONE |
+| E4-T6 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/chat.rs` | DONE |
+| E4-T7 | IMPL | If tools present and flag enabled: call `inject_tools_into_messages()` | `src/handlers/chat.rs` | DONE |
+| E4-T8 | IMPL | After response: call `parse_tool_calls()` on content | `src/handlers/chat.rs` | DONE |
+| E4-T9 | IMPL | If tool calls found: add to `message.tool_calls`, strip from content | `src/handlers/chat.rs` | DONE |
+| E4-T10 | IMPL | Handle `tool` role messages in request (translate to user message with result) | `src/handlers/chat.rs` | DONE |
+| E4-T11 | TEST | Integration test: request with tools and flag disabled returns 400 | `tests/integration/tools_chat_tests.rs` | DONE |
+| E4-T12 | TEST | Integration test: request with tools and flag enabled succeeds | `tests/integration/tools_chat_tests.rs` | DONE |
+| E4-T13 | TEST | Integration test: tool call parsed from mock response | `tests/integration/tools_chat_tests.rs` | DONE |
+| E4-T14 | TEST | Integration test: tool role message handled correctly | `tests/integration/tools_chat_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `--experimental-tools` flag recognized by CLI
-- [ ] Requests with tools fail with 400 when flag disabled
-- [ ] Requests with tools succeed when flag enabled
-- [ ] Tool calls appear in response `choices[0].message.tool_calls`
-- [ ] Tool call text stripped from `choices[0].message.content`
+- [x] `--experimental-tools` flag recognized by CLI
+- [x] Requests with tools fail with 400 when flag disabled
+- [x] Requests with tools succeed when flag enabled
+- [x] Tool calls appear in response `choices[0].message.tool_calls`
+- [x] Tool call text stripped from `choices[0].message.content`
 
 ---
 

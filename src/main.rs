@@ -18,6 +18,7 @@ async fn main() -> anyhow::Result<()> {
             host,
             log_level,
             log_file,
+            experimental_tools,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -50,6 +51,9 @@ async fn main() -> anyhow::Result<()> {
                         args.push("--log-file".to_string());
                         args.push(lf.clone());
                     }
+                    if experimental_tools {
+                        args.push("--experimental-tools".to_string());
+                    }
 
                     let pid = daemon::spawn_background(&args)?;
                     println!("Adapter started in background (PID {pid})");
@@ -66,9 +70,17 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!("Starting copilot-adapter on {host}:{port}");
 
+            let config = server::AdapterConfig {
+                experimental_tools,
+            };
+
+            if experimental_tools {
+                tracing::info!("Experimental tools support is ENABLED");
+            }
+
             // write_pid=true when running as daemon so stop/status can find us;
             // also true in foreground mode for consistency with status command.
-            server::run(&host, port, manager, true).await?;
+            server::run(&host, port, manager, true, config).await?;
         }
         Command::Stop => {
             match daemon::stop_daemon() {

@@ -13,7 +13,7 @@ use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
 use copilot_adapter::copilot::types::ChatCompletionResponse;
-use copilot_adapter::server::{build_router, AppState};
+use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
 use super::test_helpers::InMemoryStorage;
 
@@ -195,6 +195,7 @@ async fn create_test_state(
         token_manager: tm,
         copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
         http_client: client,
+        config: AdapterConfig::default(),
     })
 }
 
@@ -380,6 +381,7 @@ async fn chat_completion_without_auth_returns_401() {
             format!("http://{copilot_addr}/chat/completions"),
         ),
         http_client: client,
+        config: AdapterConfig::default(),
     });
     let app = build_router(state);
 

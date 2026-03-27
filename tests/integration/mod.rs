@@ -8,3 +8,4 @@ mod models_tests;
 mod server_tests;
 mod streaming_tests;
 mod test_helpers;
+mod tools_chat_tests;

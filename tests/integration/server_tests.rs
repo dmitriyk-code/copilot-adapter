@@ -7,7 +7,7 @@ use tower::ServiceExt;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
-use copilot_adapter::server::{AppState, build_router};
+use copilot_adapter::server::{AppState, AdapterConfig, build_router};
 
 use super::test_helpers::InMemoryStorage;
 
@@ -27,6 +27,7 @@ async fn test_state() -> Arc<AppState> {
         token_manager: tm,
         copilot_client: CopilotClient::new(client.clone()),
         http_client: client,
+        config: AdapterConfig::default(),
     })
 }
 

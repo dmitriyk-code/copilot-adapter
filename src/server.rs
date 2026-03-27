@@ -12,12 +12,29 @@ use crate::auth::token::TokenManager;
 use crate::copilot::client::CopilotClient;
 use crate::handlers;
 
+/// Configuration options that control adapter behaviour.
+#[derive(Debug, Clone)]
+pub struct AdapterConfig {
+    /// When `true`, tool/function definitions in requests are handled via
+    /// prompt injection rather than being rejected.
+    pub experimental_tools: bool,
+}
+
+impl Default for AdapterConfig {
+    fn default() -> Self {
+        Self {
+            experimental_tools: false,
+        }
+    }
+}
+
 /// Shared application state available to all handlers via axum's `State` extractor.
 pub struct AppState {
     pub token_manager: Arc<TokenManager>,
     /// Shared HTTP client for direct upstream calls (used by the Epic 4 streaming handler).
     pub http_client: reqwest::Client,
     pub copilot_client: CopilotClient,
+    pub config: AdapterConfig,
 }
 
 /// Request tracing middleware that logs method, path, status, duration, and request ID.
@@ -89,12 +106,14 @@ pub async fn run(
     port: u16,
     token_manager: Arc<TokenManager>,
     write_pid: bool,
+    config: AdapterConfig,
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
     let state = Arc::new(AppState {
         token_manager,
         copilot_client: CopilotClient::new(http_client.clone()),
         http_client,
+        config,
     });
 
     let app = build_router(state);

@@ -34,6 +34,10 @@ pub enum Command {
         /// Log file path (default: stderr)
         #[arg(long)]
         log_file: Option<String>,
+
+        /// Enable experimental tool/function calling support via prompt injection
+        #[arg(long)]
+        experimental_tools: bool,
     },
 
     /// Stop the background adapter

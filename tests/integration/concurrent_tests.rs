@@ -9,7 +9,7 @@ use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
 use copilot_adapter::copilot::types::ChatCompletionChunk;
-use copilot_adapter::server::{build_router, AppState};
+use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 use serde_json::json;
 use tokio::net::TcpListener;
 
@@ -39,6 +39,7 @@ async fn create_test_state(
         token_manager: tm,
         copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
         http_client: client,
+        config: AdapterConfig::default(),
     })
 }
 
