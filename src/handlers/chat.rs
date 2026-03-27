@@ -33,7 +33,10 @@ pub async fn chat_completions(
         .token_manager
         .get_valid_token()
         .await
-        .map_err(|e| AppError::Unauthorized(e.to_string()))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "Authentication failed");
+            AppError::NotAuthenticated
+        })?;
 
     // Branch on stream field
     if request.stream.unwrap_or(false) {

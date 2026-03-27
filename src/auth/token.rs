@@ -108,8 +108,20 @@ impl TokenManager {
                 .ok_or_else(|| anyhow!("Not authenticated — run `copilot-adapter auth` first"))?
         };
 
+        tracing::info!("Refreshing Copilot token");
+
         let new_token = self.auth_client.get_copilot_token(&github_token).await?;
         let token_string = new_token.token.clone();
+
+        if let Some(exp) = new_token.expires_at_datetime() {
+            tracing::info!(
+                expires_at = %exp,
+                seconds_remaining = new_token.seconds_until_expiry(),
+                "Copilot token refreshed successfully"
+            );
+        } else {
+            tracing::info!("Copilot token refreshed (unknown expiry)");
+        }
 
         self.state.write().await.copilot_token = Some(new_token);
 
@@ -181,6 +193,7 @@ impl TokenManager {
     /// the cancellation token so future calls to `start_auto_refresh()` work
     /// correctly (e.g., after re-authentication in server mode).
     pub async fn clear_tokens(&self) -> Result<()> {
+        tracing::info!("Clearing all tokens (logout)");
         {
             let mut cancel = self.cancel.lock().unwrap_or_else(|e| e.into_inner());
             cancel.cancel();
@@ -190,6 +203,7 @@ impl TokenManager {
         state.github_token = None;
         state.copilot_token = None;
         self.storage.delete_github_token()?;
+        tracing::info!("All tokens cleared");
         Ok(())
     }
 

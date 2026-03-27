@@ -1,8 +1,12 @@
 use std::sync::Arc;
+use std::time::Instant;
 
+use axum::body::Body;
+use axum::http::Request;
+use axum::middleware;
+use axum::response::Response;
 use axum::{routing::get, Router};
 use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
 
 use crate::auth::token::TokenManager;
 use crate::copilot::client::CopilotClient;
@@ -16,6 +20,47 @@ pub struct AppState {
     pub copilot_client: CopilotClient,
 }
 
+/// Request tracing middleware that logs method, path, status, duration, and request ID.
+async fn request_tracing(
+    req: Request<Body>,
+    next: middleware::Next,
+) -> Response {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let start = Instant::now();
+
+    tracing::info!(
+        request_id = %request_id,
+        method = %method,
+        path = %path,
+        "Request received"
+    );
+
+    let mut response = next.run(req).await;
+
+    let duration = start.elapsed();
+    let status = response.status();
+
+    tracing::info!(
+        request_id = %request_id,
+        method = %method,
+        path = %path,
+        status = status.as_u16(),
+        duration_ms = duration.as_millis() as u64,
+        "Request completed"
+    );
+
+    // Attach request ID as a response header for client-side debugging.
+    response.headers_mut().insert(
+        "X-Request-Id",
+        axum::http::HeaderValue::from_str(&request_id)
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("unknown")),
+    );
+
+    response
+}
+
 /// Build the axum Router with all routes and middleware layers.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -27,7 +72,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/models", get(handlers::models::list_models))
         .route("/v1/models/:model", get(handlers::models::get_model))
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(request_tracing))
         .layer(CorsLayer::permissive())
 }
 

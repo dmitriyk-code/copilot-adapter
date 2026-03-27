@@ -180,8 +180,7 @@ async fn run_logout() -> anyhow::Result<()> {
 
 /// Initialize tracing to stderr only (no log file).
 fn init_tracing(log_level: &str) {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    let filter = build_env_filter(log_level);
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -194,8 +193,7 @@ fn init_tracing(log_level: &str) {
 /// When `log_file` is `Some`, logs are written to the specified file.
 /// When `None`, logs are written to stderr.
 fn init_tracing_to_file(log_level: &str, log_file: Option<&str>) {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    let filter = build_env_filter(log_level);
 
     match log_file {
         Some(path) => {
@@ -221,5 +219,23 @@ fn init_tracing_to_file(log_level: &str, log_file: Option<&str>) {
                 .with_target(false)
                 .init();
         }
+    }
+}
+
+/// Build an `EnvFilter` that respects both `--log-level` and `RUST_LOG`.
+///
+/// **Precedence:** If the user explicitly set `--log-level` to a non-default
+/// value, that takes precedence. Otherwise, `RUST_LOG` is used if set.
+/// Falls back to `"info"` when neither is provided.
+fn build_env_filter(log_level: &str) -> EnvFilter {
+    if log_level != "info" {
+        // User explicitly specified a non-default log level — it wins.
+        EnvFilter::new(log_level)
+    } else if std::env::var("RUST_LOG").is_ok() {
+        // RUST_LOG is set and log_level is at the default — use RUST_LOG.
+        EnvFilter::from_default_env()
+    } else {
+        // Neither overridden — use the default.
+        EnvFilter::new(log_level)
     }
 }

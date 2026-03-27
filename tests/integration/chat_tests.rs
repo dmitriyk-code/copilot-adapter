@@ -472,7 +472,7 @@ async fn spawn_failing_copilot_api() -> (std::net::SocketAddr, tokio::task::Join
     (addr, handle)
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn chat_completion_upstream_error_returns_502() {
     let (copilot_addr, _h1) = spawn_failing_copilot_api().await;
     let (github_addr, _h2) = spawn_mock_github_for_copilot_token().await;

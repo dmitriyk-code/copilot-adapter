@@ -409,26 +409,28 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** Epics 1, 3
 
+**Status:** DONE
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E6-T1 | IMPL | Extend `AppError` enum with all error types from Design §8.1: `NotAuthenticated`, `TokenExpired`, `GitHubError`, `CopilotError`, `RateLimited`, `InvalidRequest`, `Internal` | `src/error.rs` | TO DO |
-| E6-T2 | IMPL | Implement `IntoResponse` for `AppError` returning OpenAI-compatible JSON error format with appropriate HTTP status codes | `src/error.rs` | TO DO |
-| E6-T3 | IMPL | Add rate limit handling: parse `Retry-After` header from Copilot API, return `RateLimited` error with seconds | `src/copilot/client.rs` | TO DO |
-| E6-T4 | IMPL | Implement exponential backoff for transient errors (5xx, network timeouts) with 3 retries | `src/copilot/client.rs` | TO DO |
-| E6-T5 | IMPL | Configure tracing-subscriber with env-filter; support `--log-level` flag and `RUST_LOG` env var | `src/main.rs` | TO DO |
-| E6-T6 | IMPL | Add request tracing: log request ID, method, path, response status, duration | `src/server.rs` | TO DO |
-| E6-T7 | IMPL | Add structured logging for auth events, token refresh, Copilot API calls | throughout | TO DO |
-| E6-T8 | TEST | Unit test: each error type produces correct HTTP status and JSON format | `tests/unit/error_tests.rs` | TO DO |
-| E6-T9 | TEST | Integration test: invalid request returns 400 with error JSON; auth failure returns 401 | `tests/integration/error_tests.rs` | TO DO |
+| E6-T1 | IMPL | Extend `AppError` enum with all error types from Design §8.1: `NotAuthenticated`, `TokenExpired`, `GitHubError`, `CopilotError`, `RateLimited`, `InvalidRequest`, `Internal` | `src/error.rs` | DONE |
+| E6-T2 | IMPL | Implement `IntoResponse` for `AppError` returning OpenAI-compatible JSON error format with appropriate HTTP status codes | `src/error.rs` | DONE |
+| E6-T3 | IMPL | Add rate limit handling: parse `Retry-After` header from Copilot API, return `RateLimited` error with seconds | `src/copilot/client.rs` | DONE |
+| E6-T4 | IMPL | Implement exponential backoff for transient errors (5xx, network timeouts) with 3 retries | `src/copilot/client.rs` | DONE |
+| E6-T5 | IMPL | Configure tracing-subscriber with env-filter; support `--log-level` flag and `RUST_LOG` env var | `src/main.rs` | DONE |
+| E6-T6 | IMPL | Add request tracing: log request ID, method, path, response status, duration | `src/server.rs` | DONE |
+| E6-T7 | IMPL | Add structured logging for auth events, token refresh, Copilot API calls | throughout | DONE |
+| E6-T8 | TEST | Unit test: each error type produces correct HTTP status and JSON format | `tests/unit/error_tests.rs` | DONE |
+| E6-T9 | TEST | Integration test: invalid request returns 400 with error JSON; auth failure returns 401 | `tests/integration/error_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] All errors return OpenAI-compatible JSON format
-- [ ] Rate limits surfaced with retry-after seconds
-- [ ] Transient errors retried with exponential backoff
-- [ ] Log level configurable via flag and env var
-- [ ] Request logs include timing and status
+- [x] All errors return OpenAI-compatible JSON format
+- [x] Rate limits surfaced with retry-after seconds
+- [x] Transient errors retried with exponential backoff
+- [x] Log level configurable via flag and env var
+- [x] Request logs include timing and status
 
 ---
 
