@@ -7,7 +7,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:platform.openai.com)",
-      "WebFetch(domain:docs.litellm.ai)"
+      "WebFetch(domain:docs.litellm.ai)",
+      "Bash(cargo build:*)",
+      "WebFetch(domain:docs.anthropic.com)"
     ]
   }
 }
