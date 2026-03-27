@@ -1,24 +1,39 @@
 # Tools/Functions Support for Copilot Adapter — Design Document (Draft)
 
 **Status:** Draft / Research
-**Date:** 2026-03-26
-**Prerequisite:** Core adapter implementation (IMPLEMENTATION.plan.md)
+**Date:** 2026-03-26 (updated 2026-03-27)
+**Prerequisite:** Core adapter implementation (IMPLEMENTATION.plan.md) — **COMPLETE**
 
 ---
 
 ## Context
 
-The current Copilot Adapter design marks `tools` and `functions` parameters as "Not supported — Copilot limitation". However, users may still want tool/function calling capabilities when using Claude Code through the adapter. This document explores options for adding tool support via prompt injection, similar to how LiteLLM handles non-native function calling.
+The Copilot Adapter is now fully implemented with:
+- **OpenAI-compatible API** (`POST /v1/chat/completions`, `GET /v1/models`)
+- **Anthropic-compatible API** (`POST /v1/messages`) with bidirectional format translation
+
+Both API endpoints currently reject `tools`/`functions` parameters (OpenAI) and `tools` parameter (Anthropic) because GitHub Copilot's upstream API does not natively support function calling. This document explores options for adding tool support via prompt injection, similar to how LiteLLM handles non-native function calling.
 
 ---
 
 ## Problem Statement
 
-GitHub Copilot's API does not natively support OpenAI's `tools` or `functions` parameters. When a client sends a request with these parameters, the adapter currently has no mechanism to handle them, resulting in either:
-1. Silently ignoring the parameters (confusing)
-2. Returning an error (limiting functionality)
+GitHub Copilot's API does not natively support tool/function calling:
+- **OpenAI format:** `tools` and `functions` parameters are not supported
+- **Anthropic format:** `tools` parameter is not supported
 
-Users who rely on tool calling for agentic workflows would be unable to use those workflows through the adapter.
+When a client sends a request with these parameters, the adapter currently returns a 400 error:
+```json
+{
+  "error": {
+    "message": "Tools/functions are not supported. GitHub Copilot does not provide native function calling.",
+    "type": "invalid_request_error",
+    "param": "tools"
+  }
+}
+```
+
+Users who rely on tool calling for agentic workflows (including Claude Code's native tool use) would be unable to use those workflows through the adapter.
 
 ---
 
@@ -122,9 +137,11 @@ Parsed calls are converted back to OpenAI's `tool_calls` format:
 
 ## Proposed Design Options
 
-### Option A: No Support (Current Design)
+### Option A: No Support (Current Implementation)
 
 **Behavior:** Return 400 error when `tools` or `functions` present in request.
+
+This is the **current behavior** in the implemented adapter.
 
 **Pros:**
 - Simple, no additional complexity
@@ -134,6 +151,7 @@ Parsed calls are converted back to OpenAI's `tool_calls` format:
 **Cons:**
 - Users with tool-dependent workflows cannot use the adapter
 - Feature gap compared to LiteLLM and similar proxies
+- Claude Code's native tool use is blocked
 
 ### Option B: Prompt Injection with XML Format
 
@@ -257,8 +275,9 @@ fn handle_chat_completion(request: ChatCompletionRequest) -> Response {
 
 ## Recommended Approach
 
-**Phase 1 (v0.1):** Option A — No support, clear error message
+**Current State (v0.1):** Option A — No support, clear error message
 
+The adapter currently rejects tool parameters with:
 ```json
 {
   "error": {
@@ -269,7 +288,7 @@ fn handle_chat_completion(request: ChatCompletionRequest) -> Response {
 }
 ```
 
-**Phase 2 (v0.2+):** Option D — Hybrid with opt-in flag
+**Future (v0.2+):** Option D — Hybrid with opt-in flag
 
 ```bash
 copilot-adapter start --experimental-tools
@@ -282,9 +301,68 @@ X-Copilot-Adapter-Tools: prompt-injection
 
 This allows users who want tool support to opt-in while understanding it's experimental.
 
+### Implementation Considerations for Both API Formats
+
+Since the adapter now supports both OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) formats, tool injection must handle both:
+
+**OpenAI Format:**
+- Tools defined in `tools` array with JSON Schema parameters
+- Tool calls returned in `choices[0].message.tool_calls`
+- Tool results sent as messages with `role: "tool"`
+
+**Anthropic Format:**
+- Tools defined in `tools` array with `input_schema`
+- Tool calls returned as `tool_use` content blocks
+- Tool results sent as `tool_result` content blocks
+
+The translation layer in `src/anthropic/types.rs` would need to be extended to handle tool definitions and tool call/result content blocks.
+
 ---
 
 ## Technical Implementation Details (For Phase 2)
+
+### Architecture Overview
+
+The tool injection feature would integrate with the existing adapter architecture:
+
+```
+Request with tools
+        │
+        ▼
+┌───────────────────┐
+│ /v1/chat/completions │  ←── OpenAI format tools
+│ /v1/messages         │  ←── Anthropic format tools
+└───────────────────┘
+        │
+        ▼ (if --experimental-tools enabled)
+┌───────────────────┐
+│ Tool Injector     │  ←── Inject tools into system prompt
+└───────────────────┘
+        │
+        ▼
+┌───────────────────┐
+│ Copilot Client    │  ←── Send modified request (no tools param)
+└───────────────────┘
+        │
+        ▼
+┌───────────────────┐
+│ Response Parser   │  ←── Extract tool calls from text
+└───────────────────┘
+        │
+        ▼
+┌───────────────────┐
+│ Format Translator │  ←── Convert to OpenAI/Anthropic tool_calls
+└───────────────────┘
+```
+
+### New Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/tools/mod.rs` | Tools module exports |
+| `src/tools/injector.rs` | Prompt injection logic |
+| `src/tools/parser.rs` | Response parsing for tool calls |
+| `src/tools/types.rs` | Internal tool representation |
 
 ### Tool Definition Formatting
 
@@ -362,19 +440,84 @@ pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
 ### Configuration
 
 ```rust
-// src/config.rs
+// src/cli.rs (extend existing CLI)
 
-pub struct AdapterConfig {
-    pub port: u16,
+#[derive(Parser)]
+pub struct StartArgs {
+    #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
-    pub experimental_tools: bool,  // --experimental-tools flag
-    pub tool_format: ToolFormat,   // xml, json, markdown
+
+    #[arg(short, long, default_value = "6767")]
+    pub port: u16,
+
+    #[arg(long)]
+    pub daemon: bool,
+
+    #[arg(long)]
+    pub log_file: Option<PathBuf>,
+
+    #[arg(long, default_value = "info")]
+    pub log_level: String,
+
+    // New flag for experimental tools support
+    #[arg(long, help = "Enable experimental tool/function support via prompt injection")]
+    pub experimental_tools: bool,
+
+    #[arg(long, default_value = "json", help = "Tool prompt format: json, xml, markdown")]
+    pub tool_format: ToolFormat,
 }
 
+#[derive(Clone, Copy, Default, ValueEnum)]
 pub enum ToolFormat {
-    Json,       // Default, best for GPT-4
+    #[default]
+    Json,       // Best for GPT-4
     Xml,        // LiteLLM-style
-    Markdown,   // Human-readable, decent parsing
+    Markdown,   // Human-readable
+}
+```
+
+### Integration with Existing Handlers
+
+The existing handlers would need minimal changes:
+
+```rust
+// src/handlers/chat.rs (extend existing)
+
+pub async fn chat_completions(
+    State(state): State<Arc<AppState>>,
+    Json(mut request): Json<ChatCompletionRequest>,
+) -> Result<Response, AppError> {
+    // Check if tools are requested
+    if request.tools.is_some() || request.functions.is_some() {
+        if !state.config.experimental_tools {
+            return Err(AppError::InvalidRequest(
+                "Tools/functions are not supported. Enable with --experimental-tools".into()
+            ));
+        }
+        // Inject tools into prompt, remove from request
+        request = inject_tools_into_request(request, state.config.tool_format);
+    }
+
+    // ... rest of existing handler
+}
+
+// src/handlers/messages.rs (extend existing)
+
+pub async fn messages(
+    State(state): State<Arc<AppState>>,
+    Json(mut request): Json<AnthropicRequest>,
+) -> Result<Response, AppError> {
+    // Similar tool injection for Anthropic format
+    if request.tools.is_some() {
+        if !state.config.experimental_tools {
+            return Err(AppError::InvalidRequest(
+                "Tools are not supported. Enable with --experimental-tools".into()
+            ));
+        }
+        // Inject tools, convert to OpenAI format, then proceed
+    }
+
+    // ... rest of existing handler (translate to OpenAI, call Copilot, translate back)
 }
 ```
 
@@ -384,23 +527,29 @@ pub enum ToolFormat {
 
 ### Unit Tests
 
-1. Tool definition formatting (all formats)
+1. Tool definition formatting (all formats: JSON, XML, Markdown)
 2. Response parsing (valid calls, no calls, malformed)
 3. Edge cases (nested JSON, escaped characters, multiple calls)
+4. Format translation (OpenAI tools ↔ internal representation)
+5. Anthropic tool format handling
 
 ### Integration Tests
 
-1. Request with tools → prompt correctly modified
-2. Response with tool call → correctly parsed and returned
-3. Response without tool call → returned as-is
-4. Concurrent requests with/without tools
+1. OpenAI request with tools → prompt correctly modified
+2. Anthropic request with tools → prompt correctly modified
+3. Response with tool call → correctly parsed and returned (both formats)
+4. Response without tool call → returned as-is
+5. Concurrent requests with/without tools
+6. Streaming with tool calls
 
 ### Manual E2E Tests
 
-1. Simple single-tool call (get_weather)
-2. Multi-tool call (get_weather + search)
-3. Tool with complex parameters (nested objects)
-4. Conversation with tool results fed back
+1. Simple single-tool call (get_weather) via `/v1/chat/completions`
+2. Simple single-tool call via `/v1/messages`
+3. Multi-tool call (get_weather + search)
+4. Tool with complex parameters (nested objects)
+5. Conversation with tool results fed back
+6. Claude Code integration test with native tool use
 
 ---
 
@@ -413,6 +562,9 @@ pub enum ToolFormat {
 | 3 | How to handle parallel_tool_calls? | Not supported initially |
 | 4 | Should we strip tool calls from visible content? | Yes, return clean content + tool_calls |
 | 5 | Rate limiting impact of longer prompts? | Monitor and document |
+| 6 | How to handle Anthropic's `tool_result` content blocks? | Translate to OpenAI `tool` role messages |
+| 7 | Should tool injection work with streaming? | Yes, but parsing is more complex |
+| 8 | How to handle tool calls that span multiple chunks in streaming? | Buffer until complete JSON found |
 
 ---
 
@@ -421,4 +573,7 @@ pub enum ToolFormat {
 - [LiteLLM Function Calling Documentation](https://docs.litellm.ai/docs/completion/function_call)
 - [LiteLLM Source - factory.py](https://github.com/BerriAI/litellm/blob/main/litellm/litellm_core_utils/prompt_templates/factory.py)
 - [OpenAI Function Calling Guide](https://platform.openai.com/docs/guides/function-calling)
+- [Anthropic Tool Use Guide](https://docs.anthropic.com/en/docs/tool-use)
 - [DESIGN.md](./DESIGN.md) — Main adapter design document
+- [IMPLEMENTATION.plan.md](./IMPLEMENTATION.plan.md) — Implementation plan (completed)
+- [README.md](./README.md) — User documentation

@@ -890,32 +890,40 @@ tail -f /tmp/copilot.log
 
 ## 12. Implementation Phases
 
+> **Note:** Implementation is complete. See [IMPLEMENTATION.plan.md](./IMPLEMENTATION.plan.md) for detailed status.
+
 ### Phase 1: Core Infrastructure
 - [x] Research complete
-- [ ] Project setup with Cargo.toml
-- [ ] CLI argument parsing
-- [ ] Basic HTTP server
+- [x] Project setup with Cargo.toml
+- [x] CLI argument parsing
+- [x] Basic HTTP server
 
 ### Phase 2: Authentication
-- [ ] GitHub device flow
-- [ ] Token storage (keyring)
-- [ ] Token refresh logic
+- [x] GitHub device flow
+- [x] Token storage (keyring)
+- [x] Token refresh logic
 
 ### Phase 3: API Implementation
-- [ ] Chat completions endpoint
-- [ ] Streaming support
-- [ ] Models endpoint
+- [x] Chat completions endpoint
+- [x] Streaming support
+- [x] Models endpoint
 
 ### Phase 4: Background Operation
-- [ ] Unix daemonization
-- [ ] Windows background process
-- [ ] PID file management
+- [x] Unix daemonization
+- [x] Windows background process
+- [x] PID file management
 
 ### Phase 5: Polish
-- [ ] Error handling
-- [ ] Logging/tracing
-- [ ] Documentation
-- [ ] Tests
+- [x] Error handling
+- [x] Logging/tracing
+- [x] Documentation
+- [x] Tests
+
+### Phase 6: Anthropic API Compatibility (Added)
+- [x] `/v1/messages` endpoint
+- [x] Request translation (Anthropic → OpenAI)
+- [x] Response translation (OpenAI → Anthropic)
+- [x] Streaming translation
 
 ---
 
