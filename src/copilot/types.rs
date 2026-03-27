@@ -149,8 +149,14 @@ pub struct ChunkChoice {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunk {
     pub id: String,
+    /// Object type. Optional because Claude models via Copilot API omit it.
+    #[serde(default = "default_chunk_object_type")]
     pub object: String,
     pub created: i64,
     pub model: String,
     pub choices: Vec<ChunkChoice>,
+}
+
+fn default_chunk_object_type() -> String {
+    "chat.completion.chunk".to_string()
 }
