@@ -1,6 +1,6 @@
 # Dynamic Models List — Implementation Plan
 
-**Status:** Draft
+**Status:** Draft (Epic 0 Complete)
 **Date:** 2026-03-27
 **Based on:** [DYNAMIC-MODELS.design.md](./DYNAMIC-MODELS.design.md)
 **Prerequisite:** Core adapter implementation — COMPLETE
@@ -168,7 +168,7 @@ Users querying `/v1/models` receive inaccurate information:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    GitHub Copilot API                                │
 │                                                                     │
-│  GET /models  (or /v1/models - TBD via discovery)                   │
+│  GET /models  ← confirmed endpoint                                  │
 │  Authorization: Bearer <copilot_token>                              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -281,8 +281,8 @@ None required. Uses existing:
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|------------|--------|------------|
-| R1 | Copilot doesn't expose `/models` endpoint | Medium | High | Discovery phase first; fallback always available |
-| R2 | API response format differs from OpenAI | Low | Medium | Parse flexibly; log and fallback on parse error |
+| R1 | Copilot doesn't expose `/models` endpoint | ~~Medium~~ **RESOLVED** | High | ✅ Endpoint confirmed: `GET /models` works |
+| R2 | API response format differs from OpenAI | Low | Medium | Parse flexibly; log and fallback on parse error. Discovery confirmed OpenAI-compatible format with possible extra fields (`vendor`, `name`) |
 | R3 | Token refresh race during models fetch | Low | Low | TokenManager already handles refresh; retry once |
 | R4 | Cache stampede on cold start | Low | Low | Single fetch; others wait on RwLock |
 | R5 | Stale fallback list | Medium | Low | Update fallback list periodically; document limitation |
@@ -297,44 +297,62 @@ None required. Uses existing:
 
 **Prerequisites:** Valid Copilot authentication
 
-**Status:** TODO
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Status |
 |---------|------|-------------|--------|
-| E0-T1 | RESEARCH | Test `GET https://api.githubcopilot.com/models` with valid token | TODO |
-| E0-T2 | RESEARCH | Test `GET https://api.githubcopilot.com/v1/models` with valid token | TODO |
-| E0-T3 | RESEARCH | Document response format and available fields | TODO |
-| E0-T4 | RESEARCH | Check for rate limits or special requirements | TODO |
-| E0-T5 | DOC | Update DYNAMIC-MODELS.design.md with findings | TODO |
+| E0-T1 | RESEARCH | Test `GET https://api.githubcopilot.com/models` with valid token | DONE |
+| E0-T2 | RESEARCH | Test `GET https://api.githubcopilot.com/v1/models` with valid token | DONE |
+| E0-T3 | RESEARCH | Document response format and available fields | DONE |
+| E0-T4 | RESEARCH | Check for rate limits or special requirements | DONE |
+| E0-T5 | DOC | Update DYNAMIC-MODELS.design.md with findings | DONE |
 
 **Acceptance Criteria:**
-- [ ] Correct endpoint URL identified
-- [ ] Response format documented
-- [ ] Required headers confirmed
-- [ ] Rate limit behavior understood
+- [x] Correct endpoint URL identified
+- [x] Response format documented
+- [x] Required headers confirmed
+- [x] Rate limit behavior understood
 
-**Test Script:**
+**Findings Summary:**
+
+The correct endpoint is `GET https://api.githubcopilot.com/models` (no `/v1` prefix).
+See DYNAMIC-MODELS.design.md "Endpoint Discovery Findings" section for full details.
+
+**Verification Script:**
 ```bash
 #!/bin/bash
 # Run after `copilot-adapter auth`
+#
+# NOTE: The adapter stores credentials in the OS keyring (with encrypted file
+# fallback), NOT as a plain-text file. Supply your GitHub PAT via GITHUB_TOKEN:
+#
+#   export GITHUB_TOKEN="ghp_your_personal_access_token"
 
-# Get a fresh Copilot token
-TOKEN=$(curl -s -H "Authorization: Bearer $(cat ~/.copilot-adapter/github_token)" \
+if [ -z "$GITHUB_TOKEN" ]; then
+    echo "ERROR: Set GITHUB_TOKEN to your GitHub Personal Access Token."
+    echo "  export GITHUB_TOKEN=\"ghp_...\""
+    exit 1
+fi
+
+TOKEN=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
     https://api.github.com/copilot_internal/v2/token | jq -r .token)
 
-# Test endpoints
-for endpoint in "models" "v1/models"; do
-    echo "=== Testing /$endpoint ==="
-    curl -s -w "\nHTTP %{http_code}\n" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Copilot-Integration-Id: vscode-chat" \
-        -H "Editor-Version: vscode/1.85.0" \
-        -H "Editor-Plugin-Version: copilot-chat/0.12.0" \
-        "https://api.githubcopilot.com/$endpoint" | head -50
-    echo
-done
+if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+    echo "ERROR: Failed to obtain Copilot token. Check your GITHUB_TOKEN."
+    exit 1
+fi
+
+# Test confirmed endpoint
+echo "=== GET /models (confirmed endpoint) ==="
+curl -s -w "\nHTTP %{http_code}\n" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Copilot-Integration-Id: vscode-chat" \
+    -H "Editor-Version: vscode/1.85.0" \
+    -H "Editor-Plugin-Version: copilot-chat/0.12.0" \
+    "https://api.githubcopilot.com/models" | head -50
+echo
 ```
 
 ---
