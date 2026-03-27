@@ -12,6 +12,7 @@ use tower::ServiceExt;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
+use copilot_adapter::copilot::models_cache::ModelsCache;
 use copilot_adapter::copilot::types::ChatCompletionResponse;
 use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
@@ -196,6 +197,7 @@ async fn create_test_state(
         copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
         http_client: client,
         config: AdapterConfig::default(),
+        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })
 }
 
@@ -382,6 +384,7 @@ async fn chat_completion_without_auth_returns_401() {
         ),
         http_client: client,
         config: AdapterConfig::default(),
+        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     });
     let app = build_router(state);
 

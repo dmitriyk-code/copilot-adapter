@@ -429,36 +429,36 @@ echo
 
 **Prerequisites:** Epics 1 and 2
 
-**Status:** TODO
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Add `models_cache: ModelsCache` field to `AppState` | `src/server.rs` | TODO |
-| E3-T2 | IMPL | Add `static_models: bool` field to `AdapterConfig` | `src/server.rs` | TODO |
-| E3-T3 | IMPL | Create `fallback_models()` function returning static `ModelList` | `src/handlers/models.rs` | TODO |
-| E3-T4 | IMPL | Update `list_models()` handler signature to accept `State<Arc<AppState>>` | `src/handlers/models.rs` | TODO |
-| E3-T5 | IMPL | Implement cache check: return cached if valid | `src/handlers/models.rs` | TODO |
-| E3-T6 | IMPL | Implement API fetch on cache miss | `src/handlers/models.rs` | TODO |
-| E3-T7 | IMPL | Implement fallback with warning log on fetch error | `src/handlers/models.rs` | TODO |
-| E3-T8 | IMPL | Handle `--static-models` flag: skip fetch, use fallback | `src/handlers/models.rs` | TODO |
-| E3-T9 | IMPL | Update `get_model()` to use same logic | `src/handlers/models.rs` | TODO |
-| E3-T10 | IMPL | Update router to pass `State` to models handlers | `src/server.rs` | TODO |
-| E3-T11 | TEST | Integration test: cache hit returns cached data | `tests/integration/models_dynamic_tests.rs` | TODO |
-| E3-T12 | TEST | Integration test: cache miss fetches from API | `tests/integration/models_dynamic_tests.rs` | TODO |
-| E3-T13 | TEST | Integration test: API error triggers fallback | `tests/integration/models_dynamic_tests.rs` | TODO |
-| E3-T14 | TEST | Integration test: static mode always uses fallback | `tests/integration/models_dynamic_tests.rs` | TODO |
-| E3-T15 | TEST | Integration test: get_model with valid ID succeeds | `tests/integration/models_dynamic_tests.rs` | TODO |
-| E3-T16 | TEST | Integration test: get_model with invalid ID returns 404 | `tests/integration/models_dynamic_tests.rs` | TODO |
+| E3-T1 | IMPL | Add `models_cache: ModelsCache` field to `AppState` | `src/server.rs` | DONE |
+| E3-T2 | IMPL | Add `static_models: bool` field to `AdapterConfig` | `src/server.rs` | DONE |
+| E3-T3 | IMPL | Create `fallback_models()` function returning static `ModelList` | `src/handlers/models.rs` | DONE |
+| E3-T4 | IMPL | Update `list_models()` handler signature to accept `State<Arc<AppState>>` | `src/handlers/models.rs` | DONE |
+| E3-T5 | IMPL | Implement cache check: return cached if valid | `src/handlers/models.rs` | DONE |
+| E3-T6 | IMPL | Implement API fetch on cache miss | `src/handlers/models.rs` | DONE |
+| E3-T7 | IMPL | Implement fallback with warning log on fetch error | `src/handlers/models.rs` | DONE |
+| E3-T8 | IMPL | Handle `--static-models` flag: skip fetch, use fallback | `src/handlers/models.rs` | DONE |
+| E3-T9 | IMPL | Update `get_model()` to use same logic | `src/handlers/models.rs` | DONE |
+| E3-T10 | IMPL | Update router to pass `State` to models handlers | `src/server.rs` | DONE |
+| E3-T11 | TEST | Integration test: cache hit returns cached data | `tests/integration/models_dynamic_tests.rs` | DONE |
+| E3-T12 | TEST | Integration test: cache miss fetches from API | `tests/integration/models_dynamic_tests.rs` | DONE |
+| E3-T13 | TEST | Integration test: API error triggers fallback | `tests/integration/models_dynamic_tests.rs` | DONE |
+| E3-T14 | TEST | Integration test: static mode always uses fallback | `tests/integration/models_dynamic_tests.rs` | DONE |
+| E3-T15 | TEST | Integration test: get_model with valid ID succeeds | `tests/integration/models_dynamic_tests.rs` | DONE |
+| E3-T16 | TEST | Integration test: get_model with invalid ID returns 404 | `tests/integration/models_dynamic_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `/v1/models` returns dynamic data when API available
-- [ ] `/v1/models` returns fallback when API unavailable
-- [ ] Warning logged when falling back
-- [ ] `/v1/models/:model` works correctly
-- [ ] `--static-models` bypasses dynamic fetch
-- [ ] All integration tests pass
+- [x] `/v1/models` returns dynamic data when API available
+- [x] `/v1/models` returns fallback when API unavailable
+- [x] Warning logged when falling back
+- [x] `/v1/models/:model` works correctly
+- [x] `--static-models` bypasses dynamic fetch
+- [x] All integration tests pass
 
 ---
 

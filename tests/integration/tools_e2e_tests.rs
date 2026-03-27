@@ -26,6 +26,7 @@ use copilot_adapter::anthropic::types::AnthropicResponse;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
+use copilot_adapter::copilot::models_cache::ModelsCache;
 use copilot_adapter::copilot::types::{ChatCompletionChunk, ChatCompletionResponse};
 use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
@@ -91,7 +92,9 @@ async fn create_test_state(
         http_client: client,
         config: AdapterConfig {
             experimental_tools,
+            ..AdapterConfig::default()
         },
+        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })
 }
 

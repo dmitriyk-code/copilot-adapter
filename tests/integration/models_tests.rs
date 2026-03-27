@@ -7,6 +7,7 @@ use tower::ServiceExt;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
+use copilot_adapter::copilot::models_cache::ModelsCache;
 use copilot_adapter::copilot::types::{Model, ModelList};
 use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
@@ -29,6 +30,7 @@ async fn test_state() -> Arc<AppState> {
         copilot_client: CopilotClient::new(client.clone()),
         http_client: client,
         config: AdapterConfig::default(),
+        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })
 }
 

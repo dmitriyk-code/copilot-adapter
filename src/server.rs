@@ -10,6 +10,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::auth::token::TokenManager;
 use crate::copilot::client::CopilotClient;
+use crate::copilot::models_cache::ModelsCache;
 use crate::handlers;
 
 /// Configuration options that control adapter behaviour.
@@ -18,12 +19,16 @@ pub struct AdapterConfig {
     /// When `true`, tool/function definitions in requests are handled via
     /// prompt injection rather than being rejected.
     pub experimental_tools: bool,
+    /// When `true`, `/v1/models` always returns the static fallback list
+    /// without attempting to fetch from the Copilot API.
+    pub static_models: bool,
 }
 
 impl Default for AdapterConfig {
     fn default() -> Self {
         Self {
             experimental_tools: false,
+            static_models: false,
         }
     }
 }
@@ -35,6 +40,8 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub copilot_client: CopilotClient,
     pub config: AdapterConfig,
+    /// In-memory cache for the Copilot models list with TTL-based expiration.
+    pub models_cache: ModelsCache,
 }
 
 /// Request tracing middleware that logs method, path, status, duration, and request ID.
@@ -109,11 +116,13 @@ pub async fn run(
     config: AdapterConfig,
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
+    let models_cache = ModelsCache::new(std::time::Duration::from_secs(300));
     let state = Arc::new(AppState {
         token_manager,
         copilot_client: CopilotClient::new(http_client.clone()),
         http_client,
         config,
+        models_cache,
     });
 
     let app = build_router(state);

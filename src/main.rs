@@ -72,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
 
             let config = server::AdapterConfig {
                 experimental_tools,
+                ..server::AdapterConfig::default()
             };
 
             if experimental_tools {
