@@ -345,6 +345,8 @@ Request with tools
 
 ### Epic 3: Tool Call Parsing
 
+**Status:** COMPLETE
+
 **Goal:** Extract tool calls from model text responses.
 
 **Prerequisites:** Epic 1
@@ -353,27 +355,27 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Add `regex` dependency to `Cargo.toml` | `Cargo.toml` | |
-| E3-T2 | IMPL | Create `src/tools/parser.rs` with module structure | `src/tools/parser.rs` | |
-| E3-T3 | IMPL | Define regex pattern for JSON tool calls in fenced code blocks | `src/tools/parser.rs` | |
-| E3-T4 | IMPL | Define regex pattern for inline JSON tool calls | `src/tools/parser.rs` | |
-| E3-T5 | IMPL | Implement `parse_tool_calls()` returning `Vec<ToolCall>` | `src/tools/parser.rs` | |
-| E3-T6 | IMPL | Generate unique `call_xxx` IDs for each parsed tool call | `src/tools/parser.rs` | |
-| E3-T7 | IMPL | Implement `strip_tool_calls()` to remove tool call text from content | `src/tools/parser.rs` | |
-| E3-T8 | IMPL | Handle multiple tool calls in single response | `src/tools/parser.rs` | |
-| E3-T9 | TEST | Unit test: parse single tool call from fenced code block | `tests/unit/tools_parser_tests.rs` | |
-| E3-T10 | TEST | Unit test: parse multiple tool calls | `tests/unit/tools_parser_tests.rs` | |
-| E3-T11 | TEST | Unit test: parse tool call with complex nested arguments | `tests/unit/tools_parser_tests.rs` | |
-| E3-T12 | TEST | Unit test: no tool calls found returns empty vec | `tests/unit/tools_parser_tests.rs` | |
-| E3-T13 | TEST | Unit test: malformed JSON gracefully skipped | `tests/unit/tools_parser_tests.rs` | |
-| E3-T14 | TEST | Unit test: strip_tool_calls removes tool call text | `tests/unit/tools_parser_tests.rs` | |
+| E3-T1 | IMPL | Add `regex` dependency to `Cargo.toml` | `Cargo.toml` | ✅ DONE |
+| E3-T2 | IMPL | Create `src/tools/parser.rs` with module structure | `src/tools/parser.rs` | ✅ DONE |
+| E3-T3 | IMPL | Define regex pattern for JSON tool calls in fenced code blocks | `src/tools/parser.rs` | ✅ DONE |
+| E3-T4 | IMPL | Define regex pattern for inline JSON tool calls | `src/tools/parser.rs` | ✅ DONE |
+| E3-T5 | IMPL | Implement `parse_tool_calls()` returning `Vec<ToolCall>` | `src/tools/parser.rs` | ✅ DONE |
+| E3-T6 | IMPL | Generate unique `call_xxx` IDs for each parsed tool call | `src/tools/parser.rs` | ✅ DONE |
+| E3-T7 | IMPL | Implement `strip_tool_calls()` to remove tool call text from content | `src/tools/parser.rs` | ✅ DONE |
+| E3-T8 | IMPL | Handle multiple tool calls in single response | `src/tools/parser.rs` | ✅ DONE |
+| E3-T9 | TEST | Unit test: parse single tool call from fenced code block | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T10 | TEST | Unit test: parse multiple tool calls | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T11 | TEST | Unit test: parse tool call with complex nested arguments | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T12 | TEST | Unit test: no tool calls found returns empty vec | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T13 | TEST | Unit test: malformed JSON gracefully skipped | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T14 | TEST | Unit test: strip_tool_calls removes tool call text | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
 
 **Acceptance Criteria:**
-- [ ] Tool calls in ```json blocks parsed correctly
-- [ ] Tool calls with/without fencing both detected
-- [ ] Arguments preserved as raw JSON string
-- [ ] Multiple tool calls extracted in order
-- [ ] Invalid JSON skipped without error
+- [x] Tool calls in ```json blocks parsed correctly
+- [x] Tool calls with/without fencing both detected
+- [x] Arguments preserved as raw JSON string
+- [x] Multiple tool calls extracted in order
+- [x] Invalid JSON skipped without error
 
 ---
 
