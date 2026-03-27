@@ -459,6 +459,8 @@ Request with tools
 
 ### Epic 6: Streaming Support
 
+**Status:** COMPLETE
+
 **Goal:** Support tool call detection and return in streaming responses.
 
 **Prerequisites:** Epics 4, 5
@@ -467,22 +469,34 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E6-T1 | IMPL | Buffer streaming content for tool call detection | `src/handlers/chat.rs` | |
-| E6-T2 | IMPL | Detect complete tool call JSON in buffered content | `src/handlers/chat.rs` | |
-| E6-T3 | IMPL | Emit tool_calls in final chunk when detected | `src/handlers/chat.rs` | |
-| E6-T4 | IMPL | Add `tool_calls` field to `ChunkDelta` for streaming | `src/copilot/types.rs` | |
-| E6-T5 | IMPL | Buffer streaming content for Anthropic tool detection | `src/handlers/messages.rs` | |
-| E6-T6 | IMPL | Emit `tool_use` content block in Anthropic streaming | `src/handlers/messages.rs` | |
-| E6-T7 | IMPL | Add `ToolUseBlock` streaming event type | `src/anthropic/types.rs` | |
-| E6-T8 | TEST | Integration test: OpenAI streaming with tool call | `tests/integration/tools_chat_tests.rs` | |
-| E6-T9 | TEST | Integration test: Anthropic streaming with tool call | `tests/integration/tools_messages_tests.rs` | |
-| E6-T10 | TEST | Integration test: streaming without tool call unaffected | `tests/integration/tools_chat_tests.rs` | |
+| E6-T1 | IMPL | Buffer streaming content for tool call detection | `src/handlers/chat.rs` | DONE |
+| E6-T2 | IMPL | Detect complete tool call JSON in buffered content | `src/handlers/chat.rs` | DONE |
+| E6-T3 | IMPL | Emit tool_calls in final chunk when detected | `src/handlers/chat.rs` | DONE |
+| E6-T4 | IMPL | Add `tool_calls` field to `ChunkDelta` for streaming | `src/copilot/types.rs` | DONE (pre-existing) |
+| E6-T5 | IMPL | Buffer streaming content for Anthropic tool detection | `src/handlers/messages.rs` | DONE |
+| E6-T6 | IMPL | Emit `tool_use` content block in Anthropic streaming | `src/handlers/messages.rs` | DONE |
+| E6-T7 | IMPL | Add `ToolUseBlock` streaming event type | `src/anthropic/types.rs` | DONE |
+| E6-T8 | TEST | Integration test: OpenAI streaming with tool call | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T9 | TEST | Integration test: Anthropic streaming with tool call | `tests/integration/tools_messages_tests.rs` | DONE |
+| E6-T10 | TEST | Integration test: streaming without tool call unaffected | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T11 | FIX | Emit Anthropic-format error SSE event on upstream errors in normal streaming path | `src/handlers/messages.rs` | DONE |
+| E6-T12 | TEST | Integration test: OpenAI streaming with tools emits error on upstream failure | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T13 | TEST | Integration test: OpenAI normal streaming emits error on upstream failure | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T14 | TEST | Integration test: Anthropic streaming with tools emits error on upstream failure | `tests/integration/tools_messages_tests.rs` | DONE |
+| E6-T15 | TEST | Integration test: Anthropic normal streaming emits error on upstream failure | `tests/integration/tools_messages_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Streaming responses with tool calls return proper `tool_calls` field
-- [ ] Content is buffered until tool call JSON is complete
-- [ ] Non-tool streaming responses unaffected by buffering
-- [ ] Anthropic streaming emits correct event sequence for tool use
+- [x] Streaming responses with tool calls return proper `tool_calls` field
+- [x] Content is buffered until tool call JSON is complete
+- [x] Non-tool streaming responses unaffected by buffering
+- [x] Anthropic streaming emits correct event sequence for tool use
+- [x] Upstream stream errors emit an error SSE event instead of silently breaking
+- [x] Error paths tested for both OpenAI and Anthropic streaming (with and without tools)
+
+**Code Review Fixes (2026-03-27):**
+- Fixed HIGH-severity bug: `handle_streaming()` normal path in `messages.rs` now emits an Anthropic-format error SSE event (`{"type":"error","error":{"type":"api_error","message":"..."}}`) on upstream stream errors and returns immediately, preventing false `message_delta`/`message_stop` events
+- Added `spawn_mock_streaming_copilot_with_error()` and `mock_streaming_error_handler()` helpers to both `tools_chat_tests.rs` and `tools_messages_tests.rs` for error path testing
+- Added 4 new integration tests covering upstream failure scenarios for all streaming paths
 
 ---
 

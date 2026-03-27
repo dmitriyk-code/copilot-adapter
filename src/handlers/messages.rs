@@ -10,8 +10,8 @@ use futures::StreamExt;
 
 use crate::anthropic::types::{
     build_message_start_response, map_stop_reason, AnthropicRequest, ContentBlock,
-    ContentBlockInput, MessageDeltaBody, MessageDeltaUsage, ResponseContentBlock, StreamEvent,
-    TextDelta,
+    ContentBlockInput, ContentDelta, InputJsonDelta, MessageDeltaBody, MessageDeltaUsage,
+    ResponseContentBlock, StreamEvent, TextDelta,
 };
 use crate::copilot::types::MessageContent;
 use crate::error::AppError;
@@ -97,17 +97,8 @@ pub async fn messages(
 
     // Branch on stream field
     if request.stream.unwrap_or(false) {
-        if has_tools {
-            // TODO: streaming tool call parsing not yet supported; tool calls
-            // are returned as raw text deltas containing fenced JSON blocks.
-            // The client will see the raw `function_call` JSON rather than
-            // structured `tool_use` content blocks.
-            tracing::warn!(
-                "Streaming request with tools: tool call parsing is not supported \
-                 in streaming mode. Tool calls will appear as raw text."
-            );
-        }
-        return handle_streaming(state, &copilot_token, &openai_request).await;
+        let parse_tools = has_tools && state.config.experimental_tools;
+        return handle_streaming(state, &copilot_token, &openai_request, parse_tools).await;
     }
 
     // Non-streaming: forward to the Copilot API and translate response
@@ -146,15 +137,15 @@ pub async fn messages(
 /// `message_start` → `content_block_start` → `content_block_delta`* →
 /// `content_block_stop` → `message_delta` → `message_stop`.
 ///
-/// **Known limitation:** When `experimental_tools` is enabled and the request
-/// contains tool definitions, streaming responses do NOT parse tool calls from
-/// the text. Tool call JSON fences are streamed as plain `text_delta` events
-/// and `stop_reason` will not reflect `"tool_use"`. Non-streaming requests
-/// handle tool parsing correctly; see the `messages()` handler above.
+/// When `parse_tools` is true, all chunks are buffered and tool calls are
+/// detected at stream end. If tool calls are found, the text content is
+/// stripped and `tool_use` content blocks are emitted with `stop_reason`
+/// set to `"tool_use"`.
 async fn handle_streaming(
     state: Arc<AppState>,
     copilot_token: &str,
     openai_request: &crate::copilot::types::ChatCompletionRequest,
+    parse_tools: bool,
 ) -> Result<Response, AppError> {
     let chunk_stream = state
         .copilot_client
@@ -163,6 +154,11 @@ async fn handle_streaming(
 
     let model = openai_request.model.clone();
 
+    if parse_tools {
+        return handle_streaming_with_tools(chunk_stream, model).await;
+    }
+
+    // Normal streaming path (no tool parsing) — translate events inline.
     let event_stream = async_stream::stream! {
         let mut content_block_opened = false;
         let mut message_started = false;
@@ -212,10 +208,10 @@ async fn handle_streaming(
 
                             let event = StreamEvent::ContentBlockDelta {
                                 index: 0,
-                                delta: TextDelta {
+                                delta: ContentDelta::Text(TextDelta {
                                     delta_type: "text_delta".to_string(),
                                     text: text.clone(),
-                                },
+                                }),
                             };
                             let json = match serde_json::to_string(&event) {
                                 Ok(j) => j,
@@ -239,7 +235,14 @@ async fn handle_streaming(
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "Error in upstream stream");
-                    break;
+                    let err_json = serde_json::json!({
+                        "type": "error",
+                        "error": { "type": "api_error", "message": e.to_string() }
+                    });
+                    yield Ok::<Event, Infallible>(
+                        Event::default().event("error").data(err_json.to_string())
+                    );
+                    return;
                 }
             }
         }
@@ -289,6 +292,196 @@ async fn handle_streaming(
                 }
             };
             yield Ok(Event::default().event("message_stop").data(json));
+        }
+    };
+
+    let sse = Sse::new(event_stream).keep_alive(
+        KeepAlive::new().interval(Duration::from_secs(15)),
+    );
+
+    Ok(sse.into_response())
+}
+
+/// Handle streaming Anthropic responses when tool definitions are present.
+///
+/// Buffers all upstream chunks, detects tool calls in the accumulated text at
+/// stream end, and emits proper Anthropic `tool_use` content blocks alongside
+/// the stripped text content.
+async fn handle_streaming_with_tools(
+    chunk_stream: impl futures::Stream<
+            Item = Result<crate::copilot::types::ChatCompletionChunk, AppError>,
+        > + Send
+        + 'static,
+    model: String,
+) -> Result<Response, AppError> {
+    let event_stream = async_stream::stream! {
+        let mut buffered_chunks: Vec<crate::copilot::types::ChatCompletionChunk> = Vec::new();
+        let mut content_buffer = String::new();
+        let mut stream = std::pin::pin!(chunk_stream);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(chunk) => {
+                    for choice in &chunk.choices {
+                        if let Some(ref text) = choice.delta.content {
+                            content_buffer.push_str(text);
+                        }
+                    }
+                    buffered_chunks.push(chunk);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Error in upstream stream");
+                    let err_json = serde_json::json!({
+                        "type": "error",
+                        "error": { "type": "api_error", "message": e.to_string() }
+                    });
+                    yield Ok::<Event, Infallible>(
+                        Event::default().event("error").data(err_json.to_string())
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Stream ended — check for tool calls
+        let tool_calls = parser::parse_tool_calls(&content_buffer);
+        let has_tool_calls = !tool_calls.is_empty();
+
+        let stripped_text = if has_tool_calls {
+            parser::strip_tool_calls(&content_buffer)
+        } else {
+            content_buffer.clone()
+        };
+
+        // Determine stream ID from buffered chunks
+        let stream_id = buffered_chunks
+            .first()
+            .map(|c| c.id.clone())
+            .unwrap_or_else(|| "msg_unknown".to_string());
+
+        // === Emit message_start ===
+        let msg = build_message_start_response(&stream_id, &model);
+        let event = StreamEvent::MessageStart { message: msg };
+        match serde_json::to_string(&event) {
+            Ok(json) => yield Ok::<Event, Infallible>(
+                Event::default().event("message_start").data(json)
+            ),
+            Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+        }
+
+        let mut block_index: u32 = 0;
+
+        // === Emit text content block (if any text remains) ===
+        if !stripped_text.is_empty() {
+            // content_block_start for text
+            let event = StreamEvent::ContentBlockStart {
+                index: block_index,
+                content_block: ResponseContentBlock::text(String::new()),
+            };
+            match serde_json::to_string(&event) {
+                Ok(json) => yield Ok(Event::default().event("content_block_start").data(json)),
+                Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+            }
+
+            // content_block_delta with full text
+            let event = StreamEvent::ContentBlockDelta {
+                index: block_index,
+                delta: ContentDelta::Text(TextDelta {
+                    delta_type: "text_delta".to_string(),
+                    text: stripped_text,
+                }),
+            };
+            match serde_json::to_string(&event) {
+                Ok(json) => yield Ok(Event::default().event("content_block_delta").data(json)),
+                Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+            }
+
+            // content_block_stop
+            let event = StreamEvent::ContentBlockStop { index: block_index };
+            match serde_json::to_string(&event) {
+                Ok(json) => yield Ok(Event::default().event("content_block_stop").data(json)),
+                Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+            }
+
+            block_index += 1;
+        }
+
+        // === Emit tool_use content blocks ===
+        if has_tool_calls {
+            for tc in &tool_calls {
+                // content_block_start with tool_use (empty input initially)
+                let tool_block = ResponseContentBlock::ToolUse {
+                    block_type: "tool_use".to_string(),
+                    id: tc.id.clone().unwrap_or_else(|| "call_unknown".to_string()),
+                    name: tc.function.name.clone().unwrap_or_default(),
+                    input: serde_json::Value::Object(serde_json::Map::new()),
+                };
+                let event = StreamEvent::ContentBlockStart {
+                    index: block_index,
+                    content_block: tool_block,
+                };
+                match serde_json::to_string(&event) {
+                    Ok(json) => yield Ok(Event::default().event("content_block_start").data(json)),
+                    Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+                }
+
+                // content_block_delta with input_json_delta containing full input
+                let input_json = tc.function.arguments
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| "{}".to_string());
+
+                let event = StreamEvent::ContentBlockDelta {
+                    index: block_index,
+                    delta: ContentDelta::InputJson(InputJsonDelta {
+                        delta_type: "input_json_delta".to_string(),
+                        partial_json: input_json,
+                    }),
+                };
+                match serde_json::to_string(&event) {
+                    Ok(json) => yield Ok(Event::default().event("content_block_delta").data(json)),
+                    Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+                }
+
+                // content_block_stop
+                let event = StreamEvent::ContentBlockStop { index: block_index };
+                match serde_json::to_string(&event) {
+                    Ok(json) => yield Ok(Event::default().event("content_block_stop").data(json)),
+                    Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+                }
+
+                block_index += 1;
+            }
+        }
+
+        // === Emit message_delta with stop reason ===
+        let stop_reason = if has_tool_calls {
+            Some("tool_use".to_string())
+        } else {
+            // Find last finish_reason from buffered chunks
+            let last_fr = buffered_chunks.iter().rev()
+                .flat_map(|c| c.choices.iter())
+                .find_map(|choice| choice.finish_reason.clone());
+            map_stop_reason(last_fr.as_deref())
+        };
+
+        let event = StreamEvent::MessageDelta {
+            delta: MessageDeltaBody {
+                stop_reason,
+                stop_sequence: None,
+            },
+            usage: MessageDeltaUsage { output_tokens: 0 },
+        };
+        match serde_json::to_string(&event) {
+            Ok(json) => yield Ok(Event::default().event("message_delta").data(json)),
+            Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+        }
+
+        // === Emit message_stop ===
+        let event = StreamEvent::MessageStop {};
+        match serde_json::to_string(&event) {
+            Ok(json) => yield Ok(Event::default().event("message_stop").data(json)),
+            Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
         }
     };
 

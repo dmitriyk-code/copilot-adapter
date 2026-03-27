@@ -719,3 +719,468 @@ async fn anthropic_no_tool_calls_parsed_without_tools_in_request() {
         "stop_reason should not be 'tool_use' when tools not requested"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Streaming mock helpers
+// ---------------------------------------------------------------------------
+
+/// Spawn a mock Copilot API that returns SSE streaming chunks containing
+/// a tool call embedded in fenced JSON.
+async fn spawn_mock_streaming_copilot_with_tool_call(
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(mock_streaming_tool_call_handler),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (addr, handle)
+}
+
+/// Mock streaming handler that returns content with an embedded tool call
+/// spread across SSE chunks.
+async fn mock_streaming_tool_call_handler(
+    _headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let model = body["model"].as_str().unwrap_or("gpt-4");
+
+    let chunks = vec![
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-stream-tool-msg",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-stream-tool-msg",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": "I'll check the weather.\n\n"}, "finish_reason": null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-stream-tool-msg",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": "```json\n{\"function_call\": {\"name\": \"get_weather\", \"arguments\": {\"location\": \"London\"}}}\n```"}, "finish_reason": null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-stream-tool-msg",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": "\n\nLet me know."}, "finish_reason": "stop"}]
+            })
+        ),
+        "data: [DONE]\n\n".to_string(),
+    ];
+
+    let sse_body: String = chunks.concat();
+
+    axum::http::Response::builder()
+        .status(200)
+        .header("Content-Type", "text/event-stream")
+        .body(Body::from(sse_body))
+        .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// E6-T9: Anthropic streaming with tool call detection
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn anthropic_streaming_tool_call_detected_and_emitted() {
+    let (copilot_addr, _h1) = spawn_mock_streaming_copilot_with_tool_call().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+        true,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "What's the weather in London?"}],
+        "stream": true,
+        "tools": [sample_anthropic_tool()]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let ct = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.contains("text/event-stream"),
+        "Expected text/event-stream, got: {ct}"
+    );
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_text = String::from_utf8_lossy(&bytes);
+
+    // Parse SSE events from the response
+    let events = parse_anthropic_sse_events(&body_text);
+
+    // Should have message_start
+    let message_start = events
+        .iter()
+        .find(|e| e["type"] == "message_start")
+        .expect("Expected message_start event");
+    assert_eq!(message_start["message"]["role"], "assistant");
+
+    // Should have at least one content_block_start with type "tool_use"
+    let tool_use_starts: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["type"] == "content_block_start"
+                && e["content_block"]["type"] == "tool_use"
+        })
+        .collect();
+    assert!(
+        !tool_use_starts.is_empty(),
+        "Expected at least one tool_use content_block_start event"
+    );
+
+    let tool_block = &tool_use_starts[0]["content_block"];
+    assert_eq!(tool_block["name"], "get_weather");
+    assert!(
+        tool_block["id"].as_str().unwrap().starts_with("call_"),
+        "tool_use id should start with 'call_'"
+    );
+
+    // Should have an input_json_delta event with the tool arguments
+    let input_deltas: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["type"] == "content_block_delta"
+                && e["delta"]["type"] == "input_json_delta"
+        })
+        .collect();
+    assert!(
+        !input_deltas.is_empty(),
+        "Expected at least one input_json_delta event"
+    );
+
+    let partial_json = input_deltas[0]["delta"]["partial_json"].as_str().unwrap();
+    let input: serde_json::Value = serde_json::from_str(partial_json).unwrap();
+    assert_eq!(input["location"], "London");
+
+    // Text content should not contain the fenced tool call JSON
+    let text_deltas: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["type"] == "content_block_delta"
+                && e["delta"]["type"] == "text_delta"
+        })
+        .collect();
+
+    let all_text: String = text_deltas
+        .iter()
+        .filter_map(|e| e["delta"]["text"].as_str())
+        .collect();
+
+    assert!(
+        !all_text.contains("```json"),
+        "Fenced tool call should be stripped from text deltas"
+    );
+    assert!(
+        !all_text.contains("function_call"),
+        "Tool call JSON should be stripped from text deltas"
+    );
+    assert!(
+        all_text.contains("check the weather"),
+        "Surrounding prose should be in text deltas"
+    );
+
+    // message_delta should have stop_reason = "tool_use"
+    let message_delta = events
+        .iter()
+        .find(|e| e["type"] == "message_delta")
+        .expect("Expected message_delta event");
+    assert_eq!(
+        message_delta["delta"]["stop_reason"], "tool_use",
+        "stop_reason should be 'tool_use' when tool calls are present"
+    );
+
+    // Should have message_stop
+    assert!(
+        events.iter().any(|e| e["type"] == "message_stop"),
+        "Expected message_stop event"
+    );
+}
+
+/// Parse Anthropic SSE events from raw response body text.
+fn parse_anthropic_sse_events(body_text: &str) -> Vec<serde_json::Value> {
+    let mut events = Vec::new();
+
+    for line in body_text.lines() {
+        let line = line.trim();
+        if let Some(data) = line.strip_prefix("data:") {
+            let data = data.trim();
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                events.push(value);
+            }
+        }
+    }
+
+    events
+}
+
+// ---------------------------------------------------------------------------
+// Streaming error mock helpers
+// ---------------------------------------------------------------------------
+
+/// Spawn a mock Copilot API that returns some valid SSE chunks then sends
+/// malformed data to trigger a parse error in the stream.
+async fn spawn_mock_streaming_copilot_with_error(
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(mock_streaming_error_handler),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (addr, handle)
+}
+
+/// Mock streaming handler that returns a valid chunk then invalid JSON,
+/// causing a parse error downstream.
+async fn mock_streaming_error_handler(
+    _headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let model = body["model"].as_str().unwrap_or("gpt-4");
+
+    let chunks = vec![
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-stream-err",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-stream-err",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": "partial"}, "finish_reason": null}]
+            })
+        ),
+        // Malformed JSON — triggers a parse error
+        "data: {invalid json here}\n\n".to_string(),
+    ];
+
+    let sse_body: String = chunks.concat();
+
+    axum::http::Response::builder()
+        .status(200)
+        .header("Content-Type", "text/event-stream")
+        .body(Body::from(sse_body))
+        .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// Test: Anthropic streaming with tools emits error event on upstream error
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn anthropic_streaming_with_tools_emits_error_on_upstream_failure() {
+    let (copilot_addr, _h1) = spawn_mock_streaming_copilot_with_error().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+        true,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true,
+        "tools": [sample_anthropic_tool()]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_text = String::from_utf8_lossy(&bytes);
+
+    // Should contain an Anthropic-format error event
+    assert!(
+        body_text.contains("api_error"),
+        "Expected an Anthropic-format error event with 'api_error' type. Got:\n{body_text}"
+    );
+
+    // The error event should be structured as Anthropic expects
+    let events = parse_anthropic_sse_events(&body_text);
+    let error_events: Vec<_> = events
+        .iter()
+        .filter(|e| e["type"] == "error")
+        .collect();
+    assert!(
+        !error_events.is_empty(),
+        "Expected at least one error event in the stream"
+    );
+    assert!(
+        error_events[0]["error"]["type"] == "api_error",
+        "Error event should have type 'api_error'"
+    );
+
+    // No tool_use blocks should be emitted after the error
+    let tool_use_blocks: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["type"] == "content_block_start"
+                && e["content_block"]["type"] == "tool_use"
+        })
+        .collect();
+    assert!(
+        tool_use_blocks.is_empty(),
+        "No tool_use blocks should be emitted after an upstream error"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test: Anthropic normal streaming (no tools) emits error event on upstream error
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn anthropic_streaming_normal_emits_error_on_upstream_failure() {
+    let (copilot_addr, _h1) = spawn_mock_streaming_copilot_with_error().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+        true,
+    )
+    .await;
+    let app = build_router(state);
+
+    // No tools — uses the normal streaming path in handle_streaming
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_text = String::from_utf8_lossy(&bytes);
+
+    // Should contain an Anthropic-format error event
+    assert!(
+        body_text.contains("api_error"),
+        "Expected an Anthropic-format error event. Got:\n{body_text}"
+    );
+
+    // The error event should be properly structured
+    let events = parse_anthropic_sse_events(&body_text);
+    let error_events: Vec<_> = events
+        .iter()
+        .filter(|e| e["type"] == "error")
+        .collect();
+    assert!(
+        !error_events.is_empty(),
+        "Expected at least one error event in the stream"
+    );
+
+    // No message_delta or message_stop should follow the error
+    // (the stream should terminate after the error event)
+    let error_idx = events
+        .iter()
+        .position(|e| e["type"] == "error")
+        .unwrap();
+    let after_error: Vec<_> = events[error_idx + 1..].to_vec();
+    assert!(
+        after_error.is_empty(),
+        "No events should follow the error event, but got: {after_error:?}"
+    );
+}
