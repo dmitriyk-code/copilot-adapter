@@ -8,7 +8,9 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures::StreamExt;
 
-use crate::copilot::types::{ChatCompletionRequest, MessageContent};
+use crate::copilot::types::{
+    ChatCompletionChunk, ChatCompletionRequest, ChunkChoice, ChunkDelta, MessageContent,
+};
 use crate::error::AppError;
 use crate::server::AppState;
 use crate::tools::injector;
@@ -87,12 +89,26 @@ pub async fn chat_completions(
             .stream_chat_completion(&copilot_token, &upstream_request)
             .await?;
 
-        // Map each ChatCompletionChunk into an SSE Event
+        let parse_tools = has_tools && state.config.experimental_tools;
+
+        if parse_tools {
+            // Buffer all chunks, detect tool calls at stream end, and emit
+            // structured tool_calls in the final chunk.
+            return handle_streaming_with_tools(chunk_stream).await;
+        }
+
+        // Normal streaming path (no tools) — pass through chunks unmodified.
         let event_stream = chunk_stream.map(|result| -> Result<Event, Infallible> {
             match result {
-                Ok(chunk) => {
-                    let json = serde_json::to_string(&chunk).unwrap_or_default();
-                    Ok(Event::default().data(json))
+                Ok(chunk) => match serde_json::to_string(&chunk) {
+                    Ok(json) => Ok(Event::default().data(json)),
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize SSE chunk: {e}");
+                        let err_json = serde_json::json!({
+                            "error": { "message": format!("Serialization error: {e}"), "type": "stream_error" }
+                        });
+                        Ok(Event::default().data(err_json.to_string()))
+                    }
                 }
                 Err(e) => {
                     let err_json = serde_json::json!({
@@ -145,4 +161,151 @@ pub async fn chat_completions(
     }
 
     Ok(Json(response).into_response())
+}
+
+/// Handle streaming responses when tool definitions are present.
+///
+/// Buffers all upstream SSE chunks, accumulates text content, and at stream
+/// end parses tool calls from the accumulated text. If tool calls are found,
+/// emits synthetic chunks with stripped text content and structured `tool_calls`
+/// in the delta. If no tool calls are detected, replays the buffered chunks
+/// as-is so the client sees the original streaming behaviour.
+async fn handle_streaming_with_tools(
+    chunk_stream: impl futures::Stream<Item = Result<ChatCompletionChunk, AppError>>
+        + Send
+        + 'static,
+) -> Result<Response, AppError> {
+    let event_stream = async_stream::stream! {
+        let mut buffered_chunks: Vec<ChatCompletionChunk> = Vec::new();
+        let mut content_buffer = String::new();
+        let mut stream = std::pin::pin!(chunk_stream);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(chunk) => {
+                    for choice in &chunk.choices {
+                        if let Some(ref text) = choice.delta.content {
+                            content_buffer.push_str(text);
+                        }
+                    }
+                    buffered_chunks.push(chunk);
+                }
+                Err(e) => {
+                    let err_json = serde_json::json!({
+                        "error": { "message": e.to_string(), "type": "stream_error" }
+                    });
+                    yield Ok::<Event, Infallible>(Event::default().data(err_json.to_string()));
+                    return;
+                }
+            }
+        }
+
+        // Stream ended — check for tool calls in the accumulated text
+        let tool_calls = parser::parse_tool_calls(&content_buffer);
+
+        if tool_calls.is_empty() {
+            // No tool calls detected — replay buffered chunks unchanged
+            for chunk in &buffered_chunks {
+                match serde_json::to_string(chunk) {
+                    Ok(json) => yield Ok(Event::default().data(json)),
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize buffered SSE chunk: {e}");
+                        continue;
+                    }
+                }
+            }
+        } else {
+            // Tool calls found — emit stripped content + tool_calls chunk
+            let stripped = parser::strip_tool_calls(&content_buffer);
+
+            // Use metadata from the first buffered chunk
+            if let Some(first) = buffered_chunks.first() {
+                // Emit initial role chunk
+                let role_chunk = ChatCompletionChunk {
+                    id: first.id.clone(),
+                    object: first.object.clone(),
+                    created: first.created,
+                    model: first.model.clone(),
+                    choices: vec![ChunkChoice {
+                        index: 0,
+                        delta: ChunkDelta {
+                            role: Some("assistant".to_string()),
+                            content: None,
+                            tool_calls: None,
+                        },
+                        finish_reason: None,
+                    }],
+                };
+                match serde_json::to_string(&role_chunk) {
+                    Ok(json) => yield Ok(Event::default().data(json)),
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize role chunk: {e}");
+                    }
+                }
+
+                // Emit stripped text content (if any remains after stripping)
+                if !stripped.is_empty() {
+                    let text_chunk = ChatCompletionChunk {
+                        id: first.id.clone(),
+                        object: first.object.clone(),
+                        created: first.created,
+                        model: first.model.clone(),
+                        choices: vec![ChunkChoice {
+                            index: 0,
+                            delta: ChunkDelta {
+                                role: None,
+                                content: Some(stripped),
+                                tool_calls: None,
+                            },
+                            finish_reason: None,
+                        }],
+                    };
+                    match serde_json::to_string(&text_chunk) {
+                        Ok(json) => yield Ok(Event::default().data(json)),
+                        Err(e) => {
+                            tracing::warn!("Failed to serialize text content chunk: {e}");
+                        }
+                    }
+                }
+
+                // Emit final chunk with parsed tool_calls
+                let tool_chunk = ChatCompletionChunk {
+                    id: first.id.clone(),
+                    object: first.object.clone(),
+                    created: first.created,
+                    model: first.model.clone(),
+                    choices: vec![ChunkChoice {
+                        index: 0,
+                        delta: ChunkDelta {
+                            role: None,
+                            content: None,
+                            tool_calls: Some(tool_calls),
+                        },
+                        finish_reason: Some("tool_calls".to_string()),
+                    }],
+                };
+                match serde_json::to_string(&tool_chunk) {
+                    Ok(json) => yield Ok(Event::default().data(json)),
+                    Err(e) => {
+                        tracing::error!("Failed to serialize tool_calls chunk: {e}");
+                        let err_json = serde_json::json!({
+                            "error": { "message": format!("Failed to serialize tool calls: {e}"), "type": "stream_error" }
+                        });
+                        yield Ok(Event::default().data(err_json.to_string()));
+                    }
+                }
+            }
+        }
+    };
+
+    let done_stream = futures::stream::once(async {
+        Ok::<Event, Infallible>(Event::default().data("[DONE]"))
+    });
+    let full_stream = event_stream.chain(done_stream);
+
+    let sse = Sse::new(full_stream).keep_alive(
+        KeepAlive::new().interval(Duration::from_secs(15)),
+    );
+
+    Ok(sse.into_response())
 }

@@ -188,10 +188,10 @@ fn stream_event_message_start_serializes() {
 fn stream_event_content_block_delta_serializes() {
     let event = StreamEvent::ContentBlockDelta {
         index: 0,
-        delta: TextDelta {
+        delta: ContentDelta::Text(TextDelta {
             delta_type: "text_delta".to_string(),
             text: "Hello".to_string(),
-        },
+        }),
     };
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["type"], "content_block_delta");

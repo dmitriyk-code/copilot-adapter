@@ -303,7 +303,7 @@ pub enum StreamEvent {
     },
 
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta { index: u32, delta: TextDelta },
+    ContentBlockDelta { index: u32, delta: ContentDelta },
 
     #[serde(rename = "content_block_stop")]
     ContentBlockStop { index: u32 },
@@ -321,12 +321,31 @@ pub enum StreamEvent {
     Ping {},
 }
 
-/// Delta payload for `content_block_delta` events.
+/// Delta payload for `content_block_delta` events carrying text.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextDelta {
     #[serde(rename = "type")]
     pub delta_type: String,
     pub text: String,
+}
+
+/// Delta payload for `content_block_delta` events carrying tool input JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputJsonDelta {
+    #[serde(rename = "type")]
+    pub delta_type: String,
+    pub partial_json: String,
+}
+
+/// Unified delta payload for `content_block_delta` events.
+///
+/// Covers both text deltas (for text content blocks) and input JSON deltas
+/// (for tool_use content blocks during streaming).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ContentDelta {
+    Text(TextDelta),
+    InputJson(InputJsonDelta),
 }
 
 /// Delta body for `message_delta` events.
