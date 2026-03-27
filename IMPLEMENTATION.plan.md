@@ -273,7 +273,7 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 - [x] `cargo build` compiles without errors
 - [x] `cargo run -- --help` shows all commands and flags
 - [x] `cargo run -- start` starts server on default port
-- [x] `curl localhost:8787/health` returns `{"status": "ok"}`
+- [x] `curl localhost:6767/health` returns `{"status": "ok"}`
 
 ---
 
@@ -479,19 +479,19 @@ After implementation, verify the adapter works per Design §13:
 2. **Server Start Test**
    ```bash
    copilot-adapter start
-   curl http://127.0.0.1:8787/health
+   curl http://127.0.0.1:6767/health
    # Should return {"status": "ok"}
    ```
 
 3. **Models Test**
    ```bash
-   curl http://127.0.0.1:8787/v1/models
+   curl http://127.0.0.1:6767/v1/models
    # Should return list of available models
    ```
 
 4. **Chat Completion Test (Non-Streaming)**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
    # Should return complete response
@@ -499,7 +499,7 @@ After implementation, verify the adapter works per Design §13:
 
 5. **Chat Completion Test (Streaming)**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
    # Should receive SSE events ending with [DONE]

@@ -156,7 +156,7 @@ copilot-adapter <command>
 
 Commands:
   start       Start the adapter server
-    --port <PORT>       Port to listen on (default: 8787)
+    --port <PORT>       Port to listen on (default: 6767)
     --host <HOST>       Host to bind to (default: 127.0.0.1)
     --daemon            Run as background process
     --log-file <PATH>   Log file path (default: stderr)
@@ -858,14 +858,14 @@ copilot-adapter auth
 
 # Start the adapter
 copilot-adapter start --daemon
-# Adapter started on http://127.0.0.1:8787
+# Adapter started on http://127.0.0.1:6767
 ```
 
 ### 11.2 Using with Claude Code
 
 ```bash
 # Set environment variable
-export OPENAI_API_BASE=http://127.0.0.1:8787/v1
+export OPENAI_API_BASE=http://127.0.0.1:6767/v1
 export OPENAI_API_KEY=dummy  # Required but unused
 
 # Or configure in Claude Code settings
@@ -876,7 +876,7 @@ export OPENAI_API_KEY=dummy  # Required but unused
 ```bash
 # Check status
 copilot-adapter status
-# Adapter running on PID 12345, port 8787
+# Adapter running on PID 12345, port 6767
 
 # Stop the adapter
 copilot-adapter stop
@@ -932,26 +932,26 @@ After implementation, verify the adapter works correctly:
 2. **Server Start Test**
    ```bash
    copilot-adapter start
-   curl http://127.0.0.1:8787/health
+   curl http://127.0.0.1:6767/health
    # Should return {"status": "ok"}
    ```
 
 3. **Models Test**
    ```bash
-   curl http://127.0.0.1:8787/v1/models
+   curl http://127.0.0.1:6767/v1/models
    # Should return list of available models
    ```
 
 4. **Chat Completion Test**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
    ```
 
 5. **Streaming Test**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
    # Should receive SSE events

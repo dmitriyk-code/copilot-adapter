@@ -35,7 +35,7 @@ fn daemon_pid_lifecycle() {
 
     // Write PID file for current process — simulates daemon start
     daemon::write_pid_file().unwrap();
-    daemon::write_port_file(8787).unwrap();
+    daemon::write_port_file(6767).unwrap();
 
     // Status should show running
     let pid = daemon::is_running();
@@ -43,7 +43,7 @@ fn daemon_pid_lifecycle() {
     assert_eq!(pid.unwrap(), std::process::id());
 
     // Port should be readable
-    assert_eq!(daemon::read_port(), Some(8787));
+    assert_eq!(daemon::read_port(), Some(6767));
 
     // Clean up
     daemon::remove_pid_file();
@@ -144,10 +144,10 @@ mod platform {
 
         // Write a PID for the current process and verify stop behavior.
         daemon::write_pid_file().unwrap();
-        daemon::write_port_file(8787).unwrap();
+        daemon::write_port_file(6767).unwrap();
 
         assert!(daemon::is_running().is_some());
-        assert_eq!(daemon::read_port(), Some(8787));
+        assert_eq!(daemon::read_port(), Some(6767));
 
         // Don't actually stop our own process — just verify the lifecycle
         daemon::remove_pid_file();
