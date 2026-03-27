@@ -1,6 +1,6 @@
 # Tools/Functions Support for Copilot Adapter — Implementation Plan
 
-**Status:** Ready for Implementation
+**Status:** COMPLETE
 **Date:** 2026-03-27
 **Based on:** [TOOLS-SUPPORT.design.md](./TOOLS-SUPPORT.design.md)
 **Prerequisite:** Core adapter implementation — **COMPLETE**
@@ -510,22 +510,26 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E7-T1 | TEST | Create mock Copilot responses with tool calls for tests | `tests/common/mock_copilot.rs` | |
-| E7-T2 | TEST | End-to-end test: simple tool call (get_weather style) | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T3 | TEST | End-to-end test: multi-turn conversation with tool results | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T4 | TEST | End-to-end test: tool call with complex arguments | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T5 | TEST | Edge case test: response with no tool calls (graceful passthrough) | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T6 | TEST | Edge case test: malformed tool call JSON in response | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T7 | DOC | Update README.md with `--experimental-tools` documentation | `README.md` | |
-| E7-T8 | DOC | Update CLAUDE.md with tools feature notes | `CLAUDE.md` | |
-| E7-T9 | DOC | Add tools section to docs/e2e-testing.md | `docs/e2e-testing.md` | |
-| E7-T10 | DOC | Update TOOLS-SUPPORT.design.md status to "Implemented" | `TOOLS-SUPPORT.design.md` | |
+| E7-T1 | TEST | Create mock Copilot responses with tool calls for tests | `tests/common/mock_copilot.rs` | DONE |
+| E7-T2 | TEST | End-to-end test: simple tool call (get_weather style) | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T3 | TEST | End-to-end test: multi-turn conversation with tool results | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T4 | TEST | End-to-end test: tool call with complex arguments | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T5 | TEST | Edge case test: response with no tool calls (graceful passthrough) | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T6 | TEST | Edge case test: malformed tool call JSON in response | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T7 | DOC | Update README.md with `--experimental-tools` documentation | `README.md` | DONE |
+| E7-T8 | DOC | Update CLAUDE.md with tools feature notes | `CLAUDE.md` | DONE |
+| E7-T9 | DOC | Add tools section to docs/e2e-testing.md | `docs/e2e-testing.md` | DONE |
+| E7-T10 | DOC | Update TOOLS-SUPPORT.design.md status to "Implemented" | `TOOLS-SUPPORT.design.md` | DONE |
+
+**Status:** DONE
+
+**Completion Notes:** All 12 new E2E tests pass. Mock helpers added to mock_copilot.rs for reuse. Documentation updated across README.md, CLAUDE.md, docs/e2e-testing.md, and TOOLS-SUPPORT.design.md. Minor reviewer issues resolved: removed unused import and corrected misleading comment in e2e_no_tool_calls_streaming_passthrough.
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] All integration tests pass with mock servers
-- [ ] README documents the experimental feature and limitations
-- [ ] E2E testing procedures include tool scenarios
+- [x] All unit tests pass
+- [x] All integration tests pass with mock servers
+- [x] README documents the experimental feature and limitations
+- [x] E2E testing procedures include tool scenarios
 
 ---
 

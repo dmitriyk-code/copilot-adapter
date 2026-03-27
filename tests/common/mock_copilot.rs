@@ -262,6 +262,222 @@ fn build_streaming_response(model: &str) -> Response {
         .into_response()
 }
 
+// ---------------------------------------------------------------------------
+// Tool call mock helpers (Epic 7 — E7-T1)
+// ---------------------------------------------------------------------------
+
+/// Build a non-streaming response whose assistant content contains a single
+/// tool call embedded in a fenced ```json code block.
+///
+/// The tool call uses the format the adapter's parser expects:
+/// ```json
+/// {"function_call": {"name": "<tool_name>", "arguments": <args>}}
+/// ```
+pub fn build_tool_call_response(
+    model: &str,
+    tool_name: &str,
+    arguments: serde_json::Value,
+    surrounding_text: Option<(&str, &str)>,
+) -> serde_json::Value {
+    let (before, after) = surrounding_text.unwrap_or((
+        "I'll call the tool for you.",
+        "Let me know if you need anything else.",
+    ));
+    let tool_json = serde_json::json!({
+        "function_call": {
+            "name": tool_name,
+            "arguments": arguments
+        }
+    });
+
+    let content = format!(
+        "{before}\n\n```json\n{}\n```\n\n{after}",
+        serde_json::to_string(&tool_json).unwrap()
+    );
+
+    serde_json::json!({
+        "id": "chatcmpl-toolmock",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": content
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 20,
+            "completion_tokens": 30,
+            "total_tokens": 50
+        }
+    })
+}
+
+/// Build a non-streaming response whose assistant content contains multiple
+/// tool calls in separate fenced ```json code blocks.
+pub fn build_multi_tool_call_response(
+    model: &str,
+    tool_calls: &[(&str, serde_json::Value)],
+) -> serde_json::Value {
+    let mut content = String::from("I'll call several tools.\n");
+    for (name, args) in tool_calls {
+        let tool_json = serde_json::json!({
+            "function_call": {
+                "name": name,
+                "arguments": args
+            }
+        });
+        content.push_str(&format!(
+            "\n```json\n{}\n```\n",
+            serde_json::to_string(&tool_json).unwrap()
+        ));
+    }
+    content.push_str("\nDone.");
+
+    serde_json::json!({
+        "id": "chatcmpl-multitool",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": content
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 30,
+            "completion_tokens": 60,
+            "total_tokens": 90
+        }
+    })
+}
+
+/// Build a non-streaming response whose assistant content contains
+/// malformed JSON inside a fenced code block (not a valid tool call).
+pub fn build_malformed_tool_call_response(model: &str) -> serde_json::Value {
+    let content = r#"Let me try to call a tool.
+
+```json
+{"function_call": {"name": "get_weather", "arguments": {invalid json here}}}
+```
+
+I hope that worked."#;
+
+    serde_json::json!({
+        "id": "chatcmpl-malformed",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": content
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 15,
+            "completion_tokens": 20,
+            "total_tokens": 35
+        }
+    })
+}
+
+/// Build a plain non-streaming response with no tool calls.
+pub fn build_plain_response(model: &str, content: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": "chatcmpl-plain",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": content
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15
+        }
+    })
+}
+
+/// Build SSE streaming chunks that include a tool call in a fenced JSON
+/// block, spread across multiple chunks.
+pub fn build_streaming_tool_call_chunks(
+    model: &str,
+    tool_name: &str,
+    arguments: serde_json::Value,
+) -> String {
+    let tool_json = serde_json::json!({
+        "function_call": {
+            "name": tool_name,
+            "arguments": arguments
+        }
+    });
+
+    let chunks = vec![
+        format!(
+            "data: {}\n\n",
+            serde_json::json!({
+                "id": "chatcmpl-stream-toolmock",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            serde_json::json!({
+                "id": "chatcmpl-stream-toolmock",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": "I'll call the tool.\n\n"}, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            serde_json::json!({
+                "id": "chatcmpl-stream-toolmock",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": format!("```json\n{}\n```", serde_json::to_string(&tool_json).unwrap())}, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        format!(
+            "data: {}\n\n",
+            serde_json::json!({
+                "id": "chatcmpl-stream-toolmock",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": "\n\nDone."}, "finish_reason": "stop"}]
+            })
+        ),
+        "data: [DONE]\n\n".to_string(),
+    ];
+
+    chunks.concat()
+}
+
+// ---------------------------------------------------------------------------
+// SSE parsing utility
+// ---------------------------------------------------------------------------
+
 /// Parse raw SSE body text into a list of chunks and a `saw_done` flag.
 /// Shared utility for test assertions.
 pub fn parse_sse_body(body_text: &str) -> (Vec<ChatCompletionChunk>, bool) {

@@ -427,6 +427,233 @@ RUST_LOG=trace copilot-adapter start
 
 ---
 
+## Test 11: Tool Call (Non-Streaming, OpenAI Format)
+
+**Purpose:** Verify tool/function calling works with `--experimental-tools` enabled.
+
+> **Prerequisites:**
+> - Adapter started with `--experimental-tools` flag
+> - Authenticated with GitHub
+
+### Steps
+
+1. **Start the adapter with tools enabled:**
+   ```bash
+   copilot-adapter start --experimental-tools
+   ```
+
+2. **Send a request with tool definitions:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "gpt-4",
+       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "tools": [{
+         "type": "function",
+         "function": {
+           "name": "bash",
+           "description": "Run a bash command",
+           "parameters": {
+             "type": "object",
+             "properties": {
+               "command": {"type": "string", "description": "The command to run"}
+             },
+             "required": ["command"]
+           }
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Expected response:**
+   - `choices[0].message.tool_calls` should be an array with at least one tool call
+   - Each tool call should have `id` (starting with `call_`), `type: "function"`, and `function.name`
+   - `finish_reason` should be `"tool_calls"`
+   - The fenced JSON block should be stripped from `content`
+
+### Verification
+
+- Response has valid `tool_calls` array
+- Arguments are valid JSON
+- Content does not contain ````json` blocks
+
+---
+
+## Test 12: Tool Call (Streaming)
+
+**Purpose:** Verify tool calls are detected in streaming responses.
+
+### Steps
+
+1. **Send a streaming request with tools:**
+   ```bash
+   curl -N -X POST http://127.0.0.1:6767/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "gpt-4",
+       "messages": [{"role": "user", "content": "List files in the current directory"}],
+       "stream": true,
+       "tools": [{
+         "type": "function",
+         "function": {
+           "name": "bash",
+           "description": "Run a bash command",
+           "parameters": {
+             "type": "object",
+             "properties": {
+               "command": {"type": "string"}
+             },
+             "required": ["command"]
+           }
+         }
+       }]
+     }'
+   ```
+
+2. **Expected output:**
+   - SSE events with text content chunks (no fenced JSON)
+   - A chunk with `delta.tool_calls` containing the parsed tool call
+   - The tool call chunk should have `finish_reason: "tool_calls"`
+   - Stream ends with `data: [DONE]`
+
+---
+
+## Test 13: Multi-Turn Conversation with Tool Results
+
+**Purpose:** Verify the adapter handles tool result messages in follow-up requests.
+
+### Steps
+
+1. **Send a request with a tool result from a previous turn:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "gpt-4",
+       "messages": [
+         {"role": "user", "content": "What directory am I in?"},
+         {"role": "assistant", "content": "Let me check.", "tool_calls": [{"id": "call_123", "type": "function", "function": {"name": "bash", "arguments": "{\"command\":\"pwd\"}"}}]},
+         {"role": "tool", "content": "/home/user/project", "tool_call_id": "call_123"}
+       ],
+       "tools": [{
+         "type": "function",
+         "function": {
+           "name": "bash",
+           "description": "Run a bash command",
+           "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+2. **Expected response:**
+   - The model should receive the tool result and generate a follow-up response
+   - The `tool` role message should be translated internally to a `user` role message
+   - Response should be valid JSON
+
+---
+
+## Test 14: Tools Disabled (Rejection)
+
+**Purpose:** Verify requests with tools are rejected when `--experimental-tools` is not set.
+
+### Steps
+
+1. **Start the adapter WITHOUT the tools flag:**
+   ```bash
+   copilot-adapter start
+   ```
+
+2. **Send a request with tools:**
+   ```bash
+   curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "gpt-4",
+       "messages": [{"role": "user", "content": "Hello"}],
+       "tools": [{"type": "function", "function": {"name": "test", "parameters": {"type": "object"}}}]
+     }'
+   ```
+
+3. **Expected response:**
+   - HTTP 400 status code
+   - Error message mentioning `--experimental-tools`
+
+---
+
+## Test 15: Tool Call (Anthropic Format)
+
+**Purpose:** Verify tool support via the `/v1/messages` endpoint.
+
+### Steps
+
+1. **Start with tools enabled** (if not already running).
+
+2. **Send an Anthropic-format request with tools:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "tools": [{
+         "name": "bash",
+         "description": "Run a bash command",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "command": {"type": "string"}
+           },
+           "required": ["command"]
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Expected response:**
+   - `content` array should contain a `tool_use` block with `name`, `id`, and `input`
+   - `stop_reason` should be `"tool_use"`
+   - Text blocks should not contain fenced JSON
+
+---
+
+## Test 16: Claude Code with Tools Integration
+
+**Purpose:** Verify Claude Code's native tool use works through the adapter.
+
+### Steps
+
+1. **Start the adapter with tools enabled:**
+   ```bash
+   copilot-adapter start --daemon --experimental-tools
+   ```
+
+2. **Configure Claude Code:**
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+   export ANTHROPIC_API_KEY=dummy
+   ```
+
+3. **Run Claude Code and test tool use:**
+   ```bash
+   claude
+   ```
+   Type: `What is my current working directory?`
+
+4. **Expected behavior:**
+   - Claude Code should execute the `bash` tool to run `pwd` (or equivalent)
+   - The actual directory path should be returned
+   - Claude should not just describe the command but actually execute it
+
+5. **Clean up:**
+   ```bash
+   copilot-adapter stop
+   ```
+
+---
+
 ## Test Summary Checklist
 
 | # | Test | Pass/Fail | Notes |
@@ -441,3 +668,9 @@ RUST_LOG=trace copilot-adapter start
 | 8 | Error handling | | |
 | 9 | Logging | | |
 | 10 | Claude Code integration | | |
+| 11 | Tool call (non-streaming) | | |
+| 12 | Tool call (streaming) | | |
+| 13 | Multi-turn with tool results | | |
+| 14 | Tools disabled rejection | | |
+| 15 | Tool call (Anthropic format) | | |
+| 16 | Claude Code with tools | | |

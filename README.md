@@ -8,6 +8,7 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 - **Anthropic-compatible API** — `POST /v1/messages` for native Claude Code integration
 - **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
 - **SSE streaming** — real-time token-by-token responses
+- **Experimental tool/function support** — opt-in prompt injection for tool calling (see below)
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
 - **Secure credential storage** — OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service) with encrypted file fallback
 - **Background daemon** — runs as a background process on all platforms
@@ -107,6 +108,7 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 | `copilot-adapter start --host 0.0.0.0` | Bind to all interfaces |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --log-file /tmp/adapter.log` | Log to a file |
+| `copilot-adapter start --experimental-tools` | Enable experimental tool/function support |
 | `copilot-adapter status` | Check if the adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -227,6 +229,72 @@ curl http://127.0.0.1:6767/v1/models/gpt-4
 ```
 
 **Available models:** `gpt-4`, `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`, `claude-3.5-sonnet`
+
+## Experimental Tool/Function Support
+
+The adapter supports **experimental tool/function calling** via prompt injection. Since GitHub Copilot's upstream API does not natively support the OpenAI `tools`/`functions` parameters, the adapter works around this by:
+
+1. **Injecting** tool definitions into the system prompt as JSON
+2. **Instructing** the model to respond with structured JSON when it wants to call a tool
+3. **Parsing** tool calls from the model's text response
+4. **Returning** them in the standard `tool_calls` format (OpenAI) or `tool_use` content blocks (Anthropic)
+
+### Enabling Tools
+
+Tool support is **disabled by default** and must be explicitly enabled:
+
+```bash
+copilot-adapter start --experimental-tools
+
+# Or as a daemon
+copilot-adapter start --daemon --experimental-tools
+```
+
+### Usage with Claude Code
+
+Once the adapter is started with `--experimental-tools`, Claude Code's native tool use (file operations, bash commands, etc.) will work through the adapter:
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+export ANTHROPIC_API_KEY=dummy
+claude  # Tools like bash, file read/write will work
+```
+
+### Usage with OpenAI-compatible Clients
+
+Send standard OpenAI-format tool definitions in your requests:
+
+```bash
+curl -X POST http://127.0.0.1:6767/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "What is the weather in London?"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {"type": "string"}
+          },
+          "required": ["location"]
+        }
+      }
+    }]
+  }'
+```
+
+### Limitations
+
+- **Opt-in only:** Requires `--experimental-tools` flag. Without it, requests with tools return HTTP 400.
+- **Best-effort parsing:** Tool call parsing is based on regex/JSON extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
+- **`tool_choice` limited:** Only `"auto"` behavior is supported. The `tool_choice` field is accepted but not enforced.
+- **No `parallel_tool_calls`:** The `parallel_tool_calls` parameter is not supported.
+- **Increased token usage:** Tool definitions are injected into the system prompt, increasing the token count.
+- **Streaming support:** Tool calls in streaming responses are detected via buffering — the adapter buffers the full response, parses tool calls, then replays modified chunks.
 
 ## Configuration
 

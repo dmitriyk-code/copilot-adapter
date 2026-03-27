@@ -10,6 +10,7 @@ A standalone Rust binary (`copilot-adapter`) that acts as an **OpenAI-compatible
 - **OpenAI-compatible API** endpoints (`POST /v1/chat/completions`, `GET /v1/models`)
 - **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation
 - **SSE streaming** support for real-time responses
+- **Experimental tool/function support** via prompt injection (`--experimental-tools`)
 - **Automatic token management** with refresh 5 min before expiry
 - **Secure credential storage** via OS keyring (with encrypted file fallback)
 - **Cross-platform daemon** operation (Windows/Linux/macOS)
@@ -52,6 +53,11 @@ src/
 ├── anthropic/
 │   ├── mod.rs
 │   └── types.rs         # Anthropic request/response types + translation
+├── tools/
+│   ├── mod.rs           # Tools module exports
+│   ├── types.rs         # Tool/ToolCall type definitions
+│   ├── injector.rs      # Prompt injection logic
+│   └── parser.rs        # Tool call parsing from text responses
 ├── storage/
 │   ├── mod.rs
 │   ├── keyring.rs       # OS keyring storage
@@ -72,6 +78,7 @@ src/
 | `copilot-adapter start --daemon` | Start as background daemon |
 | `copilot-adapter start -p 9090` | Start on custom port |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
+| `copilot-adapter start --experimental-tools` | Enable experimental tool support |
 | `copilot-adapter status` | Check if adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -115,12 +122,17 @@ cargo test
 
 - `DESIGN.md` - Full design document (architecture, API research, implementation details)
 - `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
-- `TOOLS-SUPPORT.design.md` - Draft design for future tools/functions support
+- `TOOLS-SUPPORT.design.md` - Design document for experimental tools/functions support (implemented)
+- `TOOLS-SUPPORT.plan.md` - Implementation plan for tools support
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
 
 ## Notes for Development
 
-- Tools/functions parameters are **not supported** (Copilot limitation)
+- Tools/functions support is **experimental** and opt-in via `--experimental-tools` flag
+- Tool definitions are injected into the system prompt; tool calls are parsed from model text responses
+- The tools implementation lives in `src/tools/` (types, injector, parser)
+- Tool call parsing is best-effort; malformed JSON is silently skipped (graceful degradation)
+- `tool_choice` only supports `"auto"` behavior; `parallel_tool_calls` is not supported
 - Copilot tokens expire in ~30 min; the adapter refreshes them proactively
 - Required Copilot headers: `Copilot-Integration-Id`, `Editor-Version`, `Editor-Plugin-Version`
 - All errors return OpenAI-compatible JSON format

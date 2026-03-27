@@ -1,6 +1,6 @@
 # Tools/Functions Support for Copilot Adapter — Design Document (Draft)
 
-**Status:** Draft / Research
+**Status:** Implemented (Experimental)
 **Date:** 2026-03-26 (updated 2026-03-27)
 **Prerequisite:** Core adapter implementation (IMPLEMENTATION.plan.md) — **COMPLETE**
 
@@ -275,31 +275,27 @@ fn handle_chat_completion(request: ChatCompletionRequest) -> Response {
 
 ## Recommended Approach
 
-**Current State (v0.1):** Option A — No support, clear error message
+**Implemented (v0.2):** Option D — Hybrid with opt-in flag
 
-The adapter currently rejects tool parameters with:
-```json
-{
-  "error": {
-    "message": "Tools/functions are not supported. GitHub Copilot does not provide native function calling.",
-    "type": "invalid_request_error",
-    "param": "tools"
-  }
-}
-```
-
-**Future (v0.2+):** Option D — Hybrid with opt-in flag
+The adapter now implements experimental tool support via prompt injection, enabled with:
 
 ```bash
 copilot-adapter start --experimental-tools
 ```
 
-Or via request header:
-```
-X-Copilot-Adapter-Tools: prompt-injection
-```
+**Implementation details:**
+- Tool definitions are injected into the system prompt as JSON (Option C format)
+- Tool calls are parsed from model text responses using regex + JSON extraction
+- Graceful degradation when parsing fails (response returned as plain text)
+- Both OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) formats supported
+- Streaming support with chunk buffering for tool call detection
+- `tool` role messages and `tool_result` blocks translated to user messages
 
-This allows users who want tool support to opt-in while understanding it's experimental.
+**Key files:**
+- `src/tools/types.rs` — Tool/ToolCall type definitions
+- `src/tools/injector.rs` — Prompt injection and tool message translation
+- `src/tools/parser.rs` — Tool call parsing from text responses
+- `src/cli.rs` — `--experimental-tools` flag definition
 
 ### Implementation Considerations for Both API Formats
 
