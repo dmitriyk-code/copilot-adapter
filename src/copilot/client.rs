@@ -4,8 +4,17 @@ use crate::error::AppError;
 const COPILOT_CHAT_COMPLETIONS_URL: &str =
     "https://api.githubcopilot.com/chat/completions";
 
+// Identity header values sent to the Copilot API.
+// Extracted as constants so they are easy to find and update when versions change.
+const EDITOR_VERSION: &str = "vscode/1.85.0";
+const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.12.0";
+const COPILOT_INTEGRATION_ID: &str = "vscode-chat";
+
 /// Client for communicating with the GitHub Copilot Chat API.
 pub struct CopilotClient {
+    /// The underlying HTTP client used for requests.
+    /// Reserved as a private field — callers obtain a `CopilotClient` via
+    /// `new()` or `with_api_url()` and interact through `send_chat_completion()`.
     client: reqwest::Client,
     api_url: String,
 }
@@ -38,9 +47,9 @@ impl CopilotClient {
             .bearer_auth(token)
             .header("Content-Type", "application/json")
             .header("X-Request-Id", &request_id)
-            .header("Copilot-Integration-Id", "vscode-chat")
-            .header("Editor-Version", "vscode/1.85.0")
-            .header("Editor-Plugin-Version", "copilot-chat/0.12.0")
+            .header("Copilot-Integration-Id", COPILOT_INTEGRATION_ID)
+            .header("Editor-Version", EDITOR_VERSION)
+            .header("Editor-Plugin-Version", EDITOR_PLUGIN_VERSION)
             .header("Openai-Organization", "github-copilot")
             .header("Openai-Intent", "conversation-agent")
             .json(request)

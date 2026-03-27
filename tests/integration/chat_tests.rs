@@ -121,8 +121,9 @@ async fn spawn_mock_github_for_copilot_token(
                     "expires_at": expires_at
                 }))
             } else {
-                // Return an invalid JSON that will fail deserialization,
-                // simulating an auth error
+                // Return valid JSON that is missing the required `token` and
+                // `expires_at` fields, causing CopilotToken deserialization to
+                // fail and surfacing an auth error upstream.
                 Json(json!({"error": "unauthorized"}))
             }
         }),
@@ -402,4 +403,64 @@ async fn chat_completion_response_matches_openai_format() {
     assert!(json.get("choices").is_some(), "response must have 'choices'");
     assert!(json["choices"].is_array());
     assert!(json.get("usage").is_some(), "response must have 'usage'");
+}
+
+/// Spawn a mock Copilot API that always returns an HTTP 500 error.
+async fn spawn_failing_copilot_api() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal server error"})),
+            )
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn chat_completion_upstream_error_returns_502() {
+    let (copilot_addr, _h1) = spawn_failing_copilot_api().await;
+    let (github_addr, _h2) = spawn_mock_github_for_copilot_token().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"]["type"], "upstream_error");
 }

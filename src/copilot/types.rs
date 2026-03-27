@@ -37,6 +37,7 @@ pub struct ChatCompletionRequest {
 pub struct Choice {
     pub index: u32,
     pub message: Message,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
 }
 

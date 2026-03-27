@@ -14,6 +14,9 @@ pub enum AppError {
     #[error("Unauthorized: {0}")]
     Unauthorized(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
     #[error("Upstream error: {0}")]
     UpstreamError(String),
 }
@@ -48,6 +51,16 @@ impl IntoResponse for AppError {
                         "message": msg,
                         "type": "authentication_error",
                         "code": "unauthorized"
+                    }
+                }),
+            ),
+            AppError::NotFound(msg) => (
+                StatusCode::NOT_FOUND,
+                json!({
+                    "error": {
+                        "message": msg,
+                        "type": "not_found_error",
+                        "code": "model_not_found"
                     }
                 }),
             ),

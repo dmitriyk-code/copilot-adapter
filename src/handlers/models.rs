@@ -58,6 +58,6 @@ pub async fn get_model(Path(model_id): Path<String>) -> Result<Json<Model>, AppE
         .find(|m| m.id == model_id)
         .map(Json)
         .ok_or_else(|| {
-            AppError::InvalidRequest(format!("Model '{model_id}' not found"))
+            AppError::NotFound(format!("Model '{model_id}' not found"))
         })
 }

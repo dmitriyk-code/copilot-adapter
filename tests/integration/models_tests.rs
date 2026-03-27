@@ -100,7 +100,7 @@ async fn get_model_returns_specific_model() {
 }
 
 #[tokio::test]
-async fn get_model_returns_400_for_unknown_model() {
+async fn get_model_returns_404_for_unknown_model() {
     let state = test_state().await;
     let app = build_router(state);
 
@@ -114,7 +114,7 @@ async fn get_model_returns_400_for_unknown_model() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await

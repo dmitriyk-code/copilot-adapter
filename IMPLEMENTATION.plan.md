@@ -315,9 +315,9 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** Epics 1, 2
 
-**Status:** DONE (review fixes v2 applied)
+**Status:** DONE (all review fixes applied)
 
-**Completion Notes:** Fixed 5 review issues: `authentication_error` type on 401 responses per OpenAI spec, doc comment on reserved `http_client` field, removed dead `client()` method from `CopilotClient`, extracted shared `InMemoryStorage` into `tests/integration/test_helpers.rs`, replaced panicking asserts in mock handler with explicit error returns. All 71 tests pass (11 in-crate, 19 integration, 41 unit).
+**Completion Notes:** Fixed 10 review issues across two rounds. Round 2 fixes: `authentication_error` type on 401 responses per OpenAI spec, doc comment on reserved `http_client` field, removed dead `client()` method from `CopilotClient`, extracted shared `InMemoryStorage` into `tests/integration/test_helpers.rs`, replaced panicking asserts in mock handler with explicit error returns. Round 3 fixes: added `AppError::NotFound` variant returning HTTP 404 for unknown models (GET /v1/models/:model), added `#[serde(skip_serializing_if = "Option::is_none")]` to `Choice.finish_reason`, extracted Copilot header values as named module-level constants (`EDITOR_VERSION`, `EDITOR_PLUGIN_VERSION`, `COPILOT_INTEGRATION_ID`), fixed misleading comment in `spawn_mock_github_for_copilot_token`, added `chat_completion_upstream_error_returns_502` integration test verifying 502 BAD_GATEWAY on upstream 500, updated `get_model` test to assert `NOT_FOUND`. All 61 tests pass (41 unit + 20 integration).
 
 **Tasks:**
 
