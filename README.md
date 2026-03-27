@@ -5,6 +5,7 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 ## Features
 
 - **GitHub OAuth device flow** — authenticate through your browser in seconds
+- **Anthropic-compatible API** — `POST /v1/messages` for native Claude Code integration
 - **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
 - **SSE streaming** — real-time token-by-token responses
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
@@ -14,7 +15,17 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 
 ## Quick Start
 
-### 1. Install
+### 1. Install Claude Code
+
+If you haven't already, install Claude Code from Anthropic:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+For more information, visit the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code).
+
+### 2. Install the Adapter
 
 ```bash
 # From source
@@ -25,7 +36,7 @@ cargo build --release
 # Binary: target/release/copilot-adapter (or .exe on Windows)
 ```
 
-### 2. Authenticate
+### 3. Authenticate with GitHub
 
 ```bash
 copilot-adapter auth
@@ -37,7 +48,7 @@ This starts the GitHub OAuth device flow:
 3. Authorize the application
 4. Credentials are stored securely in your OS keyring
 
-### 3. Start the Adapter
+### 4. Start the Adapter
 
 ```bash
 # Foreground mode
@@ -49,18 +60,38 @@ copilot-adapter start --daemon
 
 The adapter starts listening on `http://127.0.0.1:6767` by default.
 
-### 4. Configure Claude Code
+### 5. Configure Claude Code
 
-Set the following environment variables:
+Set the environment variables to point Claude Code at the adapter. Choose the format for your platform:
+
+**Linux / macOS (bash/zsh):**
 
 ```bash
-export OPENAI_API_BASE=http://127.0.0.1:6767/v1
-export OPENAI_API_KEY=dummy  # Required by Claude Code but unused by the adapter
+export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+export ANTHROPIC_API_KEY=dummy  # Required by Claude Code but unused by the adapter
 ```
 
-Or configure in your Claude Code settings file.
+**Windows (Command Prompt):**
 
-### 5. Use Claude Code Normally
+```cmd
+set ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+set ANTHROPIC_API_KEY=dummy
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:6767"
+$env:ANTHROPIC_API_KEY = "dummy"
+```
+
+> **Tip:** Add these to your shell profile (`.bashrc`, `.zshrc`, PowerShell `$PROFILE`) for persistence.
+
+### 6. Run Claude Code
+
+```bash
+claude
+```
 
 Claude Code will automatically route requests through the adapter to GitHub Copilot.
 
@@ -132,6 +163,52 @@ curl -X POST http://127.0.0.1:6767/v1/chat/completions \
 | `stop` | string/array | No | Stop sequences |
 | `presence_penalty` | number | No | Presence penalty (-2 to 2) |
 | `frequency_penalty` | number | No | Frequency penalty (-2 to 2) |
+
+### `POST /v1/messages`
+
+Anthropic-compatible messages endpoint. This is the **recommended endpoint for Claude Code** as it matches Claude's native API format. The adapter translates requests to OpenAI format internally before forwarding to Copilot.
+
+**Non-streaming:**
+
+```bash
+curl -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+**Streaming:**
+
+```bash
+curl -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
+**Supported request parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `model` | string | Yes | Model identifier (mapped to Copilot model internally) |
+| `messages` | array | Yes | Array of message objects (`role` + `content`) |
+| `max_tokens` | integer | Yes | Maximum tokens in the response |
+| `stream` | boolean | No | Enable SSE streaming (default: `false`) |
+| `system` | string | No | System prompt |
+| `temperature` | number | No | Sampling temperature (0–1) |
+| `top_p` | number | No | Nucleus sampling parameter |
+| `stop_sequences` | array | No | Stop sequences |
 
 ### `GET /v1/models`
 
