@@ -1,5 +1,6 @@
 mod auth_tests;
 mod chat_tests;
+mod concurrent_tests;
 mod daemon_tests;
 mod error_tests;
 mod models_tests;

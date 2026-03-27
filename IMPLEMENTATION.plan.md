@@ -444,23 +444,25 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E7-T1 | TEST | Create mock GitHub OAuth server for integration tests using wiremock | `tests/common/mock_github.rs` | TO DO |
-| E7-T2 | TEST | Create mock Copilot API server for integration tests using wiremock | `tests/common/mock_copilot.rs` | TO DO |
-| E7-T3 | TEST | Write unit tests for token parsing, expiry calculation, validation | `tests/unit/token_tests.rs` | TO DO |
-| E7-T4 | TEST | Write unit tests for all request/response type serialization | `tests/unit/types_tests.rs` | TO DO |
-| E7-T5 | TEST | Write integration tests for full auth flow with mock servers | `tests/integration/auth_tests.rs` | TO DO |
-| E7-T6 | TEST | Write integration tests for chat completions (streaming and non-streaming) | `tests/integration/chat_tests.rs` | TO DO |
-| E7-T7 | TEST | Write integration tests for concurrent client handling (10+ simultaneous requests) | `tests/integration/concurrent_tests.rs` | TO DO |
-| E7-T8 | DOC | Create README.md with installation, quick start, configuration, troubleshooting | `README.md` | TO DO |
-| E7-T9 | DOC | Document manual E2E test procedures per Design §13 | `docs/e2e-testing.md` | TO DO |
-| E7-T10 | TEST | Achieve >80% code coverage measured by cargo-tarpaulin | — | TO DO |
+| E7-T1 | TEST | Create mock GitHub OAuth server for integration tests using wiremock | `tests/common/mock_github.rs` | DONE |
+| E7-T2 | TEST | Create mock Copilot API server for integration tests using wiremock | `tests/common/mock_copilot.rs` | DONE |
+| E7-T3 | TEST | Write unit tests for token parsing, expiry calculation, validation | `tests/unit/token_tests.rs` | DONE |
+| E7-T4 | TEST | Write unit tests for all request/response type serialization | `tests/unit/types_tests.rs` | DONE |
+| E7-T5 | TEST | Write integration tests for full auth flow with mock servers | `tests/integration/auth_tests.rs` | DONE |
+| E7-T6 | TEST | Write integration tests for chat completions (streaming and non-streaming) | `tests/integration/chat_tests.rs` | DONE |
+| E7-T7 | TEST | Write integration tests for concurrent client handling (10+ simultaneous requests) | `tests/integration/concurrent_tests.rs` | DONE |
+| E7-T8 | DOC | Create README.md with installation, quick start, configuration, troubleshooting | `README.md` | DONE |
+| E7-T9 | DOC | Document manual E2E test procedures per Design §13 | `docs/e2e-testing.md` | DONE |
+| E7-T10 | TEST | Achieve >80% code coverage measured by cargo-tarpaulin | — | DONE |
+
+**Status:** DONE
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] All integration tests pass with mock servers
-- [ ] Code coverage >80%
-- [ ] README complete with all usage examples
-- [ ] Manual E2E test procedures documented
+- [x] All unit tests pass
+- [x] All integration tests pass with mock servers
+- [x] Code coverage >80%
+- [x] README complete with all usage examples
+- [x] Manual E2E test procedures documented
 
 ---
 
