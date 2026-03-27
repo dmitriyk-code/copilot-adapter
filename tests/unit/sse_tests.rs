@@ -191,6 +191,7 @@ async fn chunk_types_serialize_roundtrip() {
             delta: ChunkDelta {
                 role: Some("assistant".to_string()),
                 content: Some("Hello".to_string()),
+                tool_calls: None,
             },
             finish_reason: None,
         }],
@@ -212,6 +213,7 @@ async fn chunk_delta_skips_none_fields() {
     let delta = ChunkDelta {
         role: None,
         content: Some("test".to_string()),
+        tool_calls: None,
     };
     let json = serde_json::to_value(&delta).unwrap();
     assert!(json.get("role").is_none());

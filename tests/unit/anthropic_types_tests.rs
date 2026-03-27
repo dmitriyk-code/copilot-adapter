@@ -69,6 +69,7 @@ fn anthropic_request_with_content_blocks_deserializes() {
             assert_eq!(blocks.len(), 2);
             match &blocks[0] {
                 ContentBlock::Text { text } => assert_eq!(text, "Hello "),
+                _ => panic!("Expected Text variant"),
             }
         }
         ContentBlockInput::Text(_) => panic!("Expected Blocks variant"),
@@ -89,6 +90,7 @@ fn anthropic_request_roundtrip() {
         temperature: Some(0.5),
         top_p: None,
         stop_sequences: None,
+        tools: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
@@ -213,6 +215,7 @@ fn request_translation_with_system_prepends_system_message() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -237,6 +240,7 @@ fn request_translation_without_system_no_extra_message() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -265,6 +269,7 @@ fn request_translation_extracts_text_from_content_blocks() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -285,6 +290,7 @@ fn request_translation_maps_fields() {
         temperature: Some(0.7),
         top_p: Some(0.9),
         stop_sequences: Some(vec!["END".to_string()]),
+        tools: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -323,6 +329,7 @@ fn request_translation_multiple_messages() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -351,6 +358,8 @@ fn response_translation_maps_stop_reason_stop() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hello!".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -379,6 +388,8 @@ fn response_translation_maps_stop_reason_length() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Truncated...".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("length".to_string()),
         }],
@@ -407,6 +418,8 @@ fn response_translation_wraps_content_in_blocks() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hello from Copilot!".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -439,6 +452,8 @@ fn response_translation_maps_usage() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hi".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -468,6 +483,8 @@ fn response_translation_id_format() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hi".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -496,6 +513,8 @@ fn response_translation_no_usage_defaults_to_zero() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hello".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],

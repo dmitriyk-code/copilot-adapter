@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::tools::types::ToolCall;
+
 /// Content block in a message (used by Claude models).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -41,6 +43,11 @@ pub struct Message {
     pub content: MessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    /// Tool call ID for messages with role "tool".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 /// OpenAI-compatible chat completion request.
@@ -64,6 +71,12 @@ pub struct ChatCompletionRequest {
     pub presence_penalty: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f64>,
+    /// Tool definitions (not forwarded to Copilot API; used for prompt injection).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<crate::tools::types::Tool>>,
+    /// Tool choice preference (not forwarded to Copilot API).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<serde_json::Value>,
 }
 
 /// A single choice in a chat completion response.
@@ -134,6 +147,8 @@ pub struct ChunkDelta {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 /// A single choice in a streaming chat completion chunk.

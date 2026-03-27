@@ -36,8 +36,9 @@ impl SystemInput {
             SystemInput::Text(s) => s.clone(),
             SystemInput::Blocks(blocks) => blocks
                 .iter()
-                .map(|b| match b {
-                    ContentBlock::Text { text } => text.as_str(),
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
                 })
                 .collect::<Vec<_>>()
                 .join(""),
@@ -51,6 +52,25 @@ impl SystemInput {
 pub enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: ToolResultContent,
+    },
+}
+
+/// Content within a tool_result block — either a plain string or nested blocks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolResultContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
 }
 
 /// An Anthropic-format chat message.
@@ -58,6 +78,28 @@ pub enum ContentBlock {
 pub struct AnthropicMessage {
     pub role: String,
     pub content: ContentBlockInput,
+}
+
+/// Anthropic-format tool definition.
+///
+/// Schema: `{ name, description?, input_schema: { type: "object", properties, required? } }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub input_schema: InputSchema,
+}
+
+/// JSON Schema describing a tool's input parameters in Anthropic format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputSchema {
+    #[serde(rename = "type")]
+    pub schema_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
 }
 
 /// Anthropic Messages API request body.
@@ -76,6 +118,9 @@ pub struct AnthropicRequest {
     pub top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
+    /// Tool definitions (not forwarded to Copilot API; used for prompt injection).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -182,8 +227,9 @@ fn extract_text(content: &ContentBlockInput) -> String {
         ContentBlockInput::Text(s) => s.clone(),
         ContentBlockInput::Blocks(blocks) => blocks
             .iter()
-            .map(|b| match b {
-                ContentBlock::Text { text } => text.as_str(),
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
             })
             .collect::<Vec<_>>()
             .join(""),
@@ -206,6 +252,8 @@ impl AnthropicRequest {
                 role: "system".to_string(),
                 content: MessageContent::Text(system.to_text()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             });
         }
 
@@ -215,6 +263,8 @@ impl AnthropicRequest {
                 role: msg.role.clone(),
                 content: MessageContent::Text(extract_text(&msg.content)),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             });
         }
 
@@ -237,6 +287,8 @@ impl AnthropicRequest {
             stop,
             presence_penalty: None,
             frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
         }
     }
 }

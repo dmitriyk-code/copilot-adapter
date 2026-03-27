@@ -280,6 +280,8 @@ Request with tools
 
 ### Epic 1: Tool Types and Data Structures
 
+**Status:** COMPLETE
+
 **Goal:** Define all types needed for tool support in both OpenAI and Anthropic formats.
 
 **Prerequisites:** None
@@ -288,25 +290,25 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `src/tools/mod.rs` with module exports | `src/tools/mod.rs` | |
-| E1-T2 | IMPL | Create `src/tools/types.rs` with `Tool`, `Function`, `FunctionParameters` structs matching OpenAI schema | `src/tools/types.rs` | |
-| E1-T3 | IMPL | Add `ToolCall`, `FunctionCall` structs for response tool calls | `src/tools/types.rs` | |
-| E1-T4 | IMPL | Add `tools` and `tool_choice` fields to `ChatCompletionRequest` | `src/copilot/types.rs` | |
-| E1-T5 | IMPL | Add `tool_calls` field to `Message` struct | `src/copilot/types.rs` | |
-| E1-T6 | IMPL | Add `tool_calls` field to `Choice` and `ChunkChoice` for streaming | `src/copilot/types.rs` | |
-| E1-T7 | IMPL | Add Anthropic `ToolDefinition`, `InputSchema` types | `src/anthropic/types.rs` | |
-| E1-T8 | IMPL | Add `ToolUseBlock`, `ToolResultBlock` content block variants | `src/anthropic/types.rs` | |
-| E1-T9 | IMPL | Add `tools` field to `AnthropicRequest` | `src/anthropic/types.rs` | |
-| E1-T10 | IMPL | Export `tools` module from `src/lib.rs` | `src/lib.rs` | |
-| E1-T11 | TEST | Unit tests for Tool type serialization/deserialization | `tests/unit/tools_types_tests.rs` | |
-| E1-T12 | TEST | Unit tests for ToolCall type serialization | `tests/unit/tools_types_tests.rs` | |
-| E1-T13 | TEST | Unit tests for Anthropic tool types | `tests/unit/tools_types_tests.rs` | |
+| E1-T1 | IMPL | Create `src/tools/mod.rs` with module exports | `src/tools/mod.rs` | DONE |
+| E1-T2 | IMPL | Create `src/tools/types.rs` with `Tool`, `Function`, `FunctionParameters` structs matching OpenAI schema | `src/tools/types.rs` | DONE |
+| E1-T3 | IMPL | Add `ToolCall`, `FunctionCall` structs for response tool calls | `src/tools/types.rs` | DONE |
+| E1-T4 | IMPL | Add `tools` and `tool_choice` fields to `ChatCompletionRequest` | `src/copilot/types.rs` | DONE |
+| E1-T5 | IMPL | Add `tool_calls` field to `Message` struct | `src/copilot/types.rs` | DONE |
+| E1-T6 | IMPL | Add `tool_calls` field to `Choice` and `ChunkChoice` for streaming | `src/copilot/types.rs` | DONE |
+| E1-T7 | IMPL | Add Anthropic `ToolDefinition`, `InputSchema` types | `src/anthropic/types.rs` | DONE |
+| E1-T8 | IMPL | Add `ToolUseBlock`, `ToolResultBlock` content block variants | `src/anthropic/types.rs` | DONE |
+| E1-T9 | IMPL | Add `tools` field to `AnthropicRequest` | `src/anthropic/types.rs` | DONE |
+| E1-T10 | IMPL | Export `tools` module from `src/lib.rs` | `src/lib.rs` | DONE |
+| E1-T11 | TEST | Unit tests for Tool type serialization/deserialization | `tests/unit/tools_types_tests.rs` | DONE |
+| E1-T12 | TEST | Unit tests for ToolCall type serialization | `tests/unit/tools_types_tests.rs` | DONE |
+| E1-T13 | TEST | Unit tests for Anthropic tool types | `tests/unit/tools_types_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `Tool` struct deserializes from OpenAI tool definition JSON
-- [ ] `ToolCall` struct serializes to OpenAI tool_calls format
-- [ ] Anthropic `ToolUseBlock` serializes correctly
-- [ ] All types have appropriate `skip_serializing_if` for optional fields
+- [x] `Tool` struct deserializes from OpenAI tool definition JSON
+- [x] `ToolCall` struct serializes to OpenAI tool_calls format
+- [x] Anthropic `ToolUseBlock` serializes correctly
+- [x] All types have appropriate `skip_serializing_if` for optional fields
 
 ---
 
