@@ -283,27 +283,29 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** Epic 1
 
+**Status:** DONE (review fixes v2 applied)
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `src/auth/mod.rs` exporting auth modules | `src/auth/mod.rs` | TO DO |
-| E2-T2 | IMPL | Create `src/auth/device_flow.rs` with `DeviceFlowAuth` struct implementing `initiate()` and `poll_for_token()` per Design §4.2 | `src/auth/device_flow.rs` | TO DO |
-| E2-T3 | IMPL | Implement `get_copilot_token()` in `DeviceFlowAuth` to exchange GitHub token for Copilot token | `src/auth/device_flow.rs` | TO DO |
-| E2-T4 | IMPL | Create `src/storage/mod.rs` and `src/storage/keyring.rs` with `TokenStorage` trait and `KeyringStorage` implementation | `src/storage/mod.rs`, `src/storage/keyring.rs` | TO DO |
-| E2-T5 | IMPL | Implement encrypted file fallback storage when keyring unavailable | `src/storage/file.rs` | TO DO |
-| E2-T6 | IMPL | Create `src/auth/token.rs` with `TokenManager` struct: `get_valid_token()`, `refresh_copilot_token()`, `start_auto_refresh()` per Design §4.4 | `src/auth/token.rs` | TO DO |
-| E2-T7 | IMPL | Wire `auth` CLI command to device flow, display user code and verification URL, store tokens on success | `src/main.rs`, `src/cli.rs` | TO DO |
-| E2-T8 | IMPL | Implement `logout` CLI command to clear stored credentials | `src/main.rs` | TO DO |
-| E2-T9 | TEST | Unit test: token expiry calculation correct; `is_valid()` returns false when expired | `tests/unit/token_tests.rs` | TO DO |
-| E2-T10 | TEST | Unit test: keyring storage round-trip (store → retrieve → delete) | `tests/unit/storage_tests.rs` | TO DO |
-| E2-T11 | TEST | Integration test: mock GitHub OAuth server; full device flow completes | `tests/integration/auth_tests.rs` | TO DO |
+| E2-T1 | IMPL | Create `src/auth/mod.rs` exporting auth modules | `src/auth/mod.rs` | DONE |
+| E2-T2 | IMPL | Create `src/auth/device_flow.rs` with `DeviceFlowAuth` struct implementing `initiate()` and `poll_for_token()` per Design §4.2 | `src/auth/device_flow.rs` | DONE |
+| E2-T3 | IMPL | Implement `get_copilot_token()` in `DeviceFlowAuth` to exchange GitHub token for Copilot token | `src/auth/device_flow.rs` | DONE |
+| E2-T4 | IMPL | Create `src/storage/mod.rs` and `src/storage/keyring.rs` with `TokenStorage` trait and `KeyringStorage` implementation | `src/storage/mod.rs`, `src/storage/keyring.rs` | DONE |
+| E2-T5 | IMPL | Implement encrypted file fallback storage when keyring unavailable | `src/storage/file.rs` | DONE |
+| E2-T6 | IMPL | Create `src/auth/token.rs` with `TokenManager` struct: `get_valid_token()`, `refresh_copilot_token()`, `start_auto_refresh()` per Design §4.4 | `src/auth/token.rs` | DONE |
+| E2-T7 | IMPL | Wire `auth` CLI command to device flow, display user code and verification URL, store tokens on success | `src/main.rs`, `src/cli.rs` | DONE |
+| E2-T8 | IMPL | Implement `logout` CLI command to clear stored credentials | `src/main.rs` | DONE |
+| E2-T9 | TEST | Unit test: token expiry calculation correct; `is_valid()` returns false when expired | `tests/unit/token_tests.rs` | DONE |
+| E2-T10 | TEST | Unit test: keyring storage round-trip (store → retrieve → delete) | `tests/unit/storage_tests.rs` | DONE |
+| E2-T11 | TEST | Integration test: mock GitHub OAuth server; full device flow completes | `tests/integration/auth_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `copilot-adapter auth` prompts with verification URL and user code
-- [ ] After browser authorization, tokens stored in OS keyring
-- [ ] `copilot-adapter logout` removes stored tokens
-- [ ] Token refresh happens automatically before expiry
+- [x] `copilot-adapter auth` prompts with verification URL and user code
+- [x] After browser authorization, tokens stored in OS keyring
+- [x] `copilot-adapter logout` removes stored tokens
+- [x] Token refresh happens automatically before expiry
 
 ---
 
