@@ -348,24 +348,26 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** Epic 3
 
+**Status:** DONE (all 76 tests pass — 52 unit + 24 integration; zero warnings)
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `ChatCompletionChunk`, `ChunkChoice`, `ChunkDelta` types to `copilot/types.rs` for streaming response format | `src/copilot/types.rs` | TO DO |
-| E4-T2 | IMPL | Implement `stream_chat_completion()` in `CopilotClient` returning `impl Stream<Item = Result<ChatCompletionChunk>>` | `src/copilot/client.rs` | TO DO |
-| E4-T3 | IMPL | Implement SSE parsing: buffer bytes, split on `\n\n`, extract `data:` lines, handle `[DONE]` marker | `src/copilot/client.rs` | TO DO |
-| E4-T4 | IMPL | Update `chat_completions` handler to branch on `stream` field; return `Sse::new(stream)` for streaming | `src/handlers/chat.rs` | TO DO |
-| E4-T5 | IMPL | Add `KeepAlive` to SSE response to prevent connection timeout | `src/handlers/chat.rs` | TO DO |
-| E4-T6 | TEST | Unit test: SSE parser handles complete messages, partial buffers, and `[DONE]` marker | `tests/unit/sse_tests.rs` | TO DO |
-| E4-T7 | TEST | Integration test: mock Copilot API with SSE; verify all chunks received in order | `tests/integration/streaming_tests.rs` | TO DO |
-| E4-T8 | TEST | Integration test: concurrent streaming requests (5 simultaneous) complete successfully | `tests/integration/streaming_tests.rs` | TO DO |
+| E4-T1 | IMPL | Add `ChatCompletionChunk`, `ChunkChoice`, `ChunkDelta` types to `copilot/types.rs` for streaming response format | `src/copilot/types.rs` | DONE |
+| E4-T2 | IMPL | Implement `stream_chat_completion()` in `CopilotClient` returning `impl Stream<Item = Result<ChatCompletionChunk>>` | `src/copilot/client.rs` | DONE |
+| E4-T3 | IMPL | Implement SSE parsing: buffer bytes, split on `\n\n`, extract `data:` lines, handle `[DONE]` marker | `src/copilot/client.rs` | DONE |
+| E4-T4 | IMPL | Update `chat_completions` handler to branch on `stream` field; return `Sse::new(stream)` for streaming | `src/handlers/chat.rs` | DONE |
+| E4-T5 | IMPL | Add `KeepAlive` to SSE response to prevent connection timeout | `src/handlers/chat.rs` | DONE |
+| E4-T6 | TEST | Unit test: SSE parser handles complete messages, partial buffers, and `[DONE]` marker | `tests/unit/sse_tests.rs` | DONE |
+| E4-T7 | TEST | Integration test: mock Copilot API with SSE; verify all chunks received in order | `tests/integration/streaming_tests.rs` | DONE |
+| E4-T8 | TEST | Integration test: concurrent streaming requests (5 simultaneous) complete successfully | `tests/integration/streaming_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `POST /v1/chat/completions` with `stream: true` returns SSE events
-- [ ] Each chunk has `data:` prefix and valid JSON
-- [ ] Stream ends with `data: [DONE]`
-- [ ] Multiple concurrent streams handled correctly
+- [x] `POST /v1/chat/completions` with `stream: true` returns SSE events
+- [x] Each chunk has `data:` prefix and valid JSON
+- [x] Stream ends with `data: [DONE]`
+- [x] Multiple concurrent streams handled correctly
 
 ---
 

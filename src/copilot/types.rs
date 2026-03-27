@@ -76,3 +76,33 @@ pub struct ModelList {
     pub object: String,
     pub data: Vec<Model>,
 }
+
+// --- Streaming (SSE) types ---
+
+/// Delta content within a streaming chunk choice.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+/// A single choice in a streaming chat completion chunk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkChoice {
+    pub index: u32,
+    pub delta: ChunkDelta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+}
+
+/// A streaming chat completion chunk (OpenAI-compatible SSE format).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionChunk {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<ChunkChoice>,
+}
