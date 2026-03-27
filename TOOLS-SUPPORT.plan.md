@@ -314,6 +314,8 @@ Request with tools
 
 ### Epic 2: Tool Injection
 
+**Status:** COMPLETE
+
 **Goal:** Implement system prompt injection with tool definitions.
 
 **Prerequisites:** Epic 1
@@ -322,22 +324,22 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `src/tools/injector.rs` with module structure | `src/tools/injector.rs` | |
-| E2-T2 | IMPL | Implement `format_tools_as_json()` to convert `Vec<Tool>` to JSON prompt | `src/tools/injector.rs` | |
-| E2-T3 | IMPL | Define `TOOL_USAGE_INSTRUCTIONS` constant with call format instructions | `src/tools/injector.rs` | |
-| E2-T4 | IMPL | Implement `inject_tools_into_messages()` to prepend/append to system message | `src/tools/injector.rs` | |
-| E2-T5 | IMPL | Handle case where no system message exists (create one) | `src/tools/injector.rs` | |
-| E2-T6 | IMPL | Implement `translate_tool_messages()` to handle `tool` role messages | `src/tools/injector.rs` | |
-| E2-T7 | TEST | Unit test: tools formatted as valid JSON | `tests/unit/tools_injector_tests.rs` | |
-| E2-T8 | TEST | Unit test: injection prepends to existing system message | `tests/unit/tools_injector_tests.rs` | |
-| E2-T9 | TEST | Unit test: injection creates system message if missing | `tests/unit/tools_injector_tests.rs` | |
-| E2-T10 | TEST | Unit test: tool role messages translated to user messages with results | `tests/unit/tools_injector_tests.rs` | |
+| E2-T1 | IMPL | Create `src/tools/injector.rs` with module structure | `src/tools/injector.rs` | DONE |
+| E2-T2 | IMPL | Implement `format_tools_as_json()` to convert `Vec<Tool>` to JSON prompt | `src/tools/injector.rs` | DONE |
+| E2-T3 | IMPL | Define `TOOL_USAGE_INSTRUCTIONS` constant with call format instructions | `src/tools/injector.rs` | DONE |
+| E2-T4 | IMPL | Implement `inject_tools_into_messages()` to prepend/append to system message | `src/tools/injector.rs` | DONE |
+| E2-T5 | IMPL | Handle case where no system message exists (create one) | `src/tools/injector.rs` | DONE |
+| E2-T6 | IMPL | Implement `translate_tool_messages()` to handle `tool` role messages | `src/tools/injector.rs` | DONE |
+| E2-T7 | TEST | Unit test: tools formatted as valid JSON | `tests/unit/tools_injector_tests.rs` | DONE |
+| E2-T8 | TEST | Unit test: injection prepends to existing system message | `tests/unit/tools_injector_tests.rs` | DONE |
+| E2-T9 | TEST | Unit test: injection creates system message if missing | `tests/unit/tools_injector_tests.rs` | DONE |
+| E2-T10 | TEST | Unit test: tool role messages translated to user messages with results | `tests/unit/tools_injector_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Tool definitions formatted as readable JSON in prompt
-- [ ] Instructions tell model how to format tool calls
-- [ ] Existing system message content preserved
-- [ ] Tool result messages converted to appropriate format
+- [x] Tool definitions formatted as readable JSON in prompt
+- [x] Instructions tell model how to format tool calls
+- [x] Existing system message content preserved
+- [x] Tool result messages converted to appropriate format
 
 ---
 
