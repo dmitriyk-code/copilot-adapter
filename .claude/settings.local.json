@@ -9,7 +9,10 @@
       "WebFetch(domain:platform.openai.com)",
       "WebFetch(domain:docs.litellm.ai)",
       "Bash(cargo build:*)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Read(//home/dmitriyk/dev/**)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }

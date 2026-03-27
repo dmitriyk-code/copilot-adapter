@@ -18,6 +18,33 @@ pub enum ContentBlockInput {
     Blocks(Vec<ContentBlock>),
 }
 
+/// System prompt input — either a plain string or an array of content blocks.
+/// The Anthropic API accepts both formats for the `system` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SystemInput {
+    /// Plain text string system prompt.
+    Text(String),
+    /// Array of typed content blocks (e.g. `[{"type":"text","text":"..."}]`).
+    Blocks(Vec<ContentBlock>),
+}
+
+impl SystemInput {
+    /// Extract the plain text content from the system input.
+    pub fn to_text(&self) -> String {
+        match self {
+            SystemInput::Text(s) => s.clone(),
+            SystemInput::Blocks(blocks) => blocks
+                .iter()
+                .map(|b| match b {
+                    ContentBlock::Text { text } => text.as_str(),
+                })
+                .collect::<Vec<_>>()
+                .join(""),
+        }
+    }
+}
+
 /// A single content block within a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -40,7 +67,7 @@ pub struct AnthropicRequest {
     pub max_tokens: u32,
     pub messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
+    pub system: Option<SystemInput>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -177,7 +204,7 @@ impl AnthropicRequest {
         if let Some(system) = &self.system {
             messages.push(Message {
                 role: "system".to_string(),
-                content: system.clone(),
+                content: system.to_text(),
                 name: None,
             });
         }
@@ -312,5 +339,34 @@ mod tests {
             ContentBlock::Text { text: "world".into() },
         ]);
         assert_eq!(extract_text(&input), "Hello world");
+    }
+
+    #[test]
+    fn system_input_from_string() {
+        let input = SystemInput::Text("You are helpful".into());
+        assert_eq!(input.to_text(), "You are helpful");
+    }
+
+    #[test]
+    fn system_input_from_blocks() {
+        let input = SystemInput::Blocks(vec![
+            ContentBlock::Text { text: "You are ".into() },
+            ContentBlock::Text { text: "helpful".into() },
+        ]);
+        assert_eq!(input.to_text(), "You are helpful");
+    }
+
+    #[test]
+    fn deserialize_system_as_string() {
+        let json = r#"{"model":"claude-3","max_tokens":1024,"messages":[],"system":"Hello"}"#;
+        let req: AnthropicRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.system.unwrap().to_text(), "Hello");
+    }
+
+    #[test]
+    fn deserialize_system_as_blocks() {
+        let json = r#"{"model":"claude-3","max_tokens":1024,"messages":[],"system":[{"type":"text","text":"Hello"}]}"#;
+        let req: AnthropicRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.system.unwrap().to_text(), "Hello");
     }
 }
