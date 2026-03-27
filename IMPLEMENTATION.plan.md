@@ -253,25 +253,27 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** None (foundational epic)
 
+**Status:** DONE
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `Cargo.toml` with all dependencies from Design §3.3; configure release profile for size optimization | `Cargo.toml` | TO DO |
-| E1-T2 | IMPL | Create `src/main.rs` entry point with tokio async main, dispatch to CLI commands | `src/main.rs` | TO DO |
-| E1-T3 | IMPL | Create `src/cli.rs` with clap derive macros defining all commands and flags from Design §2.2.1 | `src/cli.rs` | TO DO |
-| E1-T4 | IMPL | Create `src/server.rs` with axum Router setup, placeholder routes, CORS and tracing layers | `src/server.rs` | TO DO |
-| E1-T5 | IMPL | Create `src/handlers/mod.rs` exporting handler modules | `src/handlers/mod.rs` | TO DO |
-| E1-T6 | IMPL | Create `src/handlers/health.rs` returning `{"status": "ok"}` | `src/handlers/health.rs` | TO DO |
-| E1-T7 | IMPL | Create `src/error.rs` with `AppError` enum and `IntoResponse` impl per Design §8.1 | `src/error.rs` | TO DO |
-| E1-T8 | TEST | Unit test: CLI parses all commands and flags correctly | `tests/unit/cli_tests.rs` | TO DO |
-| E1-T9 | TEST | Integration test: server starts, `/health` returns 200 OK | `tests/integration/server_tests.rs` | TO DO |
+| E1-T1 | IMPL | Create `Cargo.toml` with all dependencies from Design §3.3; configure release profile for size optimization | `Cargo.toml` | DONE |
+| E1-T2 | IMPL | Create `src/main.rs` entry point with tokio async main, dispatch to CLI commands | `src/main.rs` | DONE |
+| E1-T3 | IMPL | Create `src/cli.rs` with clap derive macros defining all commands and flags from Design §2.2.1 | `src/cli.rs` | DONE |
+| E1-T4 | IMPL | Create `src/server.rs` with axum Router setup, placeholder routes, CORS and tracing layers | `src/server.rs` | DONE |
+| E1-T5 | IMPL | Create `src/handlers/mod.rs` exporting handler modules | `src/handlers/mod.rs` | DONE |
+| E1-T6 | IMPL | Create `src/handlers/health.rs` returning `{"status": "ok"}` | `src/handlers/health.rs` | DONE |
+| E1-T7 | IMPL | Create `src/error.rs` with `AppError` enum and `IntoResponse` impl per Design §8.1 | `src/error.rs` | DONE |
+| E1-T8 | TEST | Unit test: CLI parses all commands and flags correctly | `tests/unit/cli_tests.rs` | DONE |
+| E1-T9 | TEST | Integration test: server starts, `/health` returns 200 OK | `tests/integration/server_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `cargo build` compiles without errors
-- [ ] `cargo run -- --help` shows all commands and flags
-- [ ] `cargo run -- start` starts server on default port
-- [ ] `curl localhost:8787/health` returns `{"status": "ok"}`
+- [x] `cargo build` compiles without errors
+- [x] `cargo run -- --help` shows all commands and flags
+- [x] `cargo run -- start` starts server on default port
+- [x] `curl localhost:8787/health` returns `{"status": "ok"}`
 
 ---
 
