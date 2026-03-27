@@ -421,28 +421,39 @@ Request with tools
 
 **Prerequisites:** Epics 1, 2, 3, Epic 4 (for config)
 
+**Status:** COMPLETE
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | In `messages` handler: check for tools in request | `src/handlers/messages.rs` | |
-| E5-T2 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/messages.rs` | |
-| E5-T3 | IMPL | Translate Anthropic `tools` to internal Tool format | `src/anthropic/types.rs` | |
-| E5-T4 | IMPL | Inject tools into translated OpenAI request | `src/handlers/messages.rs` | |
-| E5-T5 | IMPL | Parse tool calls from response | `src/handlers/messages.rs` | |
-| E5-T6 | IMPL | Convert `ToolCall` to Anthropic `ToolUseBlock` content | `src/anthropic/types.rs` | |
-| E5-T7 | IMPL | Return tool_use blocks in Anthropic response content array | `src/handlers/messages.rs` | |
-| E5-T8 | IMPL | Handle `tool_result` content blocks in request (translate to tool role message) | `src/anthropic/types.rs` | |
-| E5-T9 | TEST | Integration test: Anthropic request with tools and flag disabled returns 400 | `tests/integration/tools_messages_tests.rs` | |
-| E5-T10 | TEST | Integration test: Anthropic request with tools succeeds | `tests/integration/tools_messages_tests.rs` | |
-| E5-T11 | TEST | Integration test: tool_use block in response | `tests/integration/tools_messages_tests.rs` | |
-| E5-T12 | TEST | Integration test: tool_result in request handled | `tests/integration/tools_messages_tests.rs` | |
+| E5-T1 | IMPL | In `messages` handler: check for tools in request | `src/handlers/messages.rs` | DONE |
+| E5-T2 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/messages.rs` | DONE |
+| E5-T3 | IMPL | Translate Anthropic `tools` to internal Tool format | `src/anthropic/types.rs` | DONE |
+| E5-T4 | IMPL | Inject tools into translated OpenAI request | `src/handlers/messages.rs` | DONE |
+| E5-T5 | IMPL | Parse tool calls from response | `src/handlers/messages.rs` | DONE |
+| E5-T6 | IMPL | Convert `ToolCall` to Anthropic `ToolUseBlock` content | `src/anthropic/types.rs` | DONE |
+| E5-T7 | IMPL | Return tool_use blocks in Anthropic response content array | `src/handlers/messages.rs` | DONE |
+| E5-T8 | IMPL | Handle `tool_result` content blocks in request (translate to tool role message) | `src/anthropic/types.rs` | DONE |
+| E5-T9 | TEST | Integration test: Anthropic request with tools and flag disabled returns 400 | `tests/integration/tools_messages_tests.rs` | DONE |
+| E5-T10 | TEST | Integration test: Anthropic request with tools succeeds | `tests/integration/tools_messages_tests.rs` | DONE |
+| E5-T11 | TEST | Integration test: tool_use block in response | `tests/integration/tools_messages_tests.rs` | DONE |
+| E5-T12 | TEST | Integration test: tool_result in request handled | `tests/integration/tools_messages_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Anthropic `tools` array accepted and processed
-- [ ] Tool calls returned as `tool_use` content blocks
-- [ ] `tool_result` blocks translated and forwarded correctly
-- [ ] Response `stop_reason` is `"tool_use"` when tool called
+- [x] Anthropic `tools` array accepted and processed
+- [x] Tool calls returned as `tool_use` content blocks
+- [x] `tool_result` blocks translated and forwarded correctly
+- [x] Response `stop_reason` is `"tool_use"` when tool called
+
+**Code Review Fixes (2026-03-27):**
+- Added `tracing::warn!` and TODO comment when streaming with tools enabled (streaming tool call parsing not yet supported)
+- Added doc comment to `handle_streaming()` documenting the known streaming+tools limitation
+- Added `tool_choice` field (`Option<serde_json::Value>`) to `AnthropicRequest` — accepted but silently ignored with full documentation
+- Added comment documenting that assistant messages with `ToolUse` content blocks are silently reduced to text-only in `to_chat_completion_request()`
+- Added comment explaining ordering decision when `tool_result` and text blocks coexist
+- Added `debug_assert_eq!` in `ResponseContentBlock::block_type()` to catch enum/field mismatches in debug builds
+- Added `tool_choice: None` to all unit test struct initializers; new test `anthropic_request_with_tool_choice_is_accepted_and_ignored`
 
 ---
 

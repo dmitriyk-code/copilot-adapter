@@ -224,8 +224,8 @@ async fn messages_non_streaming_returns_anthropic_format() {
     assert_eq!(resp.response_type, "message");
     assert_eq!(resp.role, "assistant");
     assert_eq!(resp.content.len(), 1);
-    assert_eq!(resp.content[0].block_type, "text");
-    assert_eq!(resp.content[0].text, "Hello from mock Copilot!");
+    assert_eq!(resp.content[0].block_type(), "text");
+    assert_eq!(resp.content[0].text_content(), "Hello from mock Copilot!");
     assert_eq!(resp.stop_reason, Some("end_turn".to_string()));
     assert_eq!(resp.usage.input_tokens, 10);
     assert_eq!(resp.usage.output_tokens, 5);
@@ -269,7 +269,7 @@ async fn messages_non_streaming_with_system_prompt() {
         .unwrap();
     let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(resp.response_type, "message");
-    assert_eq!(resp.content[0].text, "Hello from mock Copilot!");
+    assert_eq!(resp.content[0].text_content(), "Hello from mock Copilot!");
 }
 
 #[tokio::test]

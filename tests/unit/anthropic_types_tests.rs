@@ -50,6 +50,21 @@ fn anthropic_request_full_deserializes() {
 }
 
 #[test]
+fn anthropic_request_with_tool_choice_is_accepted_and_ignored() {
+    let json = serde_json::json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "tools": [{"name": "get_weather", "description": "Get weather", "input_schema": {"type": "object"}}],
+        "tool_choice": {"type": "tool", "name": "get_weather"}
+    });
+    let req: AnthropicRequest = serde_json::from_value(json).unwrap();
+    // tool_choice is accepted (not rejected) but will be ignored by the adapter
+    assert!(req.tool_choice.is_some());
+    assert_eq!(req.tool_choice.as_ref().unwrap()["type"], "tool");
+}
+
+#[test]
 fn anthropic_request_with_content_blocks_deserializes() {
     let json = serde_json::json!({
         "model": "claude-sonnet-4-20250514",
@@ -91,6 +106,7 @@ fn anthropic_request_roundtrip() {
         top_p: None,
         stop_sequences: None,
         tools: None,
+        tool_choice: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
@@ -104,10 +120,7 @@ fn anthropic_response_serializes_correctly() {
         id: "msg_abc123".to_string(),
         response_type: "message".to_string(),
         role: "assistant".to_string(),
-        content: vec![ResponseContentBlock {
-            block_type: "text".to_string(),
-            text: "Hello!".to_string(),
-        }],
+        content: vec![ResponseContentBlock::text("Hello!".to_string())],
         model: "claude-sonnet-4-20250514".to_string(),
         stop_reason: Some("end_turn".to_string()),
         stop_sequence: None,
@@ -134,10 +147,7 @@ fn anthropic_response_roundtrip() {
         id: "msg_test".to_string(),
         response_type: "message".to_string(),
         role: "assistant".to_string(),
-        content: vec![ResponseContentBlock {
-            block_type: "text".to_string(),
-            text: "Hi".to_string(),
-        }],
+        content: vec![ResponseContentBlock::text("Hi".to_string())],
         model: "claude-sonnet-4-20250514".to_string(),
         stop_reason: Some("end_turn".to_string()),
         stop_sequence: None,
@@ -149,7 +159,7 @@ fn anthropic_response_roundtrip() {
     let json_str = serde_json::to_string(&resp).unwrap();
     let deserialized: AnthropicResponse = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.id, "msg_test");
-    assert_eq!(deserialized.content[0].text, "Hi");
+    assert_eq!(deserialized.content[0].text_content(), "Hi");
 }
 
 #[test]
@@ -216,6 +226,7 @@ fn request_translation_with_system_prepends_system_message() {
         top_p: None,
         stop_sequences: None,
         tools: None,
+        tool_choice: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -241,6 +252,7 @@ fn request_translation_without_system_no_extra_message() {
         top_p: None,
         stop_sequences: None,
         tools: None,
+        tool_choice: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -270,6 +282,7 @@ fn request_translation_extracts_text_from_content_blocks() {
         top_p: None,
         stop_sequences: None,
         tools: None,
+        tool_choice: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -291,6 +304,7 @@ fn request_translation_maps_fields() {
         top_p: Some(0.9),
         stop_sequences: Some(vec!["END".to_string()]),
         tools: None,
+        tool_choice: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -330,6 +344,7 @@ fn request_translation_multiple_messages() {
         top_p: None,
         stop_sequences: None,
         tools: None,
+        tool_choice: None,
     };
 
     let openai = req.to_chat_completion_request();
@@ -435,8 +450,8 @@ fn response_translation_wraps_content_in_blocks() {
     assert_eq!(anthropic.response_type, "message");
     assert_eq!(anthropic.role, "assistant");
     assert_eq!(anthropic.content.len(), 1);
-    assert_eq!(anthropic.content[0].block_type, "text");
-    assert_eq!(anthropic.content[0].text, "Hello from Copilot!");
+    assert_eq!(anthropic.content[0].block_type(), "text");
+    assert_eq!(anthropic.content[0].text_content(), "Hello from Copilot!");
 }
 
 #[test]

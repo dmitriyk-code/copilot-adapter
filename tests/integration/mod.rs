@@ -9,3 +9,4 @@ mod server_tests;
 mod streaming_tests;
 mod test_helpers;
 mod tools_chat_tests;
+mod tools_messages_tests;
