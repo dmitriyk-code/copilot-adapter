@@ -239,7 +239,7 @@ async fn chat_completion_non_streaming_returns_response() {
     assert_eq!(resp.model, "gpt-4");
     assert_eq!(resp.choices.len(), 1);
     assert_eq!(resp.choices[0].message.role, "assistant");
-    assert_eq!(resp.choices[0].message.content, "Hello from mock Copilot!");
+    assert_eq!(resp.choices[0].message.content.as_text(), "Hello from mock Copilot!");
     assert_eq!(resp.choices[0].finish_reason, Some("stop".to_string()));
     assert!(resp.usage.is_some());
 }

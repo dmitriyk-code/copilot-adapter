@@ -1,6 +1,6 @@
 use copilot_adapter::anthropic::types::*;
 use copilot_adapter::copilot::types::{
-    ChatCompletionResponse, Choice, Message, Usage as OpenAIUsage,
+    ChatCompletionResponse, Choice, Message, MessageContent, Usage as OpenAIUsage,
 };
 
 // ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ fn anthropic_request_full_deserializes() {
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.model, "claude-sonnet-4-20250514");
     assert_eq!(req.max_tokens, 4096);
-    assert_eq!(req.system, Some("You are a helpful assistant.".to_string()));
+    assert_eq!(req.system.as_ref().map(|s| s.to_text()), Some("You are a helpful assistant.".to_string()));
     assert_eq!(req.messages.len(), 3);
     assert_eq!(req.stream, Some(true));
     assert_eq!(req.temperature, Some(0.7));
@@ -84,7 +84,7 @@ fn anthropic_request_roundtrip() {
             role: "user".to_string(),
             content: ContentBlockInput::Text("Hello".to_string()),
         }],
-        system: Some("Be helpful".to_string()),
+        system: Some(SystemInput::Text("Be helpful".to_string())),
         stream: Some(false),
         temperature: Some(0.5),
         top_p: None,
@@ -93,7 +93,7 @@ fn anthropic_request_roundtrip() {
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.model, "claude-sonnet-4-20250514");
-    assert_eq!(deserialized.system, Some("Be helpful".to_string()));
+    assert_eq!(deserialized.system.as_ref().map(|s| s.to_text()), Some("Be helpful".to_string()));
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn request_translation_with_system_prepends_system_message() {
             role: "user".to_string(),
             content: ContentBlockInput::Text("Hello".to_string()),
         }],
-        system: Some("You are a helpful assistant.".to_string()),
+        system: Some(SystemInput::Text("You are a helpful assistant.".to_string())),
         stream: None,
         temperature: None,
         top_p: None,
@@ -218,9 +218,9 @@ fn request_translation_with_system_prepends_system_message() {
     let openai = req.to_chat_completion_request();
     assert_eq!(openai.messages.len(), 2);
     assert_eq!(openai.messages[0].role, "system");
-    assert_eq!(openai.messages[0].content, "You are a helpful assistant.");
+    assert_eq!(openai.messages[0].content.as_text(), "You are a helpful assistant.");
     assert_eq!(openai.messages[1].role, "user");
-    assert_eq!(openai.messages[1].content, "Hello");
+    assert_eq!(openai.messages[1].content.as_text(), "Hello");
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn request_translation_extracts_text_from_content_blocks() {
     };
 
     let openai = req.to_chat_completion_request();
-    assert_eq!(openai.messages[0].content, "Hello world!");
+    assert_eq!(openai.messages[0].content.as_text(), "Hello world!");
 }
 
 #[test]
@@ -318,7 +318,7 @@ fn request_translation_multiple_messages() {
                 content: ContentBlockInput::Text("How are you?".to_string()),
             },
         ],
-        system: Some("Be concise.".to_string()),
+        system: Some(SystemInput::Text("Be concise.".to_string())),
         stream: None,
         temperature: None,
         top_p: None,
@@ -328,7 +328,7 @@ fn request_translation_multiple_messages() {
     let openai = req.to_chat_completion_request();
     assert_eq!(openai.messages.len(), 4);
     assert_eq!(openai.messages[0].role, "system");
-    assert_eq!(openai.messages[0].content, "Be concise.");
+    assert_eq!(openai.messages[0].content.as_text(), "Be concise.");
     assert_eq!(openai.messages[1].role, "user");
     assert_eq!(openai.messages[2].role, "assistant");
     assert_eq!(openai.messages[3].role, "user");
@@ -349,7 +349,7 @@ fn response_translation_maps_stop_reason_stop() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Hello!".to_string(),
+                content: MessageContent::Text("Hello!".to_string()),
                 name: None,
             },
             finish_reason: Some("stop".to_string()),
@@ -358,6 +358,7 @@ fn response_translation_maps_stop_reason_stop() {
             prompt_tokens: 10,
             completion_tokens: 5,
             total_tokens: 15,
+            ..Default::default()
         }),
     };
 
@@ -376,7 +377,7 @@ fn response_translation_maps_stop_reason_length() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Truncated...".to_string(),
+                content: MessageContent::Text("Truncated...".to_string()),
                 name: None,
             },
             finish_reason: Some("length".to_string()),
@@ -385,6 +386,7 @@ fn response_translation_maps_stop_reason_length() {
             prompt_tokens: 100,
             completion_tokens: 4096,
             total_tokens: 4196,
+            ..Default::default()
         }),
     };
 
@@ -403,7 +405,7 @@ fn response_translation_wraps_content_in_blocks() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Hello from Copilot!".to_string(),
+                content: MessageContent::Text("Hello from Copilot!".to_string()),
                 name: None,
             },
             finish_reason: Some("stop".to_string()),
@@ -412,6 +414,7 @@ fn response_translation_wraps_content_in_blocks() {
             prompt_tokens: 10,
             completion_tokens: 5,
             total_tokens: 15,
+            ..Default::default()
         }),
     };
 
@@ -434,7 +437,7 @@ fn response_translation_maps_usage() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Hi".to_string(),
+                content: MessageContent::Text("Hi".to_string()),
                 name: None,
             },
             finish_reason: Some("stop".to_string()),
@@ -443,6 +446,7 @@ fn response_translation_maps_usage() {
             prompt_tokens: 42,
             completion_tokens: 15,
             total_tokens: 57,
+            ..Default::default()
         }),
     };
 
@@ -462,7 +466,7 @@ fn response_translation_id_format() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Hi".to_string(),
+                content: MessageContent::Text("Hi".to_string()),
                 name: None,
             },
             finish_reason: Some("stop".to_string()),
@@ -471,6 +475,7 @@ fn response_translation_id_format() {
             prompt_tokens: 5,
             completion_tokens: 1,
             total_tokens: 6,
+            ..Default::default()
         }),
     };
 
@@ -489,7 +494,7 @@ fn response_translation_no_usage_defaults_to_zero() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Hello".to_string(),
+                content: MessageContent::Text("Hello".to_string()),
                 name: None,
             },
             finish_reason: Some("stop".to_string()),

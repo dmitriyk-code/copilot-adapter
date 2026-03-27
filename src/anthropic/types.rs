@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::copilot::types::{
-    ChatCompletionRequest, ChatCompletionResponse, Message,
+    ChatCompletionRequest, ChatCompletionResponse, Message, MessageContent,
 };
 
 // ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ impl AnthropicRequest {
         if let Some(system) = &self.system {
             messages.push(Message {
                 role: "system".to_string(),
-                content: system.to_text(),
+                content: MessageContent::Text(system.to_text()),
                 name: None,
             });
         }
@@ -213,7 +213,7 @@ impl AnthropicRequest {
         for msg in &self.messages {
             messages.push(Message {
                 role: msg.role.clone(),
-                content: extract_text(&msg.content),
+                content: MessageContent::Text(extract_text(&msg.content)),
                 name: None,
             });
         }
@@ -261,7 +261,7 @@ impl ChatCompletionResponse {
         let content_text = self
             .choices
             .first()
-            .map(|c| c.message.content.clone())
+            .map(|c| c.message.content.as_text())
             .unwrap_or_default();
 
         let stop_reason = self

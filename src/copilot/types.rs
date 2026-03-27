@@ -1,10 +1,44 @@
 use serde::{Deserialize, Serialize};
 
+/// Content block in a message (used by Claude models).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Text { text: String },
+    #[serde(other)]
+    Other,
+}
+
+/// Message content can be a string or an array of content blocks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MessageContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+}
+
+impl MessageContent {
+    /// Extract the text content, joining multiple blocks if necessary.
+    pub fn as_text(&self) -> String {
+        match self {
+            MessageContent::Text(s) => s.clone(),
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    ContentBlock::Other => None,
+                })
+                .collect::<Vec<_>>()
+                .join(""),
+        }
+    }
+}
+
 /// A chat message in OpenAI format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
@@ -35,6 +69,8 @@ pub struct ChatCompletionRequest {
 /// A single choice in a chat completion response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Choice {
+    /// Index of this choice. Optional because Claude models via Copilot API omit it.
+    #[serde(default)]
     pub index: u32,
     pub message: Message,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,23 +78,35 @@ pub struct Choice {
 }
 
 /// Token usage statistics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Usage {
+    #[serde(default)]
     pub prompt_tokens: u32,
+    #[serde(default)]
     pub completion_tokens: u32,
+    #[serde(default)]
     pub total_tokens: u32,
+    /// Additional token details (e.g., cached_tokens). Ignored but accepted.
+    #[serde(flatten, default)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// OpenAI-compatible chat completion response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionResponse {
     pub id: String,
+    /// Object type. Optional because Claude models via Copilot API omit it.
+    #[serde(default = "default_object_type")]
     pub object: String,
     pub created: i64,
     pub model: String,
     pub choices: Vec<Choice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+}
+
+fn default_object_type() -> String {
+    "chat.completion".to_string()
 }
 
 /// A model object in OpenAI format.

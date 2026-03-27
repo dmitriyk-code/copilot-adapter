@@ -135,10 +135,27 @@ impl CopilotClient {
                             request_id = %request_id,
                             "Copilot API request succeeded"
                         );
-                        return response
-                            .json::<ChatCompletionResponse>()
-                            .await
+                        // Read the body as text first for debugging
+                        let body_text = response.text().await.map_err(|e| {
+                            AppError::Internal(format!(
+                                "Failed to read Copilot API response body: {e}"
+                            ))
+                        })?;
+
+                        tracing::trace!(
+                            request_id = %request_id,
+                            body = %body_text,
+                            "Copilot API response body"
+                        );
+
+                        return serde_json::from_str::<ChatCompletionResponse>(&body_text)
                             .map_err(|e| {
+                                tracing::error!(
+                                    request_id = %request_id,
+                                    error = %e,
+                                    body = %body_text,
+                                    "Failed to parse Copilot API response"
+                                );
                                 AppError::Internal(format!(
                                     "Failed to parse Copilot API response: {e}"
                                 ))
