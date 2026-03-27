@@ -1,5 +1,6 @@
 mod anthropic_types_tests;
 mod cli_tests;
+mod copilot_client_tests;
 mod error_tests;
 mod models_cache_tests;
 mod sse_tests;

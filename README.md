@@ -296,6 +296,29 @@ curl -X POST http://127.0.0.1:6767/v1/chat/completions \
 - **Increased token usage:** Tool definitions are injected into the system prompt, increasing the token count.
 - **Streaming support:** Tool calls in streaming responses are detected via buffering — the adapter buffers the full response, parses tool calls, then replays modified chunks.
 
+### Debugging Tool Issues
+
+If web search, web fetch, or other tools aren't working as expected, see the comprehensive debugging guide:
+
+**→ [docs/debugging-tool-calls.md](docs/debugging-tool-calls.md)**
+
+Quick start:
+```bash
+# Linux/macOS
+./debug-responses.sh
+
+# Windows
+debug-responses.bat
+```
+
+This will run the adapter with trace-level logging to capture:
+- What model is being requested
+- What tools are being injected
+- The raw response content from Copilot
+- Whether tool calls are being parsed
+
+See the debugging guide for how to interpret the logs and troubleshoot common issues.
+
 ## Configuration
 
 ### Port and Host

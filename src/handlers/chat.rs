@@ -150,6 +150,37 @@ pub async fn chat_completions(
         .send_chat_completion(&copilot_token, &upstream_request)
         .await?;
 
+    // Log the raw response for debugging tool call issues
+    if state.config.experimental_tools {
+        // TRACE level: dump full response JSON to see exact structure
+        if tracing::enabled!(tracing::Level::TRACE) {
+            if let Ok(json) = serde_json::to_string_pretty(&response) {
+                tracing::trace!(response_json = %json, "Full response JSON from Copilot");
+            }
+        }
+
+        for (idx, choice) in response.choices.iter().enumerate() {
+            let content_text = choice.message.content.as_text();
+            tracing::debug!(
+                choice_index = idx,
+                content_length = content_text.len(),
+                content_preview = %content_text.chars().take(200).collect::<String>(),
+                finish_reason = ?choice.finish_reason,
+                existing_tool_calls = ?choice.message.tool_calls,
+                "Raw response from Copilot (chat endpoint)"
+            );
+
+            // If content is not too long, log it fully at trace level
+            if tracing::enabled!(tracing::Level::TRACE) && content_text.len() < 2000 {
+                tracing::trace!(
+                    choice_index = idx,
+                    full_content = %content_text,
+                    "Full content text from Copilot response"
+                );
+            }
+        }
+    }
+
     // Post-process: parse tool calls from the response content when tools were
     // requested and the experimental flag is enabled.
     if has_tools && state.config.experimental_tools {

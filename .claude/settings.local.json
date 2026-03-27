@@ -12,7 +12,8 @@
       "WebFetch(domain:docs.anthropic.com)",
       "Read(//home/dmitriyk/dev/**)",
       "Bash(cargo check:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "WebFetch(domain:github.blog)"
     ]
   }
 }

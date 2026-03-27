@@ -3,11 +3,16 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures::stream::Stream;
 
-use crate::copilot::types::{ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse};
+use crate::copilot::types::{
+    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ModelList,
+};
 use crate::error::AppError;
 
 const COPILOT_CHAT_COMPLETIONS_URL: &str =
     "https://api.githubcopilot.com/chat/completions";
+
+/// Default URL for the Copilot models endpoint (no `/v1` prefix).
+const COPILOT_MODELS_URL: &str = "https://api.githubcopilot.com/models";
 
 // Identity header values sent to the Copilot API.
 // Extracted as constants so they are easy to find and update when versions change.
@@ -25,6 +30,8 @@ pub struct CopilotClient {
     /// `new()` or `with_api_url()` and interact through `send_chat_completion()`.
     client: reqwest::Client,
     api_url: String,
+    /// URL for the Copilot models listing endpoint.
+    models_url: String,
 }
 
 impl CopilotClient {
@@ -33,12 +40,23 @@ impl CopilotClient {
         Self {
             client,
             api_url: COPILOT_CHAT_COMPLETIONS_URL.to_string(),
+            models_url: COPILOT_MODELS_URL.to_string(),
         }
     }
 
     /// Create a `CopilotClient` with a custom API URL (for testing).
     pub fn with_api_url(client: reqwest::Client, api_url: String) -> Self {
-        Self { client, api_url }
+        Self {
+            client,
+            api_url,
+            models_url: COPILOT_MODELS_URL.to_string(),
+        }
+    }
+
+    /// Override the models endpoint URL (builder pattern, for testing).
+    pub fn with_models_url(mut self, models_url: String) -> Self {
+        self.models_url = models_url;
+        self
     }
 
     /// Build an HTTP request to the Copilot chat completions endpoint.
@@ -89,6 +107,63 @@ impl CopilotClient {
             "Copilot API error response"
         );
         AppError::CopilotError(format!("Copilot API returned HTTP {status}: {body}"))
+    }
+
+    /// Fetch the list of available models from the Copilot API.
+    ///
+    /// Sends a GET request with the same identity headers used for chat
+    /// completions. Returns the parsed `ModelList` on success or an
+    /// appropriate `AppError` on failure.
+    pub async fn fetch_models(&self, token: &str) -> Result<ModelList, AppError> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+
+        tracing::debug!(
+            request_id = %request_id,
+            url = %self.models_url,
+            "Fetching models from Copilot API"
+        );
+
+        let response = self
+            .client
+            .get(&self.models_url)
+            .bearer_auth(token)
+            .header("X-Request-Id", &request_id)
+            .header("Copilot-Integration-Id", COPILOT_INTEGRATION_ID)
+            .header("Editor-Version", EDITOR_VERSION)
+            .header("Editor-Plugin-Version", EDITOR_PLUGIN_VERSION)
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::CopilotError(format!("Failed to reach Copilot API: {e}"))
+            })?;
+
+        if !response.status().is_success() {
+            return Err(Self::handle_error_response(response).await);
+        }
+
+        let body_text = response.text().await.map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to read Copilot models response body: {e}"
+            ))
+        })?;
+
+        tracing::trace!(
+            request_id = %request_id,
+            body = %body_text,
+            "Copilot models response body"
+        );
+
+        serde_json::from_str::<ModelList>(&body_text).map_err(|e| {
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                body = %body_text,
+                "Failed to parse Copilot models response"
+            );
+            AppError::Internal(format!(
+                "Failed to parse Copilot models response: {e}"
+            ))
+        })
     }
 
     /// Send a non-streaming chat completion request to the Copilot API.
