@@ -19,10 +19,16 @@ async fn main() -> anyhow::Result<()> {
             log_file: _log_file,
         } => {
             init_tracing(&log_level);
+
+            let store = storage::create_storage();
+            let auth_client = DeviceFlowAuth::new();
+            let manager =
+                std::sync::Arc::new(TokenManager::new(store, auth_client).await?);
+
             tracing::info!("Starting copilot-adapter on {host}:{port}");
 
             // Daemon mode will be implemented in Epic 5
-            server::run(&host, port).await?;
+            server::run(&host, port, manager).await?;
         }
         Command::Stop => {
             // Will be implemented in Epic 5

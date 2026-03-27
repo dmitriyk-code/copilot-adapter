@@ -10,6 +10,12 @@ pub enum AppError {
 
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Upstream error: {0}")]
+    UpstreamError(String),
 }
 
 impl IntoResponse for AppError {
@@ -32,6 +38,26 @@ impl IntoResponse for AppError {
                         "message": msg,
                         "type": "invalid_request_error",
                         "code": "invalid_request_error"
+                    }
+                }),
+            ),
+            AppError::Unauthorized(msg) => (
+                StatusCode::UNAUTHORIZED,
+                json!({
+                    "error": {
+                        "message": msg,
+                        "type": "authentication_error",
+                        "code": "unauthorized"
+                    }
+                }),
+            ),
+            AppError::UpstreamError(msg) => (
+                StatusCode::BAD_GATEWAY,
+                json!({
+                    "error": {
+                        "message": msg,
+                        "type": "upstream_error",
+                        "code": "upstream_error"
                     }
                 }),
             ),

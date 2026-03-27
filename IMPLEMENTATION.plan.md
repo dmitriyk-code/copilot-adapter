@@ -315,26 +315,30 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** Epics 1, 2
 
+**Status:** DONE (review fixes v2 applied)
+
+**Completion Notes:** Fixed 5 review issues: `authentication_error` type on 401 responses per OpenAI spec, doc comment on reserved `http_client` field, removed dead `client()` method from `CopilotClient`, extracted shared `InMemoryStorage` into `tests/integration/test_helpers.rs`, replaced panicking asserts in mock handler with explicit error returns. All 71 tests pass (11 in-crate, 19 integration, 41 unit).
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Create `src/copilot/mod.rs` exporting Copilot modules | `src/copilot/mod.rs` | TO DO |
-| E3-T2 | IMPL | Create `src/copilot/types.rs` with `ChatCompletionRequest`, `ChatCompletionResponse`, `Message`, `Choice`, `Usage` structs matching OpenAI format | `src/copilot/types.rs` | TO DO |
-| E3-T3 | IMPL | Create `src/copilot/client.rs` with `CopilotClient` struct; implement `send_chat_completion()` for non-streaming requests with required headers per Design §1.2 | `src/copilot/client.rs` | TO DO |
-| E3-T4 | IMPL | Create `src/handlers/chat.rs` with `chat_completions` handler; validate request, get token, call Copilot client, return response | `src/handlers/chat.rs` | TO DO |
-| E3-T5 | IMPL | Create `src/handlers/models.rs` with `list_models` and `get_model` handlers returning hardcoded Copilot model list per Design §1.3 | `src/handlers/models.rs` | TO DO |
-| E3-T6 | IMPL | Register `/v1/chat/completions`, `/v1/models`, `/v1/models/:model` routes in `server.rs` | `src/server.rs` | TO DO |
-| E3-T7 | IMPL | Create `AppState` struct with `Arc<TokenManager>` and `reqwest::Client`; wire into handlers | `src/server.rs` | TO DO |
-| E3-T8 | TEST | Unit test: request/response types serialize correctly to/from JSON | `tests/unit/types_tests.rs` | TO DO |
-| E3-T9 | TEST | Integration test: mock Copilot API; non-streaming chat completion round-trip | `tests/integration/chat_tests.rs` | TO DO |
-| E3-T10 | TEST | Integration test: `/v1/models` returns expected model list | `tests/integration/models_tests.rs` | TO DO |
+| E3-T1 | IMPL | Create `src/copilot/mod.rs` exporting Copilot modules | `src/copilot/mod.rs` | DONE |
+| E3-T2 | IMPL | Create `src/copilot/types.rs` with `ChatCompletionRequest`, `ChatCompletionResponse`, `Message`, `Choice`, `Usage` structs matching OpenAI format | `src/copilot/types.rs` | DONE |
+| E3-T3 | IMPL | Create `src/copilot/client.rs` with `CopilotClient` struct; implement `send_chat_completion()` for non-streaming requests with required headers per Design §1.2 | `src/copilot/client.rs` | DONE |
+| E3-T4 | IMPL | Create `src/handlers/chat.rs` with `chat_completions` handler; validate request, get token, call Copilot client, return response | `src/handlers/chat.rs` | DONE |
+| E3-T5 | IMPL | Create `src/handlers/models.rs` with `list_models` and `get_model` handlers returning hardcoded Copilot model list per Design §1.3 | `src/handlers/models.rs` | DONE |
+| E3-T6 | IMPL | Register `/v1/chat/completions`, `/v1/models`, `/v1/models/:model` routes in `server.rs` | `src/server.rs` | DONE |
+| E3-T7 | IMPL | Create `AppState` struct with `Arc<TokenManager>` and `reqwest::Client`; wire into handlers | `src/server.rs` | DONE |
+| E3-T8 | TEST | Unit test: request/response types serialize correctly to/from JSON | `tests/unit/types_tests.rs` | DONE |
+| E3-T9 | TEST | Integration test: mock Copilot API; non-streaming chat completion round-trip | `tests/integration/chat_tests.rs` | DONE |
+| E3-T10 | TEST | Integration test: `/v1/models` returns expected model list | `tests/integration/models_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `POST /v1/chat/completions` with `stream: false` returns complete response
-- [ ] Response format matches OpenAI specification (id, object, created, model, choices, usage)
-- [ ] `GET /v1/models` returns list of available models
-- [ ] `GET /v1/models/gpt-4` returns model details
+- [x] `POST /v1/chat/completions` with `stream: false` returns complete response
+- [x] Response format matches OpenAI specification (id, object, created, model, choices, usage)
+- [x] `GET /v1/models` returns list of available models
+- [x] `GET /v1/models/gpt-4` returns model details
 
 ---
 
