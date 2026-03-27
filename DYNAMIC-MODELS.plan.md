@@ -396,30 +396,30 @@ echo
 
 **Prerequisites:** Epic 0 (endpoint discovery)
 
-**Status:** TODO
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add `COPILOT_MODELS_URL` constant (based on Epic 0 findings) | `src/copilot/client.rs` | TODO |
-| E2-T2 | IMPL | Add `models_url: String` field to `CopilotClient` | `src/copilot/client.rs` | TODO |
-| E2-T3 | IMPL | Update `CopilotClient::new()` to set default models URL | `src/copilot/client.rs` | TODO |
-| E2-T4 | IMPL | Update `CopilotClient::with_api_url()` to accept optional models URL | `src/copilot/client.rs` | TODO |
-| E2-T5 | IMPL | Implement `fetch_models(&self, token: &str) -> Result<ModelList, AppError>` | `src/copilot/client.rs` | TODO |
-| E2-T6 | IMPL | Add appropriate request headers (same as chat completions) | `src/copilot/client.rs` | TODO |
-| E2-T7 | IMPL | Handle non-2xx responses with `AppError::CopilotError` | `src/copilot/client.rs` | TODO |
-| E2-T8 | IMPL | Parse response as `ModelList` | `src/copilot/client.rs` | TODO |
-| E2-T9 | TEST | Unit test: successful fetch returns ModelList | `tests/unit/copilot_client_tests.rs` | TODO |
-| E2-T10 | TEST | Unit test: 404 returns CopilotError | `tests/unit/copilot_client_tests.rs` | TODO |
-| E2-T11 | TEST | Unit test: 401 returns appropriate error | `tests/unit/copilot_client_tests.rs` | TODO |
-| E2-T12 | TEST | Unit test: malformed JSON returns parse error | `tests/unit/copilot_client_tests.rs` | TODO |
+| E2-T1 | IMPL | Add `COPILOT_MODELS_URL` constant (based on Epic 0 findings) | `src/copilot/client.rs` | DONE |
+| E2-T2 | IMPL | Add `models_url: String` field to `CopilotClient` | `src/copilot/client.rs` | DONE |
+| E2-T3 | IMPL | Update `CopilotClient::new()` to set default models URL | `src/copilot/client.rs` | DONE |
+| E2-T4 | IMPL | Update `CopilotClient::with_api_url()` to accept optional models URL | `src/copilot/client.rs` | DONE |
+| E2-T5 | IMPL | Implement `fetch_models(&self, token: &str) -> Result<ModelList, AppError>` | `src/copilot/client.rs` | DONE |
+| E2-T6 | IMPL | Add appropriate request headers (same as chat completions) | `src/copilot/client.rs` | DONE |
+| E2-T7 | IMPL | Handle non-2xx responses with `AppError::CopilotError` | `src/copilot/client.rs` | DONE |
+| E2-T8 | IMPL | Parse response as `ModelList` | `src/copilot/client.rs` | DONE |
+| E2-T9 | TEST | Unit test: successful fetch returns ModelList | `tests/unit/copilot_client_tests.rs` | DONE |
+| E2-T10 | TEST | Unit test: 404 returns CopilotError | `tests/unit/copilot_client_tests.rs` | DONE |
+| E2-T11 | TEST | Unit test: 401 returns appropriate error | `tests/unit/copilot_client_tests.rs` | DONE |
+| E2-T12 | TEST | Unit test: malformed JSON returns parse error | `tests/unit/copilot_client_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `fetch_models()` sends correct request to Copilot API
-- [ ] Response parsed into `ModelList` type
-- [ ] Errors handled gracefully with appropriate `AppError` variants
-- [ ] All unit tests pass
+- [x] `fetch_models()` sends correct request to Copilot API
+- [x] Response parsed into `ModelList` type
+- [x] Errors handled gracefully with appropriate `AppError` variants
+- [x] All unit tests pass
 
 ---
 

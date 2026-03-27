@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use axum::extract::Request;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
