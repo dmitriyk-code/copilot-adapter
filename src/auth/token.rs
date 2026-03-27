@@ -34,7 +34,16 @@ impl TokenManager {
         storage: Box<dyn TokenStorage + Send + Sync>,
         auth_client: DeviceFlowAuth,
     ) -> Result<Self> {
-        let github_token = storage.get_github_token().ok();
+        let github_token = match storage.get_github_token() {
+            Ok(token) => {
+                tracing::info!("Loaded GitHub token from storage");
+                Some(token)
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "No GitHub token in storage (not authenticated yet)");
+                None
+            }
+        };
 
         Ok(Self {
             state: RwLock::new(TokenState {
