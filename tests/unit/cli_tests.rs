@@ -13,7 +13,7 @@ fn parse_start_defaults() {
             log_file,
         } => {
             assert!(!daemon);
-            assert_eq!(port, 8787);
+            assert_eq!(port, 6767);
             assert_eq!(host, "127.0.0.1");
             assert_eq!(log_level, "info");
             assert!(log_file.is_none());

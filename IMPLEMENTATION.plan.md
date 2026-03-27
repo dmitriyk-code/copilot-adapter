@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This plan implements the GitHub Copilot API Adapter as described in `DESIGN.md` — a standalone Rust binary that acts as an OpenAI-compatible proxy to GitHub Copilot's API. The adapter enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions through the familiar OpenAI API interface. Key features include OAuth device flow authentication, secure token management with auto-refresh, SSE streaming support for real-time responses, and cross-platform background daemon operation. The implementation is organized into 7 epics covering core infrastructure, authentication, API implementation, streaming, background operation, error handling, and testing.
+This plan implements the GitHub Copilot API Adapter as described in `DESIGN.md` — a standalone Rust binary that acts as an OpenAI-compatible proxy to GitHub Copilot's API. The adapter enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions through the familiar OpenAI API interface. Key features include OAuth device flow authentication, secure token management with auto-refresh, SSE streaming support for real-time responses, and cross-platform background daemon operation. The implementation is organized into 8 epics covering core infrastructure, authentication, API implementation, streaming, background operation, error handling, testing, and Anthropic API compatibility.
 
 ---
 
@@ -178,6 +178,7 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 5. Epic 5 (Daemon) depends on Epic 1
 6. Epic 6 (Error Handling) can proceed in parallel with Epics 3-5
 7. Epic 7 (Testing) depends on all other epics
+8. Epic 8 (Anthropic API) depends on Epics 3, 4
 
 ---
 
@@ -214,6 +215,11 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 | `tests/integration/auth_tests.rs` | Auth flow tests |
 | `tests/integration/chat_tests.rs` | Chat completion tests |
 | `tests/integration/streaming_tests.rs` | SSE streaming tests |
+| `src/anthropic/mod.rs` | Anthropic module exports |
+| `src/anthropic/types.rs` | Anthropic request/response types |
+| `src/handlers/messages.rs` | Anthropic `/v1/messages` handler |
+| `tests/unit/anthropic_types_tests.rs` | Anthropic type tests |
+| `tests/integration/messages_tests.rs` | Anthropic endpoint tests |
 
 ---
 
@@ -273,7 +279,7 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 - [x] `cargo build` compiles without errors
 - [x] `cargo run -- --help` shows all commands and flags
 - [x] `cargo run -- start` starts server on default port
-- [x] `curl localhost:8787/health` returns `{"status": "ok"}`
+- [x] `curl localhost:6767/health` returns `{"status": "ok"}`
 
 ---
 
@@ -466,6 +472,49 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 ---
 
+### Epic 8: Anthropic Messages API Compatibility
+
+**Goal:** Implement `/v1/messages` endpoint to support Anthropic-native clients (like Claude Code) by translating between Anthropic and OpenAI API formats.
+
+**Prerequisites:** Epics 3, 4
+
+**Status:** DONE
+
+**Background:**
+Claude Code sends requests to `/v1/messages` using the Anthropic API format, but the adapter only speaks OpenAI format (`/v1/chat/completions`). This epic adds a translation layer that accepts Anthropic-format requests, converts them to OpenAI format, forwards to Copilot, and translates the response back to Anthropic format.
+
+**Tasks:**
+
+| Task ID | Type | Description | Files | Status |
+|---------|------|-------------|-------|--------|
+| E8-T1 | IMPL | Create `src/anthropic/mod.rs` exporting anthropic types module | `src/anthropic/mod.rs` | DONE |
+| E8-T2 | IMPL | Create `src/anthropic/types.rs` with `AnthropicRequest`, `AnthropicMessage`, `ContentBlock`, `AnthropicResponse`, and streaming event types | `src/anthropic/types.rs` | DONE |
+| E8-T3 | IMPL | Implement request translation: `AnthropicRequest` → `ChatCompletionRequest` (prepend system message, extract text from content blocks, map fields) | `src/anthropic/types.rs` | DONE |
+| E8-T4 | IMPL | Implement response translation: `ChatCompletionResponse` → `AnthropicResponse` (wrap content in blocks, map stop_reason, rename usage fields) | `src/anthropic/types.rs` | DONE |
+| E8-T5 | IMPL | Create `src/handlers/messages.rs` with `messages` handler: parse request, translate, call copilot_client, translate response | `src/handlers/messages.rs` | DONE |
+| E8-T6 | IMPL | Implement streaming translation: transform OpenAI chunks to Anthropic SSE events (message_start, content_block_delta, message_stop, etc.) | `src/handlers/messages.rs` | DONE |
+| E8-T7 | IMPL | Register `/v1/messages` route in `server.rs` | `src/server.rs` | DONE |
+| E8-T8 | IMPL | Add `pub mod anthropic;` to `src/lib.rs` and `pub mod messages;` to `src/handlers/mod.rs` | `src/lib.rs`, `src/handlers/mod.rs` | DONE |
+| E8-T9 | TEST | Unit test: Anthropic request/response types serialize correctly | `tests/unit/anthropic_types_tests.rs` | DONE |
+| E8-T10 | TEST | Unit test: Request translation correctly prepends system, extracts text from content blocks | `tests/unit/anthropic_types_tests.rs` | DONE |
+| E8-T11 | TEST | Unit test: Response translation correctly maps stop_reason and wraps content | `tests/unit/anthropic_types_tests.rs` | DONE |
+| E8-T12 | TEST | Integration test: Non-streaming `/v1/messages` round-trip with mock Copilot | `tests/integration/messages_tests.rs` | DONE |
+| E8-T13 | TEST | Integration test: Streaming `/v1/messages` produces correct Anthropic SSE events | `tests/integration/messages_tests.rs` | DONE |
+
+**Acceptance Criteria:**
+- [x] `POST /v1/messages` with `stream: false` returns Anthropic-format response
+- [x] Response has `type: "message"`, `content: [{"type": "text", ...}]`, `stop_reason`, `usage.input_tokens/output_tokens`
+- [x] `POST /v1/messages` with `stream: true` returns Anthropic SSE events
+- [x] Streaming includes `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop` events
+- [x] System prompt correctly prepended to messages
+- [x] Content blocks (array format) correctly extracted to plain text
+
+**Completion Notes:**
+- Review-fix pass addressed 4 issues: streaming output_tokens now honestly reports 0 with explanatory comment, serde_json serialization errors use match+flag+break pattern instead of unwrap_or_default, ID prefix stripping has clarifying comments, empty choices now returns empty content array per Anthropic spec.
+- Test renamed from `response_translation_empty_choices_defaults` to `response_translation_empty_choices_returns_empty_content` to reflect correct behavior.
+
+---
+
 ## Verification Plan
 
 After implementation, verify the adapter works per Design §13:
@@ -479,19 +528,19 @@ After implementation, verify the adapter works per Design §13:
 2. **Server Start Test**
    ```bash
    copilot-adapter start
-   curl http://127.0.0.1:8787/health
+   curl http://127.0.0.1:6767/health
    # Should return {"status": "ok"}
    ```
 
 3. **Models Test**
    ```bash
-   curl http://127.0.0.1:8787/v1/models
+   curl http://127.0.0.1:6767/v1/models
    # Should return list of available models
    ```
 
 4. **Chat Completion Test (Non-Streaming)**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
    # Should return complete response
@@ -499,7 +548,7 @@ After implementation, verify the adapter works per Design §13:
 
 5. **Chat Completion Test (Streaming)**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
    # Should receive SSE events ending with [DONE]
@@ -519,6 +568,22 @@ After implementation, verify the adapter works per Design §13:
    - Open 5 terminal windows
    - Send streaming requests simultaneously
    - Verify all receive complete responses
+
+8. **Anthropic Messages API Test (Non-Streaming)**
+   ```bash
+   curl -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -d '{"model": "gpt-4", "max_tokens": 100, "messages": [{"role": "user", "content": "Hello"}]}'
+   # Should return Anthropic-format response with type: "message", content: [...]
+   ```
+
+9. **Anthropic Messages API Test (Streaming)**
+   ```bash
+   curl -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -d '{"model": "gpt-4", "max_tokens": 100, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
+   # Should receive Anthropic SSE events: message_start, content_block_delta, message_stop
+   ```
 
 ---
 

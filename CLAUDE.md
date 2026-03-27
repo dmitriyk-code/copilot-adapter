@@ -1,0 +1,126 @@
+# GitHub Copilot API Adapter for Claude Code
+
+## Overview
+
+A standalone Rust binary (`copilot-adapter`) that acts as an **OpenAI-compatible proxy** to GitHub Copilot's API. It enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions through the familiar OpenAI API interface.
+
+## Key Features
+
+- **GitHub OAuth device flow** authentication
+- **OpenAI-compatible API** endpoints (`POST /v1/chat/completions`, `GET /v1/models`)
+- **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation
+- **SSE streaming** support for real-time responses
+- **Automatic token management** with refresh 5 min before expiry
+- **Secure credential storage** via OS keyring (with encrypted file fallback)
+- **Cross-platform daemon** operation (Windows/Linux/macOS)
+
+## Architecture
+
+```
+Claude Code  ──→  copilot-adapter (localhost:6767)  ──→  GitHub Copilot API
+                        │
+                  ┌─────┴─────┐
+                  │ Token Mgr  │  Auto-refresh Copilot tokens
+                  │ Credential │  OS keyring / encrypted file
+                  │ SSE Stream │  Real-time streaming support
+                  └───────────┘
+```
+
+## Project Structure
+
+```
+src/
+├── main.rs              # Entry point, CLI handling
+├── cli.rs               # CLI argument definitions (clap)
+├── server.rs            # Axum HTTP server setup
+├── error.rs             # Error types with OpenAI-compatible responses
+├── lib.rs               # Library exports
+├── handlers/
+│   ├── mod.rs
+│   ├── chat.rs          # /v1/chat/completions (OpenAI format)
+│   ├── messages.rs      # /v1/messages (Anthropic format)
+│   ├── models.rs        # /v1/models endpoint
+│   └── health.rs        # Health check
+├── auth/
+│   ├── mod.rs
+│   ├── device_flow.rs   # GitHub OAuth device flow
+│   └── token.rs         # Token manager with auto-refresh
+├── copilot/
+│   ├── mod.rs
+│   ├── client.rs        # Copilot API client with SSE streaming
+│   └── types.rs         # OpenAI request/response types
+├── anthropic/
+│   ├── mod.rs
+│   └── types.rs         # Anthropic request/response types + translation
+├── storage/
+│   ├── mod.rs
+│   ├── keyring.rs       # OS keyring storage
+│   └── file.rs          # Encrypted file fallback
+└── daemon/
+    ├── mod.rs           # PID file management
+    ├── unix.rs          # Unix daemonization
+    └── windows.rs       # Windows background process
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `copilot-adapter auth` | Authenticate with GitHub (device flow) |
+| `copilot-adapter auth --force` | Force re-authentication |
+| `copilot-adapter start` | Start adapter in foreground |
+| `copilot-adapter start --daemon` | Start as background daemon |
+| `copilot-adapter start -p 9090` | Start on custom port |
+| `copilot-adapter start --log-level debug` | Enable debug logging |
+| `copilot-adapter status` | Check if adapter is running |
+| `copilot-adapter stop` | Stop the running daemon |
+| `copilot-adapter logout` | Clear stored credentials |
+
+## Building
+
+```bash
+# Development build
+cargo build
+
+# Release build (optimized for size)
+cargo build --release
+
+# Run tests
+cargo test
+```
+
+## Testing
+
+- Unit tests: `cargo test --test unit`
+- Integration tests: `cargo test --test integration`
+- Manual E2E tests: See `docs/e2e-testing.md`
+
+## Key Design Decisions
+
+1. **Rust with axum**: Minimal binary, no runtime dependencies, excellent async support
+2. **Single binary**: Easy distribution and installation
+3. **OS keyring for tokens**: Platform-native secure storage
+4. **Localhost-only by default**: Security - prevents external access without explicit opt-in
+5. **SSE passthrough**: Copilot already returns OpenAI-compatible format
+
+## API Endpoints
+
+- `GET /health` - Health check
+- `POST /v1/chat/completions` - OpenAI-format chat completions
+- `POST /v1/messages` - Anthropic-format messages (translated internally)
+- `GET /v1/models` - List available models
+- `GET /v1/models/:model` - Get model details
+
+## Important Files
+
+- `DESIGN.md` - Full design document (architecture, API research, implementation details)
+- `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
+- `TOOLS-SUPPORT.design.md` - Draft design for future tools/functions support
+- `docs/e2e-testing.md` - Manual end-to-end testing procedures
+
+## Notes for Development
+
+- Tools/functions parameters are **not supported** (Copilot limitation)
+- Copilot tokens expire in ~30 min; the adapter refreshes them proactively
+- Required Copilot headers: `Copilot-Integration-Id`, `Editor-Version`, `Editor-Plugin-Version`
+- All errors return OpenAI-compatible JSON format

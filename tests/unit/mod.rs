@@ -1,3 +1,4 @@
+mod anthropic_types_tests;
 mod cli_tests;
 mod error_tests;
 mod sse_tests;

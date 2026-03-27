@@ -20,7 +20,7 @@ pub enum Command {
         daemon: bool,
 
         /// Port to listen on
-        #[arg(short, long, default_value_t = 8787)]
+        #[arg(short, long, default_value_t = 6767)]
         port: u16,
 
         /// Host to bind to

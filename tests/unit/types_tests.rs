@@ -4,7 +4,7 @@ use copilot_adapter::copilot::types::*;
 fn message_serializes_to_json() {
     let msg = Message {
         role: "user".to_string(),
-        content: "Hello".to_string(),
+        content: MessageContent::Text("Hello".to_string()),
         name: None,
     };
     let json = serde_json::to_value(&msg).unwrap();
@@ -18,7 +18,7 @@ fn message_serializes_to_json() {
 fn message_with_name_serializes() {
     let msg = Message {
         role: "user".to_string(),
-        content: "Hello".to_string(),
+        content: MessageContent::Text("Hello".to_string()),
         name: Some("Alice".to_string()),
     };
     let json = serde_json::to_value(&msg).unwrap();
@@ -33,8 +33,23 @@ fn message_deserializes_from_json() {
     });
     let msg: Message = serde_json::from_value(json).unwrap();
     assert_eq!(msg.role, "assistant");
-    assert_eq!(msg.content, "Hi there!");
+    assert_eq!(msg.content.as_text(), "Hi there!");
     assert!(msg.name.is_none());
+}
+
+#[test]
+fn message_deserializes_from_content_blocks() {
+    // Claude models return content as an array of content blocks
+    let json = serde_json::json!({
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "Hello "},
+            {"type": "text", "text": "world!"}
+        ]
+    });
+    let msg: Message = serde_json::from_value(json).unwrap();
+    assert_eq!(msg.role, "assistant");
+    assert_eq!(msg.content.as_text(), "Hello world!");
 }
 
 #[test]
@@ -81,7 +96,7 @@ fn chat_completion_request_roundtrip() {
         model: "gpt-4".to_string(),
         messages: vec![Message {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: MessageContent::Text("Hello".to_string()),
             name: None,
         }],
         stream: Some(false),
@@ -105,7 +120,7 @@ fn chat_completion_request_skips_none_fields() {
         model: "gpt-4".to_string(),
         messages: vec![Message {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: MessageContent::Text("Hello".to_string()),
             name: None,
         }],
         stream: None,
@@ -174,7 +189,7 @@ fn chat_completion_response_roundtrip() {
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: "Hi".to_string(),
+                content: MessageContent::Text("Hi".to_string()),
                 name: None,
             },
             finish_reason: Some("stop".to_string()),
@@ -183,12 +198,13 @@ fn chat_completion_response_roundtrip() {
             prompt_tokens: 5,
             completion_tokens: 1,
             total_tokens: 6,
+            ..Default::default()
         }),
     };
     let json_str = serde_json::to_string(&resp).unwrap();
     let deserialized: ChatCompletionResponse = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.id, "chatcmpl-test");
-    assert_eq!(deserialized.choices[0].message.content, "Hi");
+    assert_eq!(deserialized.choices[0].message.content.as_text(), "Hi");
 }
 
 #[test]
@@ -229,6 +245,7 @@ fn usage_roundtrip() {
         prompt_tokens: 42,
         completion_tokens: 15,
         total_tokens: 57,
+        ..Default::default()
     };
     let json_str = serde_json::to_string(&usage).unwrap();
     let deserialized: Usage = serde_json::from_str(&json_str).unwrap();

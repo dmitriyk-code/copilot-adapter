@@ -47,14 +47,14 @@ copilot-adapter start
 copilot-adapter start --daemon
 ```
 
-The adapter starts listening on `http://127.0.0.1:8787` by default.
+The adapter starts listening on `http://127.0.0.1:6767` by default.
 
 ### 4. Configure Claude Code
 
 Set the following environment variables:
 
 ```bash
-export OPENAI_API_BASE=http://127.0.0.1:8787/v1
+export OPENAI_API_BASE=http://127.0.0.1:6767/v1
 export OPENAI_API_KEY=dummy  # Required by Claude Code but unused by the adapter
 ```
 
@@ -87,7 +87,7 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 Health check endpoint.
 
 ```bash
-curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:6767/health
 # {"status": "ok"}
 ```
 
@@ -98,7 +98,7 @@ OpenAI-compatible chat completions endpoint. Supports both streaming and non-str
 **Non-streaming:**
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+curl -X POST http://127.0.0.1:6767/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4",
@@ -109,7 +109,7 @@ curl -X POST http://127.0.0.1:8787/v1/chat/completions \
 **Streaming:**
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+curl -X POST http://127.0.0.1:6767/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4",
@@ -138,7 +138,7 @@ curl -X POST http://127.0.0.1:8787/v1/chat/completions \
 List available models.
 
 ```bash
-curl http://127.0.0.1:8787/v1/models
+curl http://127.0.0.1:6767/v1/models
 ```
 
 ### `GET /v1/models/:model`
@@ -146,7 +146,7 @@ curl http://127.0.0.1:8787/v1/models
 Get details for a specific model.
 
 ```bash
-curl http://127.0.0.1:8787/v1/models/gpt-4
+curl http://127.0.0.1:6767/v1/models/gpt-4
 ```
 
 **Available models:** `gpt-4`, `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`, `claude-3.5-sonnet`
@@ -192,7 +192,7 @@ To remove all credentials: `copilot-adapter logout`
 ## Architecture
 
 ```
-Claude Code  ──→  copilot-adapter (localhost:8787)  ──→  GitHub Copilot API
+Claude Code  ──→  copilot-adapter (localhost:6767)  ──→  GitHub Copilot API
                         │
                   ┌─────┴─────┐
                   │ Token Mgr  │  Auto-refresh Copilot tokens

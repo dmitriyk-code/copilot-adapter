@@ -24,16 +24,26 @@ pub fn create_storage() -> Box<dyn TokenStorage + Send + Sync> {
                     tracing::debug!("Using OS keyring for token storage");
                     Box::new(ks)
                 }
-                _ => {
+                Ok(false) => {
                     tracing::info!(
-                        "OS keyring not available, falling back to encrypted file storage"
+                        "OS keyring verification failed, falling back to encrypted file storage"
+                    );
+                    Box::new(file::FileStorage::new())
+                }
+                Err(e) => {
+                    tracing::info!(
+                        error = %e,
+                        "OS keyring verification error, falling back to encrypted file storage"
                     );
                     Box::new(file::FileStorage::new())
                 }
             }
         }
-        Err(_) => {
-            tracing::info!("OS keyring not available, falling back to encrypted file storage");
+        Err(e) => {
+            tracing::info!(
+                error = %e,
+                "OS keyring not available, falling back to encrypted file storage"
+            );
             Box::new(file::FileStorage::new())
         }
     }

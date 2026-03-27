@@ -89,6 +89,7 @@ impl DeviceFlowAuth {
             .client
             .post(&self.device_code_url)
             .header("Accept", "application/json")
+            .header("User-Agent", "github4claude")
             .form(&[("client_id", CLIENT_ID), ("scope", "read:user")])
             .send()
             .await?;
@@ -126,6 +127,7 @@ impl DeviceFlowAuth {
                 .client
                 .post(&self.token_url)
                 .header("Accept", "application/json")
+                .header("User-Agent", "github4claude")
                 .form(&[
                     ("client_id", CLIENT_ID),
                     ("device_code", device_code),
@@ -181,6 +183,7 @@ impl DeviceFlowAuth {
             .get(&self.copilot_token_url)
             .header("Authorization", format!("token {github_token}"))
             .header("Accept", "application/json")
+            .header("User-Agent", "github4claude")
             .send()
             .await?;
 

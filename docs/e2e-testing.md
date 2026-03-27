@@ -78,7 +78,7 @@ copilot-adapter auth
 
 2. **In another terminal, check health:**
    ```bash
-   curl http://127.0.0.1:8787/health
+   curl http://127.0.0.1:6767/health
    ```
 
 3. **Expected response:**
@@ -115,11 +115,11 @@ curl http://127.0.0.1:9090/health
    ```bash
    copilot-adapter status
    ```
-   Expected: `Adapter running on PID XXXXX, port 8787`
+   Expected: `Adapter running on PID XXXXX, port 6767`
 
 3. **Verify server is accessible:**
    ```bash
-   curl http://127.0.0.1:8787/health
+   curl http://127.0.0.1:6767/health
    ```
 
 4. **Stop the daemon:**
@@ -151,7 +151,7 @@ curl http://127.0.0.1:9090/health
 
 2. **List all models:**
    ```bash
-   curl -s http://127.0.0.1:8787/v1/models | python3 -m json.tool
+   curl -s http://127.0.0.1:6767/v1/models | python3 -m json.tool
    ```
 
 3. **Expected response format:**
@@ -172,12 +172,12 @@ curl http://127.0.0.1:9090/health
 
 4. **Get specific model:**
    ```bash
-   curl -s http://127.0.0.1:8787/v1/models/gpt-4 | python3 -m json.tool
+   curl -s http://127.0.0.1:6767/v1/models/gpt-4 | python3 -m json.tool
    ```
 
 5. **Unknown model (expect 404):**
    ```bash
-   curl -s -w "\nHTTP Status: %{http_code}\n" http://127.0.0.1:8787/v1/models/nonexistent
+   curl -s -w "\nHTTP Status: %{http_code}\n" http://127.0.0.1:6767/v1/models/nonexistent
    ```
 
 ---
@@ -190,7 +190,7 @@ curl http://127.0.0.1:9090/health
 
 1. **Send a simple request:**
    ```bash
-   curl -s -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{
        "model": "gpt-4",
@@ -233,7 +233,7 @@ curl http://127.0.0.1:9090/health
 ### With System Message
 
 ```bash
-curl -s -X POST http://127.0.0.1:8787/v1/chat/completions \
+curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4",
@@ -254,7 +254,7 @@ curl -s -X POST http://127.0.0.1:8787/v1/chat/completions \
 
 1. **Send a streaming request:**
    ```bash
-   curl -N -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -N -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{
        "model": "gpt-4",
@@ -296,7 +296,7 @@ curl -s -X POST http://127.0.0.1:8787/v1/chat/completions \
 
    Terminal 1:
    ```bash
-   curl -N -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -N -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Terminal 1"}], "stream": true}'
    ```
@@ -313,7 +313,7 @@ curl -s -X POST http://127.0.0.1:8787/v1/chat/completions \
 ```bash
 # Launch 10 requests in parallel using background jobs
 for i in $(seq 1 10); do
-  curl -s -X POST http://127.0.0.1:8787/v1/chat/completions \
+  curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d "{\"model\": \"gpt-4\", \"messages\": [{\"role\": \"user\", \"content\": \"Request $i\"}]}" \
     -o "/tmp/copilot-test-$i.json" &
@@ -335,7 +335,7 @@ done
 ### Empty Messages
 
 ```bash
-curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:8787/v1/chat/completions \
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "gpt-4", "messages": []}'
 ```
@@ -344,7 +344,7 @@ Expected: HTTP 400, OpenAI error format with `type: "invalid_request_error"`.
 ### Invalid JSON
 
 ```bash
-curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:8787/v1/chat/completions \
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d 'not valid json'
 ```
@@ -356,7 +356,7 @@ Expected: HTTP 400 or 422.
 copilot-adapter logout
 copilot-adapter start
 # In another terminal:
-curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:8787/v1/chat/completions \
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
@@ -409,7 +409,7 @@ RUST_LOG=trace copilot-adapter start
 
 2. **Configure environment:**
    ```bash
-   export OPENAI_API_BASE=http://127.0.0.1:8787/v1
+   export OPENAI_API_BASE=http://127.0.0.1:6767/v1
    export OPENAI_API_KEY=dummy
    ```
 

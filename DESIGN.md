@@ -156,7 +156,7 @@ copilot-adapter <command>
 
 Commands:
   start       Start the adapter server
-    --port <PORT>       Port to listen on (default: 8787)
+    --port <PORT>       Port to listen on (default: 6767)
     --host <HOST>       Host to bind to (default: 127.0.0.1)
     --daemon            Run as background process
     --log-file <PATH>   Log file path (default: stderr)
@@ -858,14 +858,14 @@ copilot-adapter auth
 
 # Start the adapter
 copilot-adapter start --daemon
-# Adapter started on http://127.0.0.1:8787
+# Adapter started on http://127.0.0.1:6767
 ```
 
 ### 11.2 Using with Claude Code
 
 ```bash
 # Set environment variable
-export OPENAI_API_BASE=http://127.0.0.1:8787/v1
+export OPENAI_API_BASE=http://127.0.0.1:6767/v1
 export OPENAI_API_KEY=dummy  # Required but unused
 
 # Or configure in Claude Code settings
@@ -876,7 +876,7 @@ export OPENAI_API_KEY=dummy  # Required but unused
 ```bash
 # Check status
 copilot-adapter status
-# Adapter running on PID 12345, port 8787
+# Adapter running on PID 12345, port 6767
 
 # Stop the adapter
 copilot-adapter stop
@@ -890,32 +890,40 @@ tail -f /tmp/copilot.log
 
 ## 12. Implementation Phases
 
+> **Note:** Implementation is complete. See [IMPLEMENTATION.plan.md](./IMPLEMENTATION.plan.md) for detailed status.
+
 ### Phase 1: Core Infrastructure
 - [x] Research complete
-- [ ] Project setup with Cargo.toml
-- [ ] CLI argument parsing
-- [ ] Basic HTTP server
+- [x] Project setup with Cargo.toml
+- [x] CLI argument parsing
+- [x] Basic HTTP server
 
 ### Phase 2: Authentication
-- [ ] GitHub device flow
-- [ ] Token storage (keyring)
-- [ ] Token refresh logic
+- [x] GitHub device flow
+- [x] Token storage (keyring)
+- [x] Token refresh logic
 
 ### Phase 3: API Implementation
-- [ ] Chat completions endpoint
-- [ ] Streaming support
-- [ ] Models endpoint
+- [x] Chat completions endpoint
+- [x] Streaming support
+- [x] Models endpoint
 
 ### Phase 4: Background Operation
-- [ ] Unix daemonization
-- [ ] Windows background process
-- [ ] PID file management
+- [x] Unix daemonization
+- [x] Windows background process
+- [x] PID file management
 
 ### Phase 5: Polish
-- [ ] Error handling
-- [ ] Logging/tracing
-- [ ] Documentation
-- [ ] Tests
+- [x] Error handling
+- [x] Logging/tracing
+- [x] Documentation
+- [x] Tests
+
+### Phase 6: Anthropic API Compatibility (Added)
+- [x] `/v1/messages` endpoint
+- [x] Request translation (Anthropic → OpenAI)
+- [x] Response translation (OpenAI → Anthropic)
+- [x] Streaming translation
 
 ---
 
@@ -932,26 +940,26 @@ After implementation, verify the adapter works correctly:
 2. **Server Start Test**
    ```bash
    copilot-adapter start
-   curl http://127.0.0.1:8787/health
+   curl http://127.0.0.1:6767/health
    # Should return {"status": "ok"}
    ```
 
 3. **Models Test**
    ```bash
-   curl http://127.0.0.1:8787/v1/models
+   curl http://127.0.0.1:6767/v1/models
    # Should return list of available models
    ```
 
 4. **Chat Completion Test**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
    ```
 
 5. **Streaming Test**
    ```bash
-   curl -X POST http://127.0.0.1:8787/v1/chat/completions \
+   curl -X POST http://127.0.0.1:6767/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
    # Should receive SSE events
@@ -989,6 +997,106 @@ After implementation, verify the adapter works correctly:
 | `src/daemon/windows.rs` | Windows daemon |
 | `src/error.rs` | Error types |
 | `README.md` | Documentation |
+
+---
+
+## 15. Anthropic Messages API Compatibility
+
+### 15.1 Background
+
+Claude Code and other Anthropic-native clients send requests to `/v1/messages` using the Anthropic API format. To support these clients, the adapter must translate between Anthropic and OpenAI formats.
+
+### 15.2 Anthropic API Overview
+
+**Endpoint:** `POST /v1/messages`
+
+**Request Format:**
+```json
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 1024,
+  "system": "You are a helpful assistant.",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ],
+  "stream": true,
+  "temperature": 0.7,
+  "top_p": 1.0,
+  "stop_sequences": ["END"]
+}
+```
+
+**Key Differences from OpenAI:**
+- `system` is a top-level field, not a message with `role: "system"`
+- `max_tokens` is required (not optional)
+- `content` can be a string or array of content blocks: `[{"type": "text", "text": "..."}]`
+- `stop_sequences` instead of `stop`
+
+**Non-Streaming Response:**
+```json
+{
+  "id": "msg_...",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "Response..."}],
+  "model": "claude-sonnet-4-6",
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50
+  }
+}
+```
+
+**Streaming Events:**
+1. `message_start` — Initial message metadata
+2. `content_block_start` — Start of content block
+3. `content_block_delta` — Text chunks (`{"type": "text_delta", "text": "..."}`)
+4. `content_block_stop` — End of content block
+5. `message_delta` — Final `stop_reason` and usage
+6. `message_stop` — Stream end
+
+### 15.3 Translation Strategy
+
+**Request Translation (Anthropic → OpenAI):**
+
+| Anthropic | OpenAI | Transformation |
+|-----------|--------|----------------|
+| `model` | `model` | Pass through |
+| `max_tokens` | `max_tokens` | Pass through |
+| `system` | `messages[0]` | Prepend as `{"role": "system", "content": system}` |
+| `messages` | `messages` | Extract text from content blocks if array |
+| `temperature` | `temperature` | Pass through |
+| `top_p` | `top_p` | Pass through |
+| `stop_sequences` | `stop` | Pass through |
+| `stream` | `stream` | Pass through |
+
+**Response Translation (OpenAI → Anthropic):**
+
+| OpenAI | Anthropic | Transformation |
+|--------|-----------|----------------|
+| `id` | `id` | Pass through |
+| `object` | `type` | Always `"message"` |
+| `choices[0].message.role` | `role` | Always `"assistant"` |
+| `choices[0].message.content` | `content` | Wrap in `[{"type": "text", "text": ...}]` |
+| `choices[0].finish_reason` | `stop_reason` | Map: `"stop"` → `"end_turn"`, `"length"` → `"max_tokens"` |
+| `usage.prompt_tokens` | `usage.input_tokens` | Rename |
+| `usage.completion_tokens` | `usage.output_tokens` | Rename |
+
+**Streaming Translation:**
+
+Transform OpenAI chunks to Anthropic events:
+1. First chunk → `message_start` + `content_block_start`
+2. Content chunks → `content_block_delta`
+3. Final chunk (with `finish_reason`) → `content_block_stop` + `message_delta` + `message_stop`
+
+### 15.4 Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/anthropic/mod.rs` | Anthropic module exports |
+| `src/anthropic/types.rs` | Request/response types |
+| `src/handlers/messages.rs` | `/v1/messages` handler |
 
 ---
 
