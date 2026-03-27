@@ -2,6 +2,7 @@ use clap::Parser;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::cli::{Cli, Command};
+use copilot_adapter::daemon;
 use copilot_adapter::server;
 use copilot_adapter::storage;
 use tracing_subscriber::EnvFilter;
@@ -12,13 +13,51 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Start {
-            daemon: _daemon,
+            daemon: is_daemon,
             port,
             host,
             log_level,
-            log_file: _log_file,
+            log_file,
         } => {
-            init_tracing(&log_level);
+            // Check if another instance is already running
+            if let Some(pid) = daemon::is_running() {
+                eprintln!("Adapter is already running (PID {pid}).");
+                eprintln!("Use 'copilot-adapter stop' to stop it first.");
+                std::process::exit(1);
+            }
+
+            if is_daemon {
+                #[cfg(unix)]
+                {
+                    // On Unix, daemonize via double-fork before starting the server.
+                    // After daemonize(), we are in the child process.
+                    daemon::daemonize(log_file.as_deref())?;
+                    init_tracing_to_file(&log_level, log_file.as_deref());
+                }
+
+                #[cfg(windows)]
+                {
+                    // On Windows, spawn a detached child process without --daemon.
+                    // The parent prints a message and exits immediately.
+                    let mut args = vec!["start".to_string()];
+                    args.push("--port".to_string());
+                    args.push(port.to_string());
+                    args.push("--host".to_string());
+                    args.push(host.clone());
+                    args.push("--log-level".to_string());
+                    args.push(log_level.clone());
+                    if let Some(ref lf) = log_file {
+                        args.push("--log-file".to_string());
+                        args.push(lf.clone());
+                    }
+
+                    let pid = daemon::spawn_background(&args)?;
+                    println!("Adapter started in background (PID {pid})");
+                    return Ok(());
+                }
+            } else {
+                init_tracing_to_file(&log_level, log_file.as_deref());
+            }
 
             let store = storage::create_storage();
             let auth_client = DeviceFlowAuth::new();
@@ -27,16 +66,31 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!("Starting copilot-adapter on {host}:{port}");
 
-            // Daemon mode will be implemented in Epic 5
-            server::run(&host, port, manager).await?;
+            // write_pid=true when running as daemon so stop/status can find us;
+            // also true in foreground mode for consistency with status command.
+            server::run(&host, port, manager, true).await?;
         }
         Command::Stop => {
-            // Will be implemented in Epic 5
-            eprintln!("Stop command not yet implemented");
+            match daemon::stop_daemon() {
+                Ok(pid) => println!("Adapter stopped (was PID {pid})."),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
         }
         Command::Status => {
-            // Will be implemented in Epic 5
-            eprintln!("Status command not yet implemented");
+            match daemon::is_running() {
+                Some(pid) => {
+                    let port_info = daemon::read_port()
+                        .map(|p| format!(", port {p}"))
+                        .unwrap_or_default();
+                    println!("Adapter running on PID {pid}{port_info}");
+                }
+                None => {
+                    println!("Adapter is not running.");
+                }
+            }
         }
         Command::Auth { force } => {
             init_tracing("info");
@@ -124,6 +178,7 @@ async fn run_logout() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Initialize tracing to stderr only (no log file).
 fn init_tracing(log_level: &str) {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
@@ -132,4 +187,39 @@ fn init_tracing(log_level: &str) {
         .with_env_filter(filter)
         .with_target(false)
         .init();
+}
+
+/// Initialize tracing with optional file output.
+///
+/// When `log_file` is `Some`, logs are written to the specified file.
+/// When `None`, logs are written to stderr.
+fn init_tracing_to_file(log_level: &str, log_file: Option<&str>) {
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+
+    match log_file {
+        Some(path) => {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to open log file {path}: {e}");
+                    std::process::exit(1);
+                });
+
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_target(false)
+                .with_ansi(false)
+                .with_writer(file)
+                .init();
+        }
+        None => {
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_target(false)
+                .init();
+        }
+    }
 }

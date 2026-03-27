@@ -377,27 +377,29 @@ Claude Code requires an OpenAI-compatible API endpoint, but GitHub Copilot uses 
 
 **Prerequisites:** Epic 1
 
+**Status:** DONE
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | Create `src/daemon/mod.rs` with `get_pid_path()`, `is_running()`, `process_exists()` per Design §4.5 | `src/daemon/mod.rs` | TO DO |
-| E5-T2 | IMPL | Create `src/daemon/unix.rs` with `daemonize()` using daemonize crate and `stop_daemon()` using SIGTERM | `src/daemon/unix.rs` | TO DO |
-| E5-T3 | IMPL | Create `src/daemon/windows.rs` with background process spawn via `Command` and `stop_daemon()` via process termination | `src/daemon/windows.rs` | TO DO |
-| E5-T4 | IMPL | Wire `start --daemon` flag to daemonize on Unix, background spawn on Windows | `src/main.rs` | TO DO |
-| E5-T5 | IMPL | Implement `stop` command reading PID file and terminating process | `src/main.rs` | TO DO |
-| E5-T6 | IMPL | Implement `status` command checking if process is running, displaying PID and port | `src/main.rs` | TO DO |
-| E5-T7 | IMPL | Implement graceful shutdown on SIGTERM/SIGINT using tokio signal handlers | `src/server.rs` | TO DO |
-| E5-T8 | IMPL | Add `--log-file` flag support; configure tracing-subscriber to write to file when specified | `src/main.rs` | TO DO |
-| E5-T9 | TEST | Integration test (Unix): start daemon → status shows running → stop → status shows stopped | `tests/integration/daemon_tests.rs` | TO DO |
-| E5-T10 | TEST | Integration test (Windows): equivalent daemon lifecycle test | `tests/integration/daemon_tests.rs` | TO DO |
+| E5-T1 | IMPL | Create `src/daemon/mod.rs` with `get_pid_path()`, `is_running()`, `process_exists()` per Design §4.5 | `src/daemon/mod.rs` | DONE |
+| E5-T2 | IMPL | Create `src/daemon/unix.rs` with `daemonize()` using daemonize crate and `stop_daemon()` using SIGTERM | `src/daemon/unix.rs` | DONE |
+| E5-T3 | IMPL | Create `src/daemon/windows.rs` with background process spawn via `Command` and `stop_daemon()` via process termination | `src/daemon/windows.rs` | DONE |
+| E5-T4 | IMPL | Wire `start --daemon` flag to daemonize on Unix, background spawn on Windows | `src/main.rs` | DONE |
+| E5-T5 | IMPL | Implement `stop` command reading PID file and terminating process | `src/main.rs` | DONE |
+| E5-T6 | IMPL | Implement `status` command checking if process is running, displaying PID and port | `src/main.rs` | DONE |
+| E5-T7 | IMPL | Implement graceful shutdown on SIGTERM/SIGINT using tokio signal handlers | `src/server.rs` | DONE |
+| E5-T8 | IMPL | Add `--log-file` flag support; configure tracing-subscriber to write to file when specified | `src/main.rs` | DONE |
+| E5-T9 | TEST | Integration test (Unix): start daemon → status shows running → stop → status shows stopped | `tests/integration/daemon_tests.rs` | DONE |
+| E5-T10 | TEST | Integration test (Windows): equivalent daemon lifecycle test | `tests/integration/daemon_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `start --daemon` backgrounds the process and returns immediately
-- [ ] `status` correctly reports running/stopped state
-- [ ] `stop` terminates background process gracefully
-- [ ] PID file created/cleaned up correctly
-- [ ] Logs written to file when `--log-file` specified
+- [x] `start --daemon` backgrounds the process and returns immediately
+- [x] `status` correctly reports running/stopped state
+- [x] `stop` terminates background process gracefully
+- [x] PID file created/cleaned up correctly
+- [x] Logs written to file when `--log-file` specified
 
 ---
 
