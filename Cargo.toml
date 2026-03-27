@@ -29,6 +29,7 @@ bytes = "1"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.5"
+libc = "0.2"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

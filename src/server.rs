@@ -32,10 +32,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 }
 
 /// Start the HTTP server on the given host and port.
+///
+/// When `write_pid` is true, writes PID and port files for daemon management.
+/// On shutdown, PID and port files are cleaned up automatically.
 pub async fn run(
     host: &str,
     port: u16,
     token_manager: Arc<TokenManager>,
+    write_pid: bool,
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
     let state = Arc::new(AppState {
@@ -48,19 +52,56 @@ pub async fn run(
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
+    if write_pid {
+        crate::daemon::write_pid_file()?;
+        crate::daemon::write_port_file(port)?;
+    }
+
     tracing::info!("Server listening on http://{addr}");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
+    // Clean up PID/port files on graceful shutdown
+    if write_pid {
+        crate::daemon::remove_pid_file();
+        crate::daemon::remove_port_file();
+    }
+
+    tracing::info!("Server stopped");
     Ok(())
 }
 
-/// Wait for CTRL+C (cross-platform graceful shutdown).
+/// Wait for a shutdown signal (SIGTERM/SIGINT on Unix, Ctrl+C on Windows).
+///
+/// On Unix, listens for both SIGTERM and SIGINT so that `stop_daemon()` (which
+/// sends SIGTERM) triggers a graceful shutdown. On all platforms, Ctrl+C is handled.
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install CTRL+C handler");
-    tracing::info!("Shutdown signal received, stopping server");
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        let mut sigint =
+            signal(SignalKind::interrupt()).expect("failed to install SIGINT handler");
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                tracing::info!("SIGTERM received, stopping server");
+            }
+            _ = sigint.recv() => {
+                tracing::info!("SIGINT received, stopping server");
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install CTRL+C handler");
+        tracing::info!("Shutdown signal received, stopping server");
+    }
 }

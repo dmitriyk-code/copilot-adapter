@@ -560,6 +560,7 @@ dependencies = [
  "daemonize",
  "futures",
  "keyring",
+ "libc",
  "reqwest",
  "serde",
  "serde_json",
