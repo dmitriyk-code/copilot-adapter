@@ -12,7 +12,7 @@ These scripts automate the process of building, authenticating, and running the 
 Both scripts perform these steps automatically:
 
 1. **Build** the adapter in release mode (`cargo build --release`)
-2. **Check authentication** - If not authenticated, runs `copilot-adapter auth`
+2. **Force re-authentication** - Always runs `copilot-adapter auth --force` to ensure fresh credentials
 3. **Start with trace logging** - Captures detailed logs to a timestamped file
 
 ## Usage

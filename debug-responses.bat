@@ -11,7 +11,7 @@ echo =========================================
 echo.
 echo This will:
 echo   1. Build the adapter in release mode
-echo   2. Check authentication status
+echo   2. Force re-authentication
 echo   3. Start with trace-level logging
 echo.
 echo Logged to: %LOG_FILE%
@@ -27,20 +27,14 @@ if %ERRORLEVEL% neq 0 (
 echo √ Build successful
 echo.
 
-REM Step 2: Check auth (using the built binary)
-echo [2/3] Checking authentication...
-target\release\copilot-adapter.exe status >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    echo √ Already authenticated
-) else (
-    echo Not authenticated. Starting authentication flow...
-    target\release\copilot-adapter.exe auth
-    if %ERRORLEVEL% neq 0 (
-        echo ERROR: Authentication failed!
-        exit /b 1
-    )
-    echo √ Authentication successful
+REM Step 2: Force re-authentication
+echo [2/3] Forcing re-authentication...
+target\release\copilot-adapter.exe auth --force
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: Authentication failed!
+    exit /b 1
 )
+echo √ Authentication successful
 echo.
 
 REM Step 3: Start with logging

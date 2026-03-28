@@ -84,12 +84,26 @@ pub struct AnthropicMessage {
 /// Anthropic-format tool definition.
 ///
 /// Schema: `{ name, description?, input_schema: { type: "object", properties, required? } }`
+///
+/// NOTE: `input_schema` is technically required by the Anthropic API spec, but we make it
+/// optional here to gracefully handle malformed requests from clients. When missing, we
+/// provide a default empty object schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default = "default_input_schema")]
     pub input_schema: InputSchema,
+}
+
+/// Provides a default input schema (empty object) for tools that don't specify one.
+fn default_input_schema() -> InputSchema {
+    InputSchema {
+        schema_type: "object".to_string(),
+        properties: None,
+        required: None,
+    }
 }
 
 /// JSON Schema describing a tool's input parameters in Anthropic format.

@@ -10,7 +10,7 @@ echo "========================================="
 echo ""
 echo "This will:"
 echo "  1. Build the adapter in release mode"
-echo "  2. Check authentication status"
+echo "  2. Force re-authentication"
 echo "  3. Start with trace-level logging"
 echo ""
 echo "Logged to: $LOG_FILE"
@@ -26,20 +26,14 @@ fi
 echo "✓ Build successful"
 echo ""
 
-# Step 2: Check auth (using the built binary)
-echo "[2/3] Checking authentication..."
-./target/release/copilot-adapter status > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "✓ Already authenticated"
-else
-    echo "Not authenticated. Starting authentication flow..."
-    ./target/release/copilot-adapter auth
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Authentication failed!"
-        exit 1
-    fi
-    echo "✓ Authentication successful"
+# Step 2: Force re-authentication
+echo "[2/3] Forcing re-authentication..."
+./target/release/copilot-adapter auth --force
+if [ $? -ne 0 ]; then
+    echo "ERROR: Authentication failed!"
+    exit 1
 fi
+echo "✓ Authentication successful"
 echo ""
 
 # Step 3: Start with logging
