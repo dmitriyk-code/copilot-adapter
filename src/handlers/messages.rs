@@ -11,7 +11,7 @@ use futures::StreamExt;
 use crate::anthropic::types::{
     build_message_start_response, map_stop_reason, AnthropicRequest, ContentBlock,
     ContentBlockInput, ContentDelta, InputJsonDelta, MessageDeltaBody, MessageDeltaUsage,
-    ResponseContentBlock, StreamEvent, TextDelta,
+    ResponseContentBlock, StreamEvent, TextDelta, ToolResultContent,
 };
 use crate::copilot::types::MessageContent;
 use crate::error::AppError;
@@ -45,6 +45,36 @@ pub async fn messages(
         return Err(AppError::InvalidRequest(
             "messages must be a non-empty array".to_string(),
         ));
+    }
+
+    // Log if any messages contain tool results
+    let has_tool_results_in_messages = request.messages.iter().any(|m| {
+        matches!(&m.content, ContentBlockInput::Blocks(blocks)
+            if blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })))
+    });
+
+    if has_tool_results_in_messages {
+        tracing::debug!("Request contains tool_result blocks - Claude Code is sending back tool execution results");
+
+        // Log the tool results for debugging
+        for (idx, msg) in request.messages.iter().enumerate() {
+            if let ContentBlockInput::Blocks(blocks) = &msg.content {
+                for block in blocks {
+                    if let ContentBlock::ToolResult { tool_use_id, content } = block {
+                        let result_text = match content {
+                            ToolResultContent::Text(s) => s.clone(),
+                            ToolResultContent::Blocks(b) => format!("[{} blocks]", b.len()),
+                        };
+                        tracing::debug!(
+                            message_index = idx,
+                            tool_use_id = %tool_use_id,
+                            result_preview = %result_text.chars().take(200).collect::<String>(),
+                            "Tool result in message"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     let has_tools = request
@@ -122,6 +152,11 @@ pub async fn messages(
 
     // Log the raw response for debugging tool call issues
     if state.config.experimental_tools {
+        tracing::debug!(
+            actual_model = %response.model,
+            "Actual model used by Copilot (from non-streaming response)"
+        );
+
         // TRACE level: dump full response JSON to see exact structure
         if tracing::enabled!(tracing::Level::TRACE) {
             if let Ok(json) = serde_json::to_string_pretty(&response) {
@@ -398,6 +433,22 @@ async fn handle_streaming_with_tools(
             "Streaming response complete, checking for tool calls"
         );
 
+        // Determine stream ID and model from buffered chunks
+        let stream_id = buffered_chunks
+            .first()
+            .map(|c| c.id.clone())
+            .unwrap_or_else(|| "msg_unknown".to_string());
+
+        let actual_model = buffered_chunks
+            .first()
+            .map(|c| c.model.as_str())
+            .unwrap_or("unknown");
+
+        tracing::debug!(
+            actual_model = actual_model,
+            "Actual model used by Copilot (from response)"
+        );
+
         // Log raw content for debugging
         if tracing::enabled!(tracing::Level::TRACE) {
             if content_buffer.len() < 2000 {
@@ -437,12 +488,6 @@ async fn handle_streaming_with_tools(
         } else {
             content_buffer.clone()
         };
-
-        // Determine stream ID from buffered chunks
-        let stream_id = buffered_chunks
-            .first()
-            .map(|c| c.id.clone())
-            .unwrap_or_else(|| "msg_unknown".to_string());
 
         // === Emit message_start ===
         let msg = build_message_start_response(&stream_id, &model);

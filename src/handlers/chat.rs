@@ -152,6 +152,11 @@ pub async fn chat_completions(
 
     // Log the raw response for debugging tool call issues
     if state.config.experimental_tools {
+        tracing::debug!(
+            actual_model = %response.model,
+            "Actual model used by Copilot (from non-streaming response)"
+        );
+
         // TRACE level: dump full response JSON to see exact structure
         if tracing::enabled!(tracing::Level::TRACE) {
             if let Ok(json) = serde_json::to_string_pretty(&response) {
@@ -252,6 +257,17 @@ async fn handle_streaming_with_tools(
         tracing::debug!(
             content_length = content_buffer.len(),
             "Streaming response complete (OpenAI format), checking for tool calls"
+        );
+
+        // Get actual model from first chunk
+        let actual_model = buffered_chunks
+            .first()
+            .map(|c| c.model.as_str())
+            .unwrap_or("unknown");
+
+        tracing::debug!(
+            actual_model = actual_model,
+            "Actual model used by Copilot (from response)"
         );
 
         // Log raw content for debugging
