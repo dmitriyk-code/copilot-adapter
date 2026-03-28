@@ -1,6 +1,6 @@
 # Dynamic Models List — Design Document
 
-**Status:** Draft (API Discovery Phase — COMPLETE)
+**Status:** Implemented
 **Date:** 2026-03-27
 **Prerequisite:** Core adapter implementation — COMPLETE
 
@@ -608,21 +608,24 @@ See the verification script in the "Endpoint Discovery Findings" section above.
 - ✅ No specific rate limits observed; 5-min cache TTL recommended
 - ✅ Response is subscription-aware (model list varies by plan)
 
-### Phase 2: Implementation
-- Implement cache module
-- Add `fetch_models()` to client
-- Update handlers
-- Add CLI flags
+### Phase 2: Implementation (COMPLETED)
+- ✅ Implemented cache module (`src/copilot/models_cache.rs`)
+- ✅ Added `fetch_models()` to client (`src/copilot/client.rs`)
+- ✅ Updated handlers with cache → API → fallback flow (`src/handlers/models.rs`)
+- ✅ Added CLI flags `--models-cache-ttl` and `--static-models` (`src/cli.rs`)
 
-### Phase 3: Testing
-- Unit tests for cache and fallback
-- Integration tests with mock server
-- Manual testing with real Copilot API
+### Phase 3: Testing (COMPLETED)
+- ✅ Unit tests for cache (`tests/unit/models_cache_tests.rs`)
+- ✅ Unit tests for client fetch_models (`tests/unit/copilot_client_tests.rs`)
+- ✅ Integration tests with mock server (`tests/integration/models_dynamic_tests.rs`)
+- ✅ Mock Copilot models endpoint (`tests/common/mock_copilot.rs`)
+- ✅ Manual E2E testing procedures documented (`docs/e2e-testing.md`)
 
-### Phase 4: Documentation
-- Update README with new behavior
-- Document CLI flags
-- Add troubleshooting section for models issues
+### Phase 4: Documentation (COMPLETED)
+- ✅ Updated README with dynamic models behaviour, CLI flags, configuration section
+- ✅ Updated CLAUDE.md with dynamic models feature notes
+- ✅ Added models E2E test procedures to `docs/e2e-testing.md`
+- ✅ Updated DYNAMIC-MODELS.design.md status to "Implemented"
 
 ---
 

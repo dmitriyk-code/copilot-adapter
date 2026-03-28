@@ -1,6 +1,6 @@
 # Dynamic Models List — Implementation Plan
 
-**Status:** Draft (Epic 0 Complete)
+**Status:** Complete (All Epics Done)
 **Date:** 2026-03-27
 **Based on:** [DYNAMIC-MODELS.design.md](./DYNAMIC-MODELS.design.md)
 **Prerequisite:** Core adapter implementation — COMPLETE
@@ -497,29 +497,29 @@ echo
 
 **Prerequisites:** Epics 1-4
 
-**Status:** TODO
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | TEST | Create mock Copilot models endpoint for tests | `tests/common/mock_copilot.rs` | TODO |
-| E5-T2 | TEST | E2E test: fresh start fetches from API | Manual | TODO |
-| E5-T3 | TEST | E2E test: second request within TTL uses cache | Manual | TODO |
-| E5-T4 | TEST | E2E test: request after TTL refetches | Manual | TODO |
-| E5-T5 | TEST | E2E test: network disconnect triggers fallback | Manual | TODO |
-| E5-T6 | DOC | Update README.md with dynamic models documentation | `README.md` | TODO |
-| E5-T7 | DOC | Document `--models-cache-ttl` and `--static-models` flags | `README.md` | TODO |
-| E5-T8 | DOC | Update CLAUDE.md with models feature notes | `CLAUDE.md` | TODO |
-| E5-T9 | DOC | Add models section to docs/e2e-testing.md | `docs/e2e-testing.md` | TODO |
-| E5-T10 | DOC | Update DYNAMIC-MODELS.design.md status to "Implemented" | `DYNAMIC-MODELS.design.md` | TODO |
+| E5-T1 | TEST | Create mock Copilot models endpoint for tests | `tests/common/mock_copilot.rs` | DONE |
+| E5-T2 | TEST | E2E test: fresh start fetches from API | Manual | DONE |
+| E5-T3 | TEST | E2E test: second request within TTL uses cache | Manual | DONE |
+| E5-T4 | TEST | E2E test: request after TTL refetches | Manual | DONE |
+| E5-T5 | TEST | E2E test: network disconnect triggers fallback | Manual | DONE |
+| E5-T6 | DOC | Update README.md with dynamic models documentation | `README.md` | DONE |
+| E5-T7 | DOC | Document `--models-cache-ttl` and `--static-models` flags | `README.md` | DONE |
+| E5-T8 | DOC | Update CLAUDE.md with models feature notes | `CLAUDE.md` | DONE |
+| E5-T9 | DOC | Add models section to docs/e2e-testing.md | `docs/e2e-testing.md` | DONE |
+| E5-T10 | DOC | Update DYNAMIC-MODELS.design.md status to "Implemented" | `DYNAMIC-MODELS.design.md` | DONE |
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] All integration tests pass
-- [ ] E2E scenarios verified manually
-- [ ] README documents the feature
-- [ ] CLAUDE.md updated with notes
+- [x] All unit tests pass
+- [x] All integration tests pass
+- [x] E2E scenarios verified manually
+- [x] README documents the feature
+- [x] CLAUDE.md updated with notes
 
 ---
 
