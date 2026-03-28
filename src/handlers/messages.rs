@@ -393,8 +393,44 @@ async fn handle_streaming_with_tools(
         }
 
         // Stream ended — check for tool calls
+        tracing::debug!(
+            content_length = content_buffer.len(),
+            "Streaming response complete, checking for tool calls"
+        );
+
+        // Log raw content for debugging
+        if tracing::enabled!(tracing::Level::TRACE) {
+            if content_buffer.len() < 2000 {
+                tracing::trace!(
+                    full_content = %content_buffer,
+                    "Full buffered content from streaming response"
+                );
+            } else {
+                tracing::trace!(
+                    content_preview = %content_buffer.chars().take(500).collect::<String>(),
+                    content_length = content_buffer.len(),
+                    "Buffered content preview (truncated)"
+                );
+            }
+        } else {
+            tracing::debug!(
+                content_preview = %content_buffer.chars().take(200).collect::<String>(),
+                "Buffered content preview"
+            );
+        }
+
         let tool_calls = parser::parse_tool_calls(&content_buffer);
         let has_tool_calls = !tool_calls.is_empty();
+
+        if has_tool_calls {
+            tracing::debug!(
+                num_tool_calls = tool_calls.len(),
+                tool_call_names = ?tool_calls.iter().map(|tc| &tc.function.name).collect::<Vec<_>>(),
+                "Parsed tool calls from streaming response"
+            );
+        } else {
+            tracing::debug!("No tool calls found in streaming response");
+        }
 
         let stripped_text = if has_tool_calls {
             parser::strip_tool_calls(&content_buffer)

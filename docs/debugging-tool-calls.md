@@ -4,6 +4,11 @@ This guide helps you diagnose why web search, web fetch, or other tool calls mig
 
 ## Quick Start
 
+The debug scripts will automatically:
+1. ✅ Build the adapter in release mode
+2. ✅ Check/perform authentication
+3. ✅ Start with trace-level logging
+
 ### Linux/macOS:
 ```bash
 chmod +x debug-responses.sh

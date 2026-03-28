@@ -143,7 +143,7 @@ curl http://127.0.0.1:9090/health
 
 ## Test 4: Models Endpoint
 
-**Purpose:** Verify the `/v1/models` endpoints return valid model listings.
+**Purpose:** Verify the `/v1/models` endpoints return valid model listings, including dynamic fetching, caching, and fallback behaviour.
 
 ### Steps
 
@@ -179,6 +179,111 @@ curl http://127.0.0.1:9090/health
    ```bash
    curl -s -w "\nHTTP Status: %{http_code}\n" http://127.0.0.1:6767/v1/models/nonexistent
    ```
+
+### Test 4a: Fresh Start Fetches from API
+
+**Purpose:** Verify that a fresh adapter start fetches models from the Copilot API (not the static list).
+
+1. **Start with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Request models:**
+   ```bash
+   curl -s http://127.0.0.1:6767/v1/models | python3 -m json.tool
+   ```
+
+3. **Check logs for:**
+   ```
+   Models cache miss, fetching from Copilot API
+   Fetched models from Copilot API
+   ```
+
+4. **Verify** the response contains models from the Copilot API (e.g., models beyond the static fallback list like `claude-sonnet-4` or `o1-mini`).
+
+### Test 4b: Second Request Uses Cache
+
+**Purpose:** Verify that a second request within the TTL returns cached data without an API call.
+
+1. **Start with debug logging (if not already):**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Request models twice:**
+   ```bash
+   curl -s http://127.0.0.1:6767/v1/models > /dev/null
+   curl -s http://127.0.0.1:6767/v1/models > /dev/null
+   ```
+
+3. **Check logs:**
+   - First request: `Models cache miss, fetching from Copilot API`
+   - Second request: `Models cache hit`
+
+4. **Verify** only one API call was made (only one `Fetched models from Copilot API` log line).
+
+### Test 4c: Request After TTL Refetches
+
+**Purpose:** Verify that after the cache TTL expires, the next request fetches fresh data.
+
+1. **Start with a short TTL:**
+   ```bash
+   copilot-adapter start --log-level debug --models-cache-ttl 10
+   ```
+
+2. **Request models, wait for TTL, then request again:**
+   ```bash
+   curl -s http://127.0.0.1:6767/v1/models > /dev/null   # Fetch & cache
+   sleep 11                                                 # Wait for TTL expiry
+   curl -s http://127.0.0.1:6767/v1/models > /dev/null   # Should refetch
+   ```
+
+3. **Check logs for two separate `fetching from Copilot API` entries.**
+
+### Test 4d: Network Disconnect Triggers Fallback
+
+**Purpose:** Verify that when the Copilot API is unreachable, the adapter returns the static fallback list.
+
+1. **Option A — Disconnect network:**
+   ```bash
+   copilot-adapter start --log-level debug
+   # Disconnect from the internet (disable Wi-Fi/Ethernet)
+   curl -s http://127.0.0.1:6767/v1/models | python3 -m json.tool
+   # Reconnect
+   ```
+
+2. **Option B — Use an invalid token:**
+   ```bash
+   copilot-adapter logout
+   copilot-adapter start --log-level debug
+   curl -s http://127.0.0.1:6767/v1/models | python3 -m json.tool
+   ```
+
+3. **Expected:**
+   - Response status: 200 (never fails)
+   - Response body contains fallback models: `gpt-4o`, `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`
+   - **Option A:** Logs contain a warning: `Failed to fetch models from Copilot API, using fallback list`
+   - **Option B:** Logs contain a warning: `Failed to obtain token for models fetch, using fallback list`
+
+### Test 4e: Static Models Mode
+
+**Purpose:** Verify `--static-models` flag bypasses API calls entirely.
+
+1. **Start with static models:**
+   ```bash
+   copilot-adapter start --log-level debug --static-models
+   ```
+
+2. **Request models:**
+   ```bash
+   curl -s http://127.0.0.1:6767/v1/models | python3 -m json.tool
+   ```
+
+3. **Expected:**
+   - Response contains exactly 4 models: `gpt-4o`, `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`
+   - Logs show: `Static models mode enabled, returning fallback list`
+   - No `fetching from Copilot API` log entries
 
 ---
 
@@ -662,6 +767,11 @@ RUST_LOG=trace copilot-adapter start
 | 2 | Server start & health | | |
 | 3 | Daemon lifecycle | | |
 | 4 | Models endpoint | | |
+| 4a | Fresh start fetches from API | | |
+| 4b | Second request uses cache | | |
+| 4c | Request after TTL refetches | | |
+| 4d | Network disconnect fallback | | |
+| 4e | Static models mode | | |
 | 5 | Non-streaming chat | | |
 | 6 | Streaming chat | | |
 | 7 | Concurrent clients | | |

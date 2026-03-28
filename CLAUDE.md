@@ -40,7 +40,7 @@ src/
 │   ├── mod.rs
 │   ├── chat.rs          # /v1/chat/completions (OpenAI format)
 │   ├── messages.rs      # /v1/messages (Anthropic format)
-│   ├── models.rs        # /v1/models endpoint
+│   ├── models.rs        # /v1/models endpoint (dynamic + fallback)
 │   └── health.rs        # Health check
 ├── auth/
 │   ├── mod.rs
@@ -48,7 +48,8 @@ src/
 │   └── token.rs         # Token manager with auto-refresh
 ├── copilot/
 │   ├── mod.rs
-│   ├── client.rs        # Copilot API client with SSE streaming
+│   ├── client.rs        # Copilot API client with SSE streaming + models fetch
+│   ├── models_cache.rs  # In-memory models cache with TTL expiration
 │   └── types.rs         # OpenAI request/response types
 ├── anthropic/
 │   ├── mod.rs
@@ -79,6 +80,8 @@ src/
 | `copilot-adapter start -p 9090` | Start on custom port |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --experimental-tools` | Enable experimental tool support |
+| `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds) |
+| `copilot-adapter start --static-models` | Use static model list (skip API) |
 | `copilot-adapter status` | Check if adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -122,12 +125,18 @@ cargo test
 
 - `DESIGN.md` - Full design document (architecture, API research, implementation details)
 - `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
+- `DYNAMIC-MODELS.design.md` - Design document for dynamic models list feature (implemented)
+- `DYNAMIC-MODELS.plan.md` - Implementation plan for dynamic models
 - `TOOLS-SUPPORT.design.md` - Design document for experimental tools/functions support (implemented)
 - `TOOLS-SUPPORT.plan.md` - Implementation plan for tools support
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
 
 ## Notes for Development
 
+- **Dynamic models**: `/v1/models` fetches from Copilot API with in-memory caching (TTL-based via `ModelsCache` in `AppState`). Falls back to a static list on API errors. Controlled by `--models-cache-ttl` (default 300s) and `--static-models` flags.
+- `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration
+- `CopilotClient::fetch_models()` calls `https://api.githubcopilot.com/models` with standard Copilot headers
+- `resolve_models()` in `src/handlers/models.rs` orchestrates cache → API fetch → fallback flow
 - Tools/functions support is **experimental** and opt-in via `--experimental-tools` flag
 - Tool definitions are injected into the system prompt; tool calls are parsed from model text responses
 - The tools implementation lives in `src/tools/` (types, injector, parser)

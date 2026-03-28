@@ -1,7 +1,8 @@
 //! Reusable mock Copilot API server for integration tests.
 //!
 //! Provides configurable mock implementations of the Copilot chat completions
-//! endpoint supporting both streaming (SSE) and non-streaming responses.
+//! and models endpoints supporting both streaming (SSE) and non-streaming
+//! responses.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::json;
 use tokio::net::TcpListener;
@@ -260,6 +261,159 @@ fn build_streaming_response(model: &str) -> Response {
         .body(Body::from(chunks.concat()))
         .unwrap()
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Mock Copilot models API (Epic 5 — E5-T1)
+// ---------------------------------------------------------------------------
+
+/// A running mock Copilot Models API server.
+///
+/// Provides configurable mock implementations of the Copilot models endpoint
+/// (`GET /models`) for integration tests. Validates the same required headers
+/// as the real Copilot API.
+pub struct MockCopilotModels {
+    pub addr: SocketAddr,
+    pub handle: JoinHandle<()>,
+}
+
+impl MockCopilotModels {
+    /// Spawn a mock Copilot models API that returns a standard model list.
+    /// Validates Authorization, Copilot-Integration-Id, and Editor-Version headers.
+    pub async fn spawn() -> Self {
+        let app = Router::new().route("/models", get(mock_models_handler));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        Self { addr, handle }
+    }
+
+    /// Spawn a mock Copilot models API with a request counter.
+    /// Useful for verifying cache behaviour (e.g., no duplicate API calls).
+    pub async fn spawn_with_counter() -> (Self, Arc<AtomicU32>) {
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/models",
+            get(move |headers: HeaderMap| {
+                let c = counter_clone.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    mock_models_handler(headers).await
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        (Self { addr, handle }, counter)
+    }
+
+    /// Spawn a mock Copilot models API that always returns HTTP 500.
+    pub async fn spawn_failing() -> Self {
+        let app = Router::new().route(
+            "/models",
+            get(|| async {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "internal server error"})),
+                )
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        Self { addr, handle }
+    }
+
+    /// URL for the models endpoint.
+    pub fn models_url(&self) -> String {
+        format!("http://{}/models", self.addr)
+    }
+}
+
+/// Mock models handler: validates required Copilot headers, returns a model list.
+async fn mock_models_handler(
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Validate Authorization header
+    let auth = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !auth.starts_with("Bearer ") {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "missing Bearer token"})),
+        ));
+    }
+
+    // Validate required Copilot headers
+    let integration_id = headers
+        .get("Copilot-Integration-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if integration_id != "vscode-chat" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("expected Copilot-Integration-Id 'vscode-chat', got '{integration_id}'")})),
+        ));
+    }
+
+    let editor_version = headers
+        .get("Editor-Version")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if editor_version != "vscode/1.85.0" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("expected Editor-Version 'vscode/1.85.0', got '{editor_version}'")})),
+        ));
+    }
+
+    if headers.get("X-Request-Id").is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "missing X-Request-Id header"})),
+        ));
+    }
+
+    Ok(Json(json!({
+        "object": "list",
+        "data": [
+            {
+                "id": "gpt-4o",
+                "object": "model",
+                "created": 1715367049,
+                "owned_by": "github-copilot"
+            },
+            {
+                "id": "gpt-4",
+                "object": "model",
+                "created": 1686935002,
+                "owned_by": "github-copilot"
+            },
+            {
+                "id": "claude-sonnet-4",
+                "object": "model",
+                "created": 1715367049,
+                "owned_by": "github-copilot"
+            }
+        ]
+    })))
 }
 
 // ---------------------------------------------------------------------------

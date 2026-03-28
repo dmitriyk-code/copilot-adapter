@@ -9,6 +9,7 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 - **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
 - **SSE streaming** — real-time token-by-token responses
 - **Experimental tool/function support** — opt-in prompt injection for tool calling (see below)
+- **Dynamic model discovery** — fetches available models from Copilot API with caching and fallback
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
 - **Secure credential storage** — OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service) with encrypted file fallback
 - **Background daemon** — runs as a background process on all platforms
@@ -109,6 +110,8 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --log-file /tmp/adapter.log` | Log to a file |
 | `copilot-adapter start --experimental-tools` | Enable experimental tool/function support |
+| `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds, default: 300) |
+| `copilot-adapter start --static-models` | Use static model list (skip API fetch) |
 | `copilot-adapter status` | Check if the adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -214,7 +217,7 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
 
 ### `GET /v1/models`
 
-List available models.
+List available models. By default, models are fetched dynamically from the Copilot API and cached in memory (TTL: 5 minutes). If the API is unreachable, the adapter falls back to a built-in static list.
 
 ```bash
 curl http://127.0.0.1:6767/v1/models
@@ -228,7 +231,12 @@ Get details for a specific model.
 curl http://127.0.0.1:6767/v1/models/gpt-4
 ```
 
-**Available models:** `gpt-4`, `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`, `claude-3.5-sonnet`
+**Dynamic models behaviour:**
+
+- On first request (or after cache expires), the adapter fetches the model list from `https://api.githubcopilot.com/models`
+- Subsequent requests within the cache TTL return the cached list without an API call
+- If the Copilot API is unavailable, the adapter returns a static fallback list (gpt-4o, gpt-4, gpt-4-turbo, gpt-3.5-turbo)
+- Use `--static-models` to disable dynamic fetching entirely
 
 ## Experimental Tool/Function Support
 
@@ -345,6 +353,28 @@ RUST_LOG=debug copilot-adapter start
 ```
 
 The `--log-level` flag takes precedence over `RUST_LOG` when explicitly set.
+
+### Dynamic Models
+
+By default, the adapter fetches the model list from the Copilot API and caches it in memory. You can configure this behaviour:
+
+```bash
+# Set cache TTL to 10 minutes (default: 300 seconds / 5 minutes)
+copilot-adapter start --models-cache-ttl 600
+
+# Disable caching (always fetch fresh)
+copilot-adapter start --models-cache-ttl 0
+
+# Use the built-in static model list (no API calls for /v1/models)
+copilot-adapter start --static-models
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--models-cache-ttl <seconds>` | `300` | How long to cache the model list (0 = no caching) |
+| `--static-models` | `false` | Always return the built-in static list; skip Copilot API calls |
+
+When the Copilot API is unreachable (network error, auth failure, HTTP error), the adapter logs a warning and returns the static fallback list. This ensures the `/v1/models` endpoint never fails.
 
 ### Credential Storage
 
