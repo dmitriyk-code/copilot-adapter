@@ -12,6 +12,8 @@ fn parse_start_defaults() {
             log_level,
             log_file,
             experimental_tools,
+            models_cache_ttl,
+            static_models,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -19,6 +21,8 @@ fn parse_start_defaults() {
             assert_eq!(log_level, "info");
             assert!(log_file.is_none());
             assert!(!experimental_tools);
+            assert_eq!(models_cache_ttl, 300);
+            assert!(!static_models);
         }
         _ => panic!("Expected Start command"),
     }
@@ -113,6 +117,8 @@ fn parse_start_all_flags() {
             log_level,
             log_file,
             experimental_tools,
+            models_cache_ttl,
+            static_models,
         } => {
             assert!(daemon);
             assert_eq!(port, 9000);
@@ -120,6 +126,8 @@ fn parse_start_all_flags() {
             assert_eq!(log_level, "trace");
             assert_eq!(log_file, Some("/var/log/adapter.log".to_string()));
             assert!(experimental_tools);
+            assert_eq!(models_cache_ttl, 300);
+            assert!(!static_models);
         }
         _ => panic!("Expected Start command"),
     }
@@ -191,6 +199,83 @@ fn parse_start_experimental_tools_default_false() {
         Command::Start {
             experimental_tools, ..
         } => assert!(!experimental_tools),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_models_cache_ttl_default() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start {
+            models_cache_ttl, ..
+        } => assert_eq!(models_cache_ttl, 300),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_models_cache_ttl_custom() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--models-cache-ttl", "60"]);
+    match cli.command {
+        Command::Start {
+            models_cache_ttl, ..
+        } => assert_eq!(models_cache_ttl, 60),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_models_cache_ttl_zero() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--models-cache-ttl", "0"]);
+    match cli.command {
+        Command::Start {
+            models_cache_ttl, ..
+        } => assert_eq!(models_cache_ttl, 0),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_static_models_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--static-models"]);
+    match cli.command {
+        Command::Start {
+            static_models, ..
+        } => assert!(static_models),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_static_models_default_false() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start {
+            static_models, ..
+        } => assert!(!static_models),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_all_model_flags() {
+    let cli = Cli::parse_from([
+        "copilot-adapter",
+        "start",
+        "--models-cache-ttl",
+        "120",
+        "--static-models",
+    ]);
+    match cli.command {
+        Command::Start {
+            models_cache_ttl,
+            static_models,
+            ..
+        } => {
+            assert_eq!(models_cache_ttl, 120);
+            assert!(static_models);
+        }
         _ => panic!("Expected Start command"),
     }
 }

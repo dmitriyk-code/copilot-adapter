@@ -22,6 +22,9 @@ pub struct AdapterConfig {
     /// When `true`, `/v1/models` always returns the static fallback list
     /// without attempting to fetch from the Copilot API.
     pub static_models: bool,
+    /// TTL for the dynamic models cache. After this duration the cached
+    /// model list is considered stale and will be re-fetched.
+    pub models_cache_ttl: std::time::Duration,
 }
 
 impl Default for AdapterConfig {
@@ -29,6 +32,7 @@ impl Default for AdapterConfig {
         Self {
             experimental_tools: false,
             static_models: false,
+            models_cache_ttl: std::time::Duration::from_secs(300),
         }
     }
 }
@@ -116,7 +120,7 @@ pub async fn run(
     config: AdapterConfig,
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
-    let models_cache = ModelsCache::new(std::time::Duration::from_secs(300));
+    let models_cache = ModelsCache::new(config.models_cache_ttl);
     let state = Arc::new(AppState {
         token_manager,
         copilot_client: CopilotClient::new(http_client.clone()),

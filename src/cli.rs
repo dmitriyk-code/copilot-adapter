@@ -38,6 +38,14 @@ pub enum Command {
         /// Enable experimental tool/function calling support via prompt injection
         #[arg(long)]
         experimental_tools: bool,
+
+        /// Cache TTL for the dynamic models list, in seconds (0 = no caching)
+        #[arg(long, default_value_t = 300)]
+        models_cache_ttl: u64,
+
+        /// Always return the built-in static models list instead of fetching from Copilot API
+        #[arg(long)]
+        static_models: bool,
     },
 
     /// Stop the background adapter

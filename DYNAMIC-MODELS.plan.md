@@ -468,26 +468,26 @@ echo
 
 **Prerequisites:** Epic 3
 
-**Status:** TODO
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `--models-cache-ttl <seconds>` flag to `StartArgs` (default: 300) | `src/cli.rs` | TODO |
-| E4-T2 | IMPL | Add `--static-models` flag to `StartArgs` (default: false) | `src/cli.rs` | TODO |
-| E4-T3 | IMPL | Pass TTL to `ModelsCache::new()` in main.rs | `src/main.rs` | TODO |
-| E4-T4 | IMPL | Pass `static_models` to `AdapterConfig` in main.rs | `src/main.rs` | TODO |
-| E4-T5 | IMPL | Add help text for both flags | `src/cli.rs` | TODO |
-| E4-T6 | TEST | CLI test: default TTL is 300 seconds | Manual | TODO |
-| E4-T7 | TEST | CLI test: custom TTL is respected | Manual | TODO |
-| E4-T8 | TEST | CLI test: `--static-models` disables fetching | Manual | TODO |
+| E4-T1 | IMPL | Add `--models-cache-ttl <seconds>` flag to `StartArgs` (default: 300) | `src/cli.rs` | DONE |
+| E4-T2 | IMPL | Add `--static-models` flag to `StartArgs` (default: false) | `src/cli.rs` | DONE |
+| E4-T3 | IMPL | Pass TTL to `ModelsCache::new()` in main.rs | `src/main.rs` | DONE |
+| E4-T4 | IMPL | Pass `static_models` to `AdapterConfig` in main.rs | `src/main.rs` | DONE |
+| E4-T5 | IMPL | Add help text for both flags | `src/cli.rs` | DONE |
+| E4-T6 | TEST | CLI test: default TTL is 300 seconds | Manual | DONE |
+| E4-T7 | TEST | CLI test: custom TTL is respected | Manual | DONE |
+| E4-T8 | TEST | CLI test: `--static-models` disables fetching | Manual | DONE |
 
 **Acceptance Criteria:**
-- [ ] `--models-cache-ttl` flag accepted and parsed
-- [ ] `--static-models` flag accepted and parsed
-- [ ] Help text describes both flags
-- [ ] Default values work correctly
+- [x] `--models-cache-ttl` flag accepted and parsed
+- [x] `--static-models` flag accepted and parsed
+- [x] Help text describes both flags
+- [x] Default values work correctly
 
 ---
 

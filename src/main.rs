@@ -19,6 +19,8 @@ async fn main() -> anyhow::Result<()> {
             log_level,
             log_file,
             experimental_tools,
+            models_cache_ttl,
+            static_models,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -54,6 +56,11 @@ async fn main() -> anyhow::Result<()> {
                     if experimental_tools {
                         args.push("--experimental-tools".to_string());
                     }
+                    args.push("--models-cache-ttl".to_string());
+                    args.push(models_cache_ttl.to_string());
+                    if static_models {
+                        args.push("--static-models".to_string());
+                    }
 
                     let pid = daemon::spawn_background(&args)?;
                     println!("Adapter started in background (PID {pid})");
@@ -72,11 +79,18 @@ async fn main() -> anyhow::Result<()> {
 
             let config = server::AdapterConfig {
                 experimental_tools,
-                ..server::AdapterConfig::default()
+                static_models,
+                models_cache_ttl: std::time::Duration::from_secs(models_cache_ttl),
             };
 
             if experimental_tools {
                 tracing::info!("Experimental tools support is ENABLED");
+            }
+
+            if static_models {
+                tracing::info!("Static models mode is ENABLED (dynamic fetching disabled)");
+            } else {
+                tracing::info!("Models cache TTL: {}s", models_cache_ttl);
             }
 
             // write_pid=true when running as daemon so stop/status can find us;
