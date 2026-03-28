@@ -1,3 +1,5 @@
+#[path = "../common/mod.rs"]
+mod common;
 mod auth_tests;
 mod chat_tests;
 mod concurrent_tests;

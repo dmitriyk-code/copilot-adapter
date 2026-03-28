@@ -14,10 +14,8 @@ use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 use serde_json::json;
 use tokio::net::TcpListener;
 
-#[path = "../common/mod.rs"]
-mod common;
-use common::mock_copilot::MockCopilot;
-use common::mock_github::MockGitHub;
+use crate::common::mock_copilot::MockCopilot;
+use crate::common::mock_github::MockGitHub;
 
 use super::test_helpers::InMemoryStorage;
 

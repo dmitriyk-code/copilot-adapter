@@ -30,9 +30,6 @@ use copilot_adapter::copilot::models_cache::ModelsCache;
 use copilot_adapter::copilot::types::{ChatCompletionChunk, ChatCompletionResponse};
 use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
-#[path = "../common/mod.rs"]
-mod common;
-
 use super::test_helpers::InMemoryStorage;
 
 // ---------------------------------------------------------------------------
@@ -200,7 +197,7 @@ fn parse_sse_body(body_text: &str) -> (Vec<ChatCompletionChunk>, bool) {
 
 #[tokio::test]
 async fn e2e_simple_tool_call_openai() {
-    use common::mock_copilot::build_tool_call_response;
+    use crate::common::mock_copilot::build_tool_call_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -283,7 +280,7 @@ async fn e2e_simple_tool_call_openai() {
 
 #[tokio::test]
 async fn e2e_simple_tool_call_anthropic() {
-    use common::mock_copilot::build_tool_call_response;
+    use crate::common::mock_copilot::build_tool_call_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -356,7 +353,7 @@ async fn e2e_simple_tool_call_anthropic() {
 
 #[tokio::test]
 async fn e2e_multi_turn_with_tool_results_openai() {
-    use common::mock_copilot::build_plain_response;
+    use crate::common::mock_copilot::build_plain_response;
 
     // In the multi-turn scenario, the second request includes tool results.
     // The mock echoes back the messages to verify they were translated correctly.
@@ -461,7 +458,7 @@ async fn e2e_multi_turn_with_tool_results_openai() {
 
 #[tokio::test]
 async fn e2e_multi_turn_with_tool_results_anthropic() {
-    use common::mock_copilot::build_plain_response;
+    use crate::common::mock_copilot::build_plain_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -556,7 +553,7 @@ async fn e2e_multi_turn_with_tool_results_anthropic() {
 
 #[tokio::test]
 async fn e2e_complex_arguments_openai() {
-    use common::mock_copilot::build_tool_call_response;
+    use crate::common::mock_copilot::build_tool_call_response;
 
     let complex_args = json!({
         "query": "SELECT * FROM users WHERE active = true",
@@ -670,7 +667,7 @@ async fn e2e_complex_arguments_openai() {
 
 #[tokio::test]
 async fn e2e_complex_arguments_anthropic() {
-    use common::mock_copilot::build_tool_call_response;
+    use crate::common::mock_copilot::build_tool_call_response;
 
     let complex_args = json!({
         "command": "find /home -name '*.rs' -type f",
@@ -768,7 +765,7 @@ async fn e2e_complex_arguments_anthropic() {
 
 #[tokio::test]
 async fn e2e_no_tool_calls_passthrough_openai() {
-    use common::mock_copilot::build_plain_response;
+    use crate::common::mock_copilot::build_plain_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -828,7 +825,7 @@ async fn e2e_no_tool_calls_passthrough_openai() {
 
 #[tokio::test]
 async fn e2e_no_tool_calls_passthrough_anthropic() {
-    use common::mock_copilot::build_plain_response;
+    use crate::common::mock_copilot::build_plain_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -986,7 +983,7 @@ async fn e2e_no_tool_calls_streaming_passthrough() {
 
 #[tokio::test]
 async fn e2e_malformed_tool_call_json_openai() {
-    use common::mock_copilot::build_malformed_tool_call_response;
+    use crate::common::mock_copilot::build_malformed_tool_call_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -1051,7 +1048,7 @@ async fn e2e_malformed_tool_call_json_openai() {
 
 #[tokio::test]
 async fn e2e_malformed_tool_call_json_anthropic() {
-    use common::mock_copilot::build_malformed_tool_call_response;
+    use crate::common::mock_copilot::build_malformed_tool_call_response;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
@@ -1121,7 +1118,7 @@ async fn e2e_malformed_tool_call_json_anthropic() {
 
 #[tokio::test]
 async fn e2e_streaming_tool_call_openai() {
-    use common::mock_copilot::build_streaming_tool_call_chunks;
+    use crate::common::mock_copilot::build_streaming_tool_call_chunks;
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
