@@ -759,6 +759,258 @@ RUST_LOG=trace copilot-adapter start
 
 ---
 
+## Test 17: Image Upload (Anthropic Format — Base64)
+
+**Purpose:** Verify that base64 image uploads via `/v1/messages` are translated to OpenAI `image_url` format and forwarded successfully.
+
+> **Prerequisites:**
+> - Adapter is running and authenticated
+> - Use a vision-capable model (e.g., `gpt-4o`)
+
+### Steps
+
+1. **Start the adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Send an image upload request (base64):**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "gpt-4o",
+       "max_tokens": 1024,
+       "messages": [{
+         "role": "user",
+         "content": [
+           {"type": "text", "text": "Describe this image in one sentence."},
+           {
+             "type": "image",
+             "source": {
+               "type": "base64",
+               "media_type": "image/png",
+               "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+             }
+           }
+         ]
+       }]
+     }' | python3 -m json.tool
+   ```
+
+   > **Tip:** The base64 data above is a 1×1 red pixel PNG. For a more meaningful test, replace it with a real image encoded via `base64 -w0 photo.jpg` (Linux) or `base64 -i photo.jpg` (macOS).
+
+3. **Expected response:**
+   ```json
+   {
+     "id": "msg_...",
+     "type": "message",
+     "role": "assistant",
+     "content": [
+       {
+         "type": "text",
+         "text": "The image shows a small red dot..."
+       }
+     ],
+     "model": "gpt-4o",
+     "stop_reason": "end_turn"
+   }
+   ```
+
+4. **Verify:**
+   - Response HTTP status is 200 (not 422)
+   - Response has valid Anthropic message format
+   - `content[0].type` is `"text"`
+   - `content[0].text` is non-empty and describes the image
+   - No deserialization errors in adapter logs
+
+### Log Verification
+
+Check the adapter logs for:
+- **No** `Failed to deserialize` errors
+- The request should be translated to OpenAI multimodal format with `image_url` content blocks
+- If debug logging is enabled, you should see the translated request being sent to the Copilot API
+
+---
+
+## Test 18: Image Upload (Anthropic Format — URL)
+
+**Purpose:** Verify that URL-based image references are passed through correctly.
+
+### Steps
+
+1. **Send an image upload request (URL):**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "gpt-4o",
+       "max_tokens": 1024,
+       "messages": [{
+         "role": "user",
+         "content": [
+           {"type": "text", "text": "What do you see in this image?"},
+           {
+             "type": "image",
+             "source": {
+               "type": "url",
+               "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png"
+             }
+           }
+         ]
+       }]
+     }' | python3 -m json.tool
+   ```
+
+2. **Verify:**
+   - Response HTTP status is 200
+   - Model describes the image content
+   - No errors in adapter logs
+
+---
+
+## Test 19: Mixed Content (Text + Image + Document)
+
+**Purpose:** Verify that mixed content messages are handled correctly — images translated, documents skipped with warning.
+
+### Steps
+
+1. **Send a mixed content request:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "gpt-4o",
+       "max_tokens": 1024,
+       "messages": [{
+         "role": "user",
+         "content": [
+           {"type": "text", "text": "Analyze the following:"},
+           {
+             "type": "image",
+             "source": {
+               "type": "base64",
+               "media_type": "image/png",
+               "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+             }
+           },
+           {
+             "type": "document",
+             "source": {
+               "type": "base64",
+               "media_type": "application/pdf",
+               "data": "JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwo+PgplbmRvYmoKdHJhaWxlcgo8PAovUm9vdCAxIDAgUgo+Pg=="
+             },
+             "title": "test-document.pdf"
+           }
+         ]
+       }]
+     }' | python3 -m json.tool
+   ```
+
+2. **Verify:**
+   - Response HTTP status is 200 (not 422)
+   - The model processes the text and image (document is silently skipped)
+   - Adapter logs contain a warning: `Document content blocks are not supported by OpenAI format; skipping`
+   - The warning includes the document title `test-document.pdf`
+
+---
+
+## Test 20: Image Upload with Cache Control
+
+**Purpose:** Verify that `cache_control` metadata on content blocks is accepted without errors.
+
+### Steps
+
+1. **Send a request with cache_control:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "gpt-4o",
+       "max_tokens": 1024,
+       "messages": [{
+         "role": "user",
+         "content": [
+           {
+             "type": "text",
+             "text": "Describe this image.",
+             "cache_control": {"type": "ephemeral"}
+           },
+           {
+             "type": "image",
+             "source": {
+               "type": "base64",
+               "media_type": "image/png",
+               "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+             },
+             "cache_control": {"type": "ephemeral"}
+           }
+         ]
+       }]
+     }' | python3 -m json.tool
+   ```
+
+2. **Verify:**
+   - Response HTTP status is 200 (not 422)
+   - `cache_control` is accepted without errors
+   - Response is a valid Anthropic message
+
+---
+
+## Test 21: Claude Code Image Upload (Integration)
+
+**Purpose:** Verify that uploading an image through Claude Code works end-to-end.
+
+### Steps
+
+1. **Start the adapter:**
+   ```bash
+   copilot-adapter start --daemon --log-level debug --log-file /tmp/copilot-adapter-image-test.log
+   ```
+
+2. **Configure Claude Code:**
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+   export ANTHROPIC_API_KEY=dummy
+   ```
+
+3. **Run Claude Code and upload an image:**
+   ```bash
+   claude
+   ```
+   Use Claude Code's image upload feature (drag-and-drop or paste) and ask:
+   `What is in this image?`
+
+4. **Verify:**
+   - Claude Code does **not** display a 422 or deserialization error
+   - The model responds with a description of the image
+   - No error messages in Claude Code output
+
+5. **Check adapter logs:**
+   ```bash
+   cat /tmp/copilot-adapter-image-test.log | grep -i -E "(error|warn|image|multimodal)"
+   ```
+   Expected:
+   - No `Failed to deserialize` errors
+   - No `422` status codes
+   - Possible debug entries showing multimodal translation
+
+6. **Clean up:**
+   ```bash
+   copilot-adapter stop
+   ```
+
+---
+
 ## Test Summary Checklist
 
 | # | Test | Pass/Fail | Notes |
@@ -784,3 +1036,8 @@ RUST_LOG=trace copilot-adapter start
 | 14 | Tools disabled rejection | | |
 | 15 | Tool call (Anthropic format) | | |
 | 16 | Claude Code with tools | | |
+| 17 | Image upload (base64) | | |
+| 18 | Image upload (URL) | | |
+| 19 | Mixed content (image + doc) | | |
+| 20 | Image with cache control | | |
+| 21 | Claude Code image upload | | |

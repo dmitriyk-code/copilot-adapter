@@ -11,6 +11,7 @@ A standalone Rust binary (`copilot-adapter`) that acts as an **OpenAI-compatible
 - **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation
 - **SSE streaming** support for real-time responses
 - **Experimental tool/function support** via prompt injection (`--experimental-tools`)
+- **Vision / image support** — translates Anthropic image blocks to OpenAI `image_url` format; document blocks gracefully skipped
 - **Dynamic model discovery** — fetches available models from Copilot API with in-memory caching and fallback
 - **Automatic token management** with refresh 5 min before expiry
 - **Secure credential storage** via OS keyring (with encrypted file fallback)

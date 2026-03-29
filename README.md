@@ -8,6 +8,7 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 - **Anthropic-compatible API** — `POST /v1/messages` for native Claude Code integration
 - **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
 - **SSE streaming** — real-time token-by-token responses
+- **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
 - **Experimental tool/function support** — opt-in prompt injection for tool calling (see below)
 - **Dynamic model discovery** — fetches available models from Copilot API with caching and fallback
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
@@ -207,7 +208,7 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `model` | string | Yes | Model identifier (mapped to Copilot model internally) |
-| `messages` | array | Yes | Array of message objects (`role` + `content`) |
+| `messages` | array | Yes | Array of message objects (`role` + `content`). Content can be a string or an array of content blocks (`text`, `image`, `document`) for multimodal messages. See [Vision / Image Support](#vision--image-support). |
 | `max_tokens` | integer | Yes | Maximum tokens in the response |
 | `stream` | boolean | No | Enable SSE streaming (default: `false`) |
 | `system` | string | No | System prompt |
@@ -237,6 +238,161 @@ curl http://127.0.0.1:6767/v1/models/gpt-4
 - Subsequent requests within the cache TTL return the cached list without an API call
 - If the Copilot API is unavailable, the adapter returns a static fallback list (gpt-4o, gpt-4, gpt-4-turbo, gpt-3.5-turbo)
 - Use `--static-models` to disable dynamic fetching entirely
+
+## Vision / Image Support
+
+The adapter supports **image content blocks** in the Anthropic Messages API (`/v1/messages`). When Claude Code or other Anthropic-format clients send image blocks, the adapter translates them to OpenAI's multimodal `image_url` format before forwarding to GitHub Copilot.
+
+### How It Works
+
+1. **Base64 images** are converted to data URIs: `data:{media_type};base64,{data}`
+2. **URL images** are passed through unchanged
+3. **Document blocks** (PDFs, etc.) are gracefully skipped with a warning log — there is no OpenAI equivalent
+4. **Cache control** metadata on content blocks is accepted but silently ignored
+
+No special flags or configuration are needed — vision support is always enabled.
+
+### Supported Image Formats
+
+| Source Type | Format | Example |
+|-------------|--------|---------|
+| Base64 | `image/jpeg`, `image/png`, `image/gif`, `image/webp` | Inline base64-encoded image data |
+| URL | Any image URL | `https://example.com/photo.jpg` |
+
+### Vision-Capable Models
+
+Image uploads work with any model that supports vision on the Copilot backend. Common vision-capable models include:
+
+- **GPT-4o** / **GPT-4o-mini** — recommended for vision tasks
+- **GPT-4 Turbo** — supports vision
+- **Claude 3.5 Sonnet** — if available through Copilot
+
+> **Note:** The adapter does not enforce which models support vision. If you send images to a text-only model, the upstream API will return an error.
+
+### Example: Image Upload via `/v1/messages`
+
+```bash
+curl -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "What is in this image?"},
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/jpeg",
+            "data": "/9j/4AAQSkZJRg..."
+          }
+        }
+      ]
+    }]
+  }'
+```
+
+### Document Block Degradation
+
+When a message contains `document` blocks (e.g., PDF uploads), the adapter:
+
+1. **Accepts** the block without returning a deserialization error
+2. **Logs a warning** with the document title (if provided)
+3. **Skips** the block during translation — it is not forwarded to the upstream model
+4. **Preserves** all other blocks (text, images) in the same message
+
+This means requests with documents will succeed, but the model will not receive the document content. Other content in the same message (text and images) is processed normally.
+
+## Vision / Image Support
+
+The adapter supports **multimodal (image) content** in the Anthropic `/v1/messages` endpoint. When Claude Code or any Anthropic-compatible client sends image content blocks, the adapter translates them to OpenAI's `image_url` format before forwarding to the Copilot API.
+
+### Supported Content Types
+
+| Content Block | Support | Details |
+|---------------|---------|---------|
+| `text` | ✅ Full | Passed through as-is |
+| `image` (base64) | ✅ Full | Converted to `data:{media_type};base64,{data}` data URI |
+| `image` (URL) | ✅ Full | URL passed through unchanged |
+| `document` | ⚠️ Skipped | Not supported by OpenAI format; skipped with a warning log |
+| `cache_control` | ✅ Accepted | Deserialized without error; not forwarded to Copilot API |
+
+### Usage
+
+Image uploads work automatically — no additional flags or configuration required. Use a vision-capable model (e.g., `gpt-4o`) for best results.
+
+**Base64 image:**
+
+```bash
+curl -s -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Describe this image."},
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "<base64-encoded image data>"
+          }
+        }
+      ]
+    }]
+  }'
+```
+
+**URL image:**
+
+```bash
+curl -s -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "What do you see?"},
+        {
+          "type": "image",
+          "source": {
+            "type": "url",
+            "url": "https://example.com/photo.jpg"
+          }
+        }
+      ]
+    }]
+  }'
+```
+
+### How It Works
+
+1. The adapter receives an Anthropic-format request with `image` content blocks
+2. Each `image` block is translated to an OpenAI `image_url` content block:
+   - **Base64 sources** → `data:{media_type};base64,{data}` data URI
+   - **URL sources** → URL passed through directly
+3. `document` blocks are skipped with a warning log (OpenAI format has no equivalent)
+4. `cache_control` metadata is accepted on any content block (prevents deserialization errors) but is not forwarded to the upstream API
+5. The translated multimodal message is sent to the Copilot API
+
+### Limitations
+
+- **Document blocks not supported:** PDF and other document uploads are silently skipped. The adapter logs a warning with the document title (if provided) but continues processing the rest of the message.
+- **`cache_control` not forwarded:** Anthropic's `cache_control` metadata is accepted to prevent errors but has no effect on the upstream Copilot API.
+- **Model must support vision:** Use a model with vision capabilities (e.g., `gpt-4o`). Non-vision models may ignore or error on image content.
 
 ## Experimental Tool/Function Support
 
