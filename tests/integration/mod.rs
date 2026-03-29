@@ -5,6 +5,7 @@ mod chat_tests;
 mod concurrent_tests;
 mod daemon_tests;
 mod error_tests;
+mod messages_multimodal_tests;
 mod messages_tests;
 mod models_dynamic_tests;
 mod models_tests;

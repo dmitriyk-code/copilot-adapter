@@ -454,27 +454,27 @@ fn translate_content_block(block: &ContentBlock) -> Option<crate::copilot::types
 
 **Prerequisites:** Epic 3 (translation logic)
 
-**Status:** Not Started
+**Status:** Done
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | TEST | Create integration test with image block (base64) | `tests/integration/messages_multimodal_tests.rs` | TODO |
-| E4-T2 | TEST | Create integration test with image block (URL) | `tests/integration/messages_multimodal_tests.rs` | TODO |
-| E4-T3 | TEST | Create integration test with mixed content (text + image) | `tests/integration/messages_multimodal_tests.rs` | TODO |
-| E4-T4 | TEST | Create integration test with document block (verify skip) | `tests/integration/messages_multimodal_tests.rs` | TODO |
-| E4-T5 | TEST | Verify mock Copilot receives correct OpenAI format | `tests/integration/messages_multimodal_tests.rs` | TODO |
-| E4-T6 | TEST | Verify response is valid Anthropic format | `tests/integration/messages_multimodal_tests.rs` | TODO |
-| E4-T7 | TEST | Test with cache_control (verify accepted) | `tests/integration/messages_multimodal_tests.rs` | TODO |
+| E4-T1 | TEST | Create integration test with image block (base64) | `tests/integration/messages_multimodal_tests.rs` | DONE |
+| E4-T2 | TEST | Create integration test with image block (URL) | `tests/integration/messages_multimodal_tests.rs` | DONE |
+| E4-T3 | TEST | Create integration test with mixed content (text + image) | `tests/integration/messages_multimodal_tests.rs` | DONE |
+| E4-T4 | TEST | Create integration test with document block (verify skip) | `tests/integration/messages_multimodal_tests.rs` | DONE |
+| E4-T5 | TEST | Verify mock Copilot receives correct OpenAI format | `tests/integration/messages_multimodal_tests.rs` | DONE |
+| E4-T6 | TEST | Verify response is valid Anthropic format | `tests/integration/messages_multimodal_tests.rs` | DONE |
+| E4-T7 | TEST | Test with cache_control (verify accepted) | `tests/integration/messages_multimodal_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Image blocks deserialize without 422 errors
-- [ ] Translated requests match OpenAI multimodal format
-- [ ] Responses are valid Anthropic format
-- [ ] Document skip warning logged
-- [ ] Cache control accepted but not forwarded
-- [ ] All integration tests pass
+- [x] Image blocks deserialize without 422 errors
+- [x] Translated requests match OpenAI multimodal format
+- [x] Responses are valid Anthropic format
+- [x] Document skip warning logged
+- [x] Cache control accepted but not forwarded
+- [x] All integration tests pass
 
 ---
 
