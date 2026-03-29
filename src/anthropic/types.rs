@@ -474,6 +474,54 @@ fn extract_text(content: &ContentBlockInput) -> String {
     }
 }
 
+/// Check if the content blocks contain any multimodal blocks (image or document).
+fn has_multimodal_blocks(content: &ContentBlockInput) -> bool {
+    match content {
+        ContentBlockInput::Text(_) => false,
+        ContentBlockInput::Blocks(blocks) => blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Image { .. } | ContentBlock::Document { .. })),
+    }
+}
+
+/// Translate an Anthropic content block to an OpenAI content block.
+///
+/// Returns `None` for blocks that cannot be represented in OpenAI format
+/// (e.g., documents), which should be skipped via `filter_map`.
+fn translate_content_block(
+    block: &ContentBlock,
+) -> Option<crate::copilot::types::ContentBlock> {
+    use crate::copilot::types;
+    match block {
+        ContentBlock::Text { text, .. } => {
+            Some(types::ContentBlock::Text { text: text.clone() })
+        }
+        ContentBlock::Image { source, .. } => {
+            let url = match source {
+                ImageSource::Base64 { media_type, data } => {
+                    format!("data:{};base64,{}", media_type, data)
+                }
+                ImageSource::Url { url, .. } => url.clone(),
+            };
+            Some(types::ContentBlock::ImageUrl {
+                image_url: types::ImageUrl {
+                    url,
+                    detail: None,
+                },
+            })
+        }
+        ContentBlock::Document { title, .. } => {
+            tracing::warn!(
+                title = title.as_deref(),
+                "Document content blocks are not supported by OpenAI format; skipping"
+            );
+            None
+        }
+        // ToolUse and ToolResult blocks are handled by other translation paths
+        _ => None,
+    }
+}
+
 /// Check if the content blocks contain any `tool_result` blocks.
 fn has_tool_result_blocks(content: &ContentBlockInput) -> bool {
     match content {
@@ -567,6 +615,24 @@ impl AnthropicRequest {
                         tool_calls: None,
                         tool_call_id: None,
                     });
+                }
+            } else if has_multimodal_blocks(&msg.content) {
+                // Message contains image or document blocks — build multimodal
+                // content with OpenAI-format content blocks.
+                if let ContentBlockInput::Blocks(blocks) = &msg.content {
+                    let translated: Vec<crate::copilot::types::ContentBlock> = blocks
+                        .iter()
+                        .filter_map(|b| translate_content_block(b))
+                        .collect();
+                    if !translated.is_empty() {
+                        messages.push(Message {
+                            role: msg.role.clone(),
+                            content: MessageContent::Blocks(translated),
+                            name: None,
+                            tool_calls: None,
+                            tool_call_id: None,
+                        });
+                    }
                 }
             } else {
                 // Known limitation: assistant messages containing `ToolUse` content
