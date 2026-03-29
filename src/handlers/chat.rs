@@ -50,6 +50,17 @@ pub async fn chat_completions(
     // Build the request to send upstream, applying tool injection if needed.
     let mut upstream_request = request.clone();
 
+    // Normalize the model name to match GitHub Copilot's expected format
+    upstream_request.model = crate::model_mapper::normalize_model_name(&upstream_request.model);
+
+    if upstream_request.model != request.model {
+        tracing::info!(
+            original_model = %request.model,
+            normalized_model = %upstream_request.model,
+            "Model name normalized for GitHub Copilot compatibility"
+        );
+    }
+
     // Inject tool definitions into the system prompt.
     if let Some(ref tools) = request.tools {
         if !tools.is_empty() {

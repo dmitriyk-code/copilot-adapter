@@ -9,6 +9,7 @@ A standalone Rust binary (`copilot-adapter`) that acts as an **OpenAI-compatible
 - **GitHub OAuth device flow** authentication
 - **OpenAI-compatible API** endpoints (`POST /v1/chat/completions`, `GET /v1/models`)
 - **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation
+- **Model name normalization** — automatically translates Claude Code's versioned model names (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's format (e.g., `claude-haiku-4.5`)
 - **SSE streaming** support for real-time responses
 - **Tool/function support** via prompt injection (always enabled)
 - **Vision / image support** — translates Anthropic image blocks to OpenAI `image_url` format; document blocks gracefully skipped
@@ -37,6 +38,7 @@ src/
 ├── cli.rs               # CLI argument definitions (clap)
 ├── server.rs            # Axum HTTP server setup
 ├── error.rs             # Error types with OpenAI-compatible responses
+├── model_mapper.rs      # Model name normalization (Claude Code format → Copilot format)
 ├── lib.rs               # Library exports
 ├── handlers/
 │   ├── mod.rs
@@ -134,6 +136,7 @@ cargo test
 
 ## Notes for Development
 
+- **Model name normalization**: The adapter automatically translates Claude Code's versioned model identifiers (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's expected format (e.g., `claude-haiku-4.5`). This normalization happens in `src/model_mapper.rs` and is applied to all incoming requests at both the `/v1/chat/completions` and `/v1/messages` endpoints.
 - **Dynamic models**: `/v1/models` fetches from Copilot API with in-memory caching (TTL-based via `ModelsCache` in `AppState`). Falls back to a static list on API errors. Controlled by `--models-cache-ttl` (default 300s) and `--static-models` flags.
 - `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration
 - `CopilotClient::fetch_models()` calls `https://api.githubcopilot.com/models` with standard Copilot headers

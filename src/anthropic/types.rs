@@ -662,7 +662,7 @@ impl AnthropicRequest {
         });
 
         ChatCompletionRequest {
-            model: self.model.clone(),
+            model: crate::model_mapper::normalize_model_name(&self.model),
             messages,
             stream: self.stream,
             temperature: self.temperature,

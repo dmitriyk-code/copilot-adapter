@@ -85,6 +85,15 @@ pub async fn messages(
     // Translate Anthropic request to OpenAI format
     let mut openai_request = request.to_chat_completion_request();
 
+    // Log model normalization if it happened
+    if openai_request.model != request.model {
+        tracing::info!(
+            original_model = %request.model,
+            normalized_model = %openai_request.model,
+            "Model name normalized for GitHub Copilot compatibility"
+        );
+    }
+
     // Apply tool injection.
     // Convert Anthropic tool definitions to internal format and inject.
     if let Some(ref tools) = request.tools {
