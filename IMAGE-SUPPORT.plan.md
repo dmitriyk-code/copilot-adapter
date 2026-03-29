@@ -1,6 +1,6 @@
 # Image and Document Content Block Support — Implementation Plan
 
-**Status:** Not Started
+**Status:** In Progress
 **Date:** 2026-03-29
 **Based on:** [IMAGE-SUPPORT.design.md](./IMAGE-SUPPORT.design.md)
 **Prerequisite:** Core adapter implementation, Anthropic Messages API support — COMPLETE
@@ -281,33 +281,33 @@ None required. Uses existing:
 
 **Prerequisites:** None (can start immediately)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `ImageSource` enum with `Base64` and `Url` variants | `src/anthropic/types.rs` | TODO |
-| E1-T2 | IMPL | Create `DocumentSource` enum with `Base64`, `Text`, `Url` variants | `src/anthropic/types.rs` | TODO |
-| E1-T3 | IMPL | Create `CacheControl` struct with `cache_type` and `ttl` | `src/anthropic/types.rs` | TODO |
-| E1-T4 | IMPL | Add `Image` variant to `ContentBlock` enum | `src/anthropic/types.rs` | TODO |
-| E1-T5 | IMPL | Add `Document` variant to `ContentBlock` enum | `src/anthropic/types.rs` | TODO |
-| E1-T6 | IMPL | Add `cache_control: Option<CacheControl>` to existing variants | `src/anthropic/types.rs` | TODO |
-| E1-T7 | IMPL | Update `extract_text()` to handle `Image` (return `"[Image]"`) | `src/anthropic/types.rs` | TODO |
-| E1-T8 | IMPL | Update `extract_text()` to handle `Document` (return title or `"[Document]"`) | `src/anthropic/types.rs` | TODO |
-| E1-T9 | TEST | Unit test: deserialize image block with base64 source | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E1-T10 | TEST | Unit test: deserialize image block with URL source | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E1-T11 | TEST | Unit test: deserialize document block | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E1-T12 | TEST | Unit test: deserialize cache_control on text block | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E1-T13 | TEST | Unit test: `extract_text()` handles image/document blocks | `tests/unit/anthropic_image_tests.rs` | TODO |
+| E1-T1 | IMPL | Create `ImageSource` enum with `Base64` and `Url` variants | `src/anthropic/types.rs` | DONE |
+| E1-T2 | IMPL | Create `DocumentSource` enum with `Base64`, `Text`, `Url` variants | `src/anthropic/types.rs` | DONE |
+| E1-T3 | IMPL | Create `CacheControl` struct with `cache_type` and `ttl` | `src/anthropic/types.rs` | DONE |
+| E1-T4 | IMPL | Add `Image` variant to `ContentBlock` enum | `src/anthropic/types.rs` | DONE |
+| E1-T5 | IMPL | Add `Document` variant to `ContentBlock` enum | `src/anthropic/types.rs` | DONE |
+| E1-T6 | IMPL | Add `cache_control: Option<CacheControl>` to existing variants | `src/anthropic/types.rs` | DONE |
+| E1-T7 | IMPL | Update `extract_text()` to handle `Image` (return `"[Image]"`) | `src/anthropic/types.rs` | DONE |
+| E1-T8 | IMPL | Update `extract_text()` to handle `Document` (return title or `"[Document]"`) | `src/anthropic/types.rs` | DONE |
+| E1-T9 | TEST | Unit test: deserialize image block with base64 source | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E1-T10 | TEST | Unit test: deserialize image block with URL source | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E1-T11 | TEST | Unit test: deserialize document block | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E1-T12 | TEST | Unit test: deserialize cache_control on text block | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E1-T13 | TEST | Unit test: `extract_text()` handles image/document blocks | `tests/unit/anthropic_image_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] All new types compile without errors
-- [ ] Deserialization works for image blocks (base64 and URL)
-- [ ] Deserialization works for document blocks
-- [ ] Cache control fields deserialize correctly
-- [ ] `extract_text()` produces sensible placeholders
-- [ ] All unit tests pass
+- [x] All new types compile without errors
+- [x] Deserialization works for image blocks (base64 and URL)
+- [x] Deserialization works for document blocks
+- [x] Cache control fields deserialize correctly
+- [x] `extract_text()` produces sensible placeholders
+- [x] All unit tests pass
 
 **Code References:**
 

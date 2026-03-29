@@ -6,6 +6,58 @@ use crate::copilot::types::{
 use crate::tools::types::{Function, Tool, ToolCall};
 
 // ---------------------------------------------------------------------------
+// Anthropic shared types (image, document, cache control)
+// ---------------------------------------------------------------------------
+
+/// Source for an image content block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ImageSource {
+    #[serde(rename = "base64")]
+    Base64 {
+        media_type: String,
+        data: String,
+    },
+    #[serde(rename = "url")]
+    Url {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        media_type: Option<String>,
+        url: String,
+    },
+}
+
+/// Source for a document content block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DocumentSource {
+    #[serde(rename = "base64")]
+    Base64 {
+        media_type: String,
+        data: String,
+    },
+    #[serde(rename = "text")]
+    Text {
+        media_type: String,
+        data: String,
+    },
+    #[serde(rename = "url")]
+    Url {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        media_type: Option<String>,
+        url: String,
+    },
+}
+
+/// Cache control hints for content blocks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheControl {
+    #[serde(rename = "type")]
+    pub cache_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
 // Anthropic request types
 // ---------------------------------------------------------------------------
 
@@ -38,7 +90,7 @@ impl SystemInput {
             SystemInput::Blocks(blocks) => blocks
                 .iter()
                 .filter_map(|b| match b {
-                    ContentBlock::Text { text } => Some(text.as_str()),
+                    ContentBlock::Text { text, .. } => Some(text.as_str()),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -52,17 +104,39 @@ impl SystemInput {
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    #[serde(rename = "image")]
+    Image {
+        source: ImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    #[serde(rename = "document")]
+    Document {
+        source: DocumentSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
         name: String,
         input: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
     },
     #[serde(rename = "tool_result")]
     ToolResult {
         tool_use_id: String,
         content: ToolResultContent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
     },
 }
 
@@ -388,7 +462,11 @@ fn extract_text(content: &ContentBlockInput) -> String {
         ContentBlockInput::Blocks(blocks) => blocks
             .iter()
             .filter_map(|b| match b {
-                ContentBlock::Text { text } => Some(text.as_str()),
+                ContentBlock::Text { text, .. } => Some(text.clone()),
+                ContentBlock::Image { .. } => Some("[Image]".to_string()),
+                ContentBlock::Document { title, .. } => {
+                    Some(title.clone().unwrap_or_else(|| "[Document]".to_string()))
+                }
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -417,13 +495,14 @@ fn extract_tool_result_messages(content: &ContentBlockInput) -> Vec<Message> {
                 ContentBlock::ToolResult {
                     tool_use_id,
                     content,
+                    ..
                 } => {
                     let text = match content {
                         ToolResultContent::Text(s) => s.clone(),
                         ToolResultContent::Blocks(inner) => inner
                             .iter()
                             .filter_map(|ib| match ib {
-                                ContentBlock::Text { text } => Some(text.as_str()),
+                                ContentBlock::Text { text, .. } => Some(text.as_str()),
                                 _ => None,
                             })
                             .collect::<Vec<_>>()
@@ -650,8 +729,8 @@ mod tests {
     #[test]
     fn extract_text_from_blocks() {
         let input = ContentBlockInput::Blocks(vec![
-            ContentBlock::Text { text: "Hello ".into() },
-            ContentBlock::Text { text: "world".into() },
+            ContentBlock::Text { text: "Hello ".into(), cache_control: None },
+            ContentBlock::Text { text: "world".into(), cache_control: None },
         ]);
         assert_eq!(extract_text(&input), "Hello world");
     }
@@ -665,8 +744,8 @@ mod tests {
     #[test]
     fn system_input_from_blocks() {
         let input = SystemInput::Blocks(vec![
-            ContentBlock::Text { text: "You are ".into() },
-            ContentBlock::Text { text: "helpful".into() },
+            ContentBlock::Text { text: "You are ".into(), cache_control: None },
+            ContentBlock::Text { text: "helpful".into(), cache_control: None },
         ]);
         assert_eq!(input.to_text(), "You are helpful");
     }

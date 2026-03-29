@@ -1,3 +1,4 @@
+mod anthropic_image_tests;
 mod anthropic_types_tests;
 mod cli_tests;
 mod copilot_client_tests;

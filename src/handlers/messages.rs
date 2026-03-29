@@ -60,7 +60,7 @@ pub async fn messages(
         for (idx, msg) in request.messages.iter().enumerate() {
             if let ContentBlockInput::Blocks(blocks) = &msg.content {
                 for block in blocks {
-                    if let ContentBlock::ToolResult { tool_use_id, content } = block {
+                    if let ContentBlock::ToolResult { tool_use_id, content, .. } = block {
                         let result_text = match content {
                             ToolResultContent::Text(s) => s.clone(),
                             ToolResultContent::Blocks(b) => format!("[{} blocks]", b.len()),

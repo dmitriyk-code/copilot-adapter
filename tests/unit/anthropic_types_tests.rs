@@ -83,7 +83,7 @@ fn anthropic_request_with_content_blocks_deserializes() {
         ContentBlockInput::Blocks(blocks) => {
             assert_eq!(blocks.len(), 2);
             match &blocks[0] {
-                ContentBlock::Text { text } => assert_eq!(text, "Hello "),
+                ContentBlock::Text { text, .. } => assert_eq!(text, "Hello "),
                 _ => panic!("Expected Text variant"),
             }
         }
@@ -270,9 +270,11 @@ fn request_translation_extracts_text_from_content_blocks() {
             content: ContentBlockInput::Blocks(vec![
                 ContentBlock::Text {
                     text: "Hello ".to_string(),
+                    cache_control: None,
                 },
                 ContentBlock::Text {
                     text: "world!".to_string(),
+                    cache_control: None,
                 },
             ]),
         }],

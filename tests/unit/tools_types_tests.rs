@@ -219,6 +219,7 @@ fn anthropic_tool_use_block_serializes() {
         id: "toolu_abc123".to_string(),
         name: "get_weather".to_string(),
         input: serde_json::json!({"location": "London"}),
+        cache_control: None,
     };
     let json = serde_json::to_value(&block).unwrap();
     assert_eq!(json["type"], "tool_use");
@@ -239,7 +240,7 @@ fn anthropic_tool_use_block_deserializes() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::ToolUse { id, name, input } => {
+        ContentBlock::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "toolu_xyz");
             assert_eq!(name, "bash");
             assert_eq!(input["command"], "pwd");
@@ -255,6 +256,7 @@ fn anthropic_tool_result_block_serializes_with_string() {
     let block = ContentBlock::ToolResult {
         tool_use_id: "toolu_abc123".to_string(),
         content: ToolResultContent::Text("The weather is sunny.".to_string()),
+        cache_control: None,
     };
     let json = serde_json::to_value(&block).unwrap();
     assert_eq!(json["type"], "tool_result");
@@ -276,6 +278,7 @@ fn anthropic_tool_result_block_deserializes_with_string() {
         ContentBlock::ToolResult {
             tool_use_id,
             content,
+            ..
         } => {
             assert_eq!(tool_use_id, "toolu_abc");
             match content {
@@ -304,6 +307,7 @@ fn anthropic_tool_result_block_with_content_blocks() {
         ContentBlock::ToolResult {
             tool_use_id,
             content,
+            ..
         } => {
             assert_eq!(tool_use_id, "toolu_xyz");
             match content {
