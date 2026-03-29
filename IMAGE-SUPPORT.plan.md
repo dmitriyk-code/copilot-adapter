@@ -376,34 +376,36 @@ pub struct ImageUrl {
 
 **Prerequisites:** Epic 1 (Anthropic types), Epic 2 (OpenAI types)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Create `translate_content_block()` helper function | `src/anthropic/types.rs` | TODO |
-| E3-T2 | IMPL | Handle `ContentBlock::Text` → `copilot::ContentBlock::Text` | `src/anthropic/types.rs` | TODO |
-| E3-T3 | IMPL | Handle `ContentBlock::Image` → `copilot::ContentBlock::ImageUrl` | `src/anthropic/types.rs` | TODO |
-| E3-T4 | IMPL | Convert `ImageSource::Base64` to data URI format | `src/anthropic/types.rs` | TODO |
-| E3-T5 | IMPL | Pass through `ImageSource::Url` unchanged | `src/anthropic/types.rs` | TODO |
-| E3-T6 | IMPL | Handle `ContentBlock::Document` → `None` with warning log | `src/anthropic/types.rs` | TODO |
-| E3-T7 | IMPL | Update `to_chat_completion_request()` to detect multimodal messages | `src/anthropic/types.rs` | TODO |
-| E3-T8 | IMPL | Build `MessageContent::Blocks` for multimodal messages | `src/anthropic/types.rs` | TODO |
-| E3-T9 | TEST | Unit test: translate text block | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E3-T10 | TEST | Unit test: translate image with base64 → data URI | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E3-T11 | TEST | Unit test: translate image with URL → URL | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E3-T12 | TEST | Unit test: document block skipped with warning | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E3-T13 | TEST | Unit test: mixed content (text + image) | `tests/unit/anthropic_image_tests.rs` | TODO |
-| E3-T14 | TEST | Unit test: full request translation with images | `tests/unit/anthropic_image_tests.rs` | TODO |
+| E3-T1 | IMPL | Create `translate_content_block()` helper function | `src/anthropic/types.rs` | DONE |
+| E3-T2 | IMPL | Handle `ContentBlock::Text` → `copilot::ContentBlock::Text` | `src/anthropic/types.rs` | DONE |
+| E3-T3 | IMPL | Handle `ContentBlock::Image` → `copilot::ContentBlock::ImageUrl` | `src/anthropic/types.rs` | DONE |
+| E3-T4 | IMPL | Convert `ImageSource::Base64` to data URI format | `src/anthropic/types.rs` | DONE |
+| E3-T5 | IMPL | Pass through `ImageSource::Url` unchanged | `src/anthropic/types.rs` | DONE |
+| E3-T6 | IMPL | Handle `ContentBlock::Document` → `None` with warning log | `src/anthropic/types.rs` | DONE |
+| E3-T7 | IMPL | Update `to_chat_completion_request()` to detect multimodal messages | `src/anthropic/types.rs` | DONE |
+| E3-T8 | IMPL | Build `MessageContent::Blocks` for multimodal messages | `src/anthropic/types.rs` | DONE |
+| E3-T9 | TEST | Unit test: translate text block | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E3-T10 | TEST | Unit test: translate image with base64 → data URI | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E3-T11 | TEST | Unit test: translate image with URL → URL | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E3-T12 | TEST | Unit test: document block skipped with warning | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E3-T13 | TEST | Unit test: mixed content (text + image) | `tests/unit/anthropic_image_tests.rs` | DONE |
+| E3-T14 | TEST | Unit test: full request translation with images | `tests/unit/anthropic_image_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `translate_content_block()` handles all block types
-- [ ] Base64 images converted to `data:{media_type};base64,{data}` format
-- [ ] URL images passed through unchanged
-- [ ] Document blocks skipped with `tracing::warn!`
-- [ ] `to_chat_completion_request()` builds multimodal messages
-- [ ] All unit tests pass
+- [x] `translate_content_block()` handles all block types
+- [x] Base64 images converted to `data:{media_type};base64,{data}` format
+- [x] URL images passed through unchanged
+- [x] Document blocks skipped with `tracing::warn!`
+- [x] `to_chat_completion_request()` builds multimodal messages
+- [x] All unit tests pass
+
+**Completion Notes:** Core translation logic was already in place. This epic focused on fixing test infrastructure: import alias renamed from `copilot_types` to `openai` (27 occurrences), and 4 E1 tests updated to assert correct multimodal behavior (MessageContent::Blocks with ImageUrl) instead of stale extract_text() placeholder strings.
 
 **Code References:**
 
