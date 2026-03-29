@@ -1,6 +1,9 @@
 pub mod file;
 pub mod keyring;
 
+#[cfg(target_os = "windows")]
+pub mod windows_credential;
+
 /// Trait for persisting the GitHub OAuth access token.
 pub trait TokenStorage {
     /// Store the GitHub access token.
