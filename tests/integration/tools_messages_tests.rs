@@ -1,8 +1,7 @@
-//! Integration tests for experimental tool support in `/v1/messages` (Anthropic format).
+//! Integration tests for tool support in `/v1/messages` (Anthropic format).
 //!
 //! Covers:
-//! - Requests with tools rejected (400) when `--experimental-tools` is disabled
-//! - Requests with tools succeed when the flag is enabled
+//! - Requests with tools succeed
 //! - Tool calls returned as `tool_use` content blocks in response
 //! - `tool_result` content blocks translated and forwarded correctly
 //! - `stop_reason` is `"tool_use"` when tool calls are present
@@ -208,7 +207,6 @@ async fn mock_chat_echo_handler(
 async fn create_test_state(
     copilot_api_url: String,
     github_addr: std::net::SocketAddr,
-    experimental_tools: bool,
 ) -> Arc<AppState> {
     let auth = DeviceFlowAuth::with_urls(
         format!("http://{github_addr}/unused"),
@@ -224,10 +222,7 @@ async fn create_test_state(
         token_manager: tm,
         copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
         http_client: client,
-        config: AdapterConfig {
-            experimental_tools,
-            ..AdapterConfig::default()
-        },
+        config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })
 }
@@ -251,117 +246,17 @@ fn sample_anthropic_tool() -> serde_json::Value {
 }
 
 // ---------------------------------------------------------------------------
-// E5-T9: Anthropic request with tools and flag disabled returns 400
+// E5-T10: Anthropic request with tools succeeds
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn anthropic_tools_returns_400_when_flag_disabled() {
+async fn anthropic_tools_succeeds() {
     let (copilot_addr, _h1) = spawn_mock_copilot().await;
     let (github_addr, _h2) = spawn_mock_github().await;
 
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        false, // tools disabled
-    )
-    .await;
-    let app = build_router(state);
-
-    let body = json!({
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 1024,
-        "messages": [{"role": "user", "content": "What's the weather?"}],
-        "tools": [sample_anthropic_tool()]
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/messages")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(json["error"]["type"], "invalid_request_error");
-    assert!(
-        json["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("--experimental-tools"),
-        "Error message should mention --experimental-tools flag"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// E5-T9 (additional): tool_result in request returns 400 when flag disabled
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn anthropic_tool_result_returns_400_when_flag_disabled() {
-    let (copilot_addr, _h1) = spawn_mock_copilot().await;
-    let (github_addr, _h2) = spawn_mock_github().await;
-
-    let state = create_test_state(
-        format!("http://{copilot_addr}/chat/completions"),
-        github_addr,
-        false,
-    )
-    .await;
-    let app = build_router(state);
-
-    let body = json!({
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 1024,
-        "messages": [
-            {"role": "user", "content": "What's the weather?"},
-            {"role": "assistant", "content": [
-                {"type": "text", "text": "Let me check."},
-                {"type": "tool_use", "id": "call_abc123", "name": "get_weather", "input": {"location": "London"}}
-            ]},
-            {"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": "call_abc123", "content": "Sunny, 22°C"}
-            ]}
-        ]
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/messages")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-}
-
-// ---------------------------------------------------------------------------
-// E5-T10: Anthropic request with tools succeeds when flag enabled
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn anthropic_tools_succeeds_when_flag_enabled() {
-    let (copilot_addr, _h1) = spawn_mock_copilot().await;
-    let (github_addr, _h2) = spawn_mock_github().await;
-
-    let state = create_test_state(
-        format!("http://{copilot_addr}/chat/completions"),
-        github_addr,
-        true, // tools enabled
     )
     .await;
     let app = build_router(state);
@@ -409,7 +304,6 @@ async fn anthropic_tool_use_block_in_response() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -501,7 +395,6 @@ async fn anthropic_tool_result_in_request_handled() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -590,7 +483,6 @@ async fn anthropic_empty_tools_array_not_rejected() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        false, // flag disabled
     )
     .await;
     let app = build_router(state);
@@ -619,18 +511,17 @@ async fn anthropic_empty_tools_array_not_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// Additional: request without tools succeeds when flag is enabled
+// Additional: request without tools succeeds
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn anthropic_no_tools_succeeds_when_flag_enabled() {
+async fn anthropic_no_tools_succeeds() {
     let (copilot_addr, _h1) = spawn_mock_copilot().await;
     let (github_addr, _h2) = spawn_mock_github().await;
 
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -670,7 +561,6 @@ async fn anthropic_no_tool_calls_parsed_without_tools_in_request() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -818,7 +708,6 @@ async fn anthropic_streaming_tool_call_detected_and_emitted() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -1047,7 +936,6 @@ async fn anthropic_streaming_with_tools_emits_error_on_upstream_failure() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -1126,7 +1014,6 @@ async fn anthropic_streaming_normal_emits_error_on_upstream_failure() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);

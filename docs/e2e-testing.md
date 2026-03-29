@@ -534,17 +534,17 @@ RUST_LOG=trace copilot-adapter start
 
 ## Test 11: Tool Call (Non-Streaming, OpenAI Format)
 
-**Purpose:** Verify tool/function calling works with `--experimental-tools` enabled.
+**Purpose:** Verify tool/function calling works.
 
 > **Prerequisites:**
-> - Adapter started with `--experimental-tools` flag
+> - Adapter started
 > - Authenticated with GitHub
 
 ### Steps
 
-1. **Start the adapter with tools enabled:**
+1. **Start the adapter:**
    ```bash
-   copilot-adapter start --experimental-tools
+   copilot-adapter start
    ```
 
 2. **Send a request with tool definitions:**
@@ -659,41 +659,13 @@ RUST_LOG=trace copilot-adapter start
 
 ---
 
-## Test 14: Tools Disabled (Rejection)
-
-**Purpose:** Verify requests with tools are rejected when `--experimental-tools` is not set.
-
-### Steps
-
-1. **Start the adapter WITHOUT the tools flag:**
-   ```bash
-   copilot-adapter start
-   ```
-
-2. **Send a request with tools:**
-   ```bash
-   curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -d '{
-       "model": "gpt-4",
-       "messages": [{"role": "user", "content": "Hello"}],
-       "tools": [{"type": "function", "function": {"name": "test", "parameters": {"type": "object"}}}]
-     }'
-   ```
-
-3. **Expected response:**
-   - HTTP 400 status code
-   - Error message mentioning `--experimental-tools`
-
----
-
-## Test 15: Tool Call (Anthropic Format)
+## Test 14: Tool Call (Anthropic Format)
 
 **Purpose:** Verify tool support via the `/v1/messages` endpoint.
 
 ### Steps
 
-1. **Start with tools enabled** (if not already running).
+1. **Start the adapter** (if not already running).
 
 2. **Send an Anthropic-format request with tools:**
    ```bash
@@ -724,15 +696,15 @@ RUST_LOG=trace copilot-adapter start
 
 ---
 
-## Test 16: Claude Code with Tools Integration
+## Test 15: Claude Code with Tools Integration
 
 **Purpose:** Verify Claude Code's native tool use works through the adapter.
 
 ### Steps
 
-1. **Start the adapter with tools enabled:**
+1. **Start the adapter:**
    ```bash
-   copilot-adapter start --daemon --experimental-tools
+   copilot-adapter start --daemon
    ```
 
 2. **Configure Claude Code:**

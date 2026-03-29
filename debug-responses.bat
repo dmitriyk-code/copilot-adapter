@@ -51,4 +51,4 @@ echo Press Ctrl+C to stop
 echo.
 
 REM Start the adapter with trace logging
-target\release\copilot-adapter.exe start --experimental-tools --log-level trace --log-file "%LOG_FILE%"
+target\release\copilot-adapter.exe start --log-level trace --log-file "%LOG_FILE%"

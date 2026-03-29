@@ -90,17 +90,17 @@ DEBUG Parsed tool calls from Anthropic response
 
 ### Debug level only (less verbose):
 ```bash
-copilot-adapter start --experimental-tools --log-level debug --log-file debug.log
+copilot-adapter start --log-level debug --log-file debug.log
 ```
 
 ### Trace level (very verbose, includes full JSON):
 ```bash
-copilot-adapter start --experimental-tools --log-level trace --log-file trace.log
+copilot-adapter start --log-level trace --log-file trace.log
 ```
 
 ### Console output only (no file):
 ```bash
-copilot-adapter start --experimental-tools --log-level trace
+copilot-adapter start --log-level trace
 ```
 
 ## Analyzing the Logs
@@ -186,14 +186,13 @@ DEBUG Raw response ... content_preview="<tool_call><name>WebSearch</name>..."
 **Symptom:** No "Injecting tools" message in logs
 
 **Causes:**
-- `--experimental-tools` flag not set
 - Request doesn't contain any tools
 - Claude Code not configured to send tools
 
 **Solutions:**
 ```bash
-# Ensure flag is set
-copilot-adapter start --experimental-tools --log-level debug
+# Start with debug logging
+copilot-adapter start --log-level debug
 
 # Check Claude Code configuration
 echo $ANTHROPIC_BASE_URL  # Should be http://127.0.0.1:6767

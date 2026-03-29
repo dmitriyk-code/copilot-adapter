@@ -10,7 +10,7 @@ A standalone Rust binary (`copilot-adapter`) that acts as an **OpenAI-compatible
 - **OpenAI-compatible API** endpoints (`POST /v1/chat/completions`, `GET /v1/models`)
 - **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation
 - **SSE streaming** support for real-time responses
-- **Experimental tool/function support** via prompt injection (`--experimental-tools`)
+- **Tool/function support** via prompt injection (always enabled)
 - **Vision / image support** — translates Anthropic image blocks to OpenAI `image_url` format; document blocks gracefully skipped
 - **Dynamic model discovery** — fetches available models from Copilot API with in-memory caching and fallback
 - **Automatic token management** with refresh 5 min before expiry
@@ -81,7 +81,6 @@ src/
 | `copilot-adapter start --daemon` | Start as background daemon |
 | `copilot-adapter start -p 9090` | Start on custom port |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
-| `copilot-adapter start --experimental-tools` | Enable experimental tool support |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds) |
 | `copilot-adapter start --static-models` | Use static model list (skip API) |
 | `copilot-adapter status` | Check if adapter is running |
@@ -129,7 +128,7 @@ cargo test
 - `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
 - `DYNAMIC-MODELS.design.md` - Design document for dynamic models list feature (implemented)
 - `DYNAMIC-MODELS.plan.md` - Implementation plan for dynamic models
-- `TOOLS-SUPPORT.design.md` - Design document for experimental tools/functions support (implemented)
+- `TOOLS-SUPPORT.design.md` - Design document for tools/functions support (implemented)
 - `TOOLS-SUPPORT.plan.md` - Implementation plan for tools support
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
 
@@ -139,8 +138,7 @@ cargo test
 - `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration
 - `CopilotClient::fetch_models()` calls `https://api.githubcopilot.com/models` with standard Copilot headers
 - `resolve_models()` in `src/handlers/models.rs` orchestrates cache → API fetch → fallback flow
-- Tools/functions support is **experimental** and opt-in via `--experimental-tools` flag
-- Tool definitions are injected into the system prompt; tool calls are parsed from model text responses
+- **Tools/functions support** is always enabled — tool definitions are injected into the system prompt; tool calls are parsed from model text responses
 - The tools implementation lives in `src/tools/` (types, injector, parser)
 - Tool call parsing is best-effort; malformed JSON is silently skipped (graceful degradation)
 - `tool_choice` only supports `"auto"` behavior; `parallel_tool_calls` is not supported

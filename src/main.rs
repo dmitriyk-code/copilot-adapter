@@ -18,7 +18,6 @@ async fn main() -> anyhow::Result<()> {
             host,
             log_level,
             log_file,
-            experimental_tools,
             models_cache_ttl,
             static_models,
         } => {
@@ -53,9 +52,6 @@ async fn main() -> anyhow::Result<()> {
                         args.push("--log-file".to_string());
                         args.push(lf.clone());
                     }
-                    if experimental_tools {
-                        args.push("--experimental-tools".to_string());
-                    }
                     args.push("--models-cache-ttl".to_string());
                     args.push(models_cache_ttl.to_string());
                     if static_models {
@@ -78,14 +74,9 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Starting copilot-adapter on {host}:{port}");
 
             let config = server::AdapterConfig {
-                experimental_tools,
                 static_models,
                 models_cache_ttl: std::time::Duration::from_secs(models_cache_ttl),
             };
-
-            if experimental_tools {
-                tracing::info!("Experimental tools support is ENABLED");
-            }
 
             if static_models {
                 tracing::info!("Static models mode is ENABLED (dynamic fetching disabled)");

@@ -25,9 +25,9 @@ use crate::tools::parser;
 /// forwards to the Copilot API, and translates the response back to Anthropic
 /// format. Supports both streaming and non-streaming modes.
 ///
-/// When `--experimental-tools` is enabled and the request contains Anthropic
-/// `tools`, they are translated to the internal format, injected into the
-/// system prompt, and tool calls are parsed from the model's text response.
+/// When the request contains Anthropic `tools`, they are translated to the
+/// internal format, injected into the system prompt, and tool calls are parsed
+/// from the model's text response.
 pub async fn messages(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AnthropicRequest>,
@@ -82,47 +82,29 @@ pub async fn messages(
         .as_ref()
         .map_or(false, |t| !t.is_empty());
 
-    // Check if any messages contain tool_result content blocks.
-    let has_tool_results = request.messages.iter().any(|m| {
-        matches!(&m.content, ContentBlockInput::Blocks(blocks)
-            if blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })))
-    });
-
-    // If the request uses tools but the feature is disabled, reject early.
-    if (has_tools || has_tool_results) && !state.config.experimental_tools {
-        return Err(AppError::InvalidRequest(
-            "Tool/function calling is not supported. Start the adapter with \
-             --experimental-tools to enable experimental tool support via \
-             prompt injection."
-                .to_string(),
-        ));
-    }
-
     // Translate Anthropic request to OpenAI format
     let mut openai_request = request.to_chat_completion_request();
 
-    // Apply tool injection if experimental tools are enabled.
-    if state.config.experimental_tools {
-        // Convert Anthropic tool definitions to internal format and inject.
-        if let Some(ref tools) = request.tools {
-            if !tools.is_empty() {
-                tracing::debug!(
-                    num_tools = tools.len(),
-                    tool_names = ?tools.iter().map(|t| &t.name).collect::<Vec<_>>(),
-                    "Injecting Anthropic tools into prompt"
-                );
-                let internal_tools: Vec<_> =
-                    tools.iter().map(|t| t.to_internal_tool()).collect();
-                injector::inject_tools_into_messages(
-                    &mut openai_request.messages,
-                    &internal_tools,
-                );
-            }
+    // Apply tool injection.
+    // Convert Anthropic tool definitions to internal format and inject.
+    if let Some(ref tools) = request.tools {
+        if !tools.is_empty() {
+            tracing::debug!(
+                num_tools = tools.len(),
+                tool_names = ?tools.iter().map(|t| &t.name).collect::<Vec<_>>(),
+                "Injecting Anthropic tools into prompt"
+            );
+            let internal_tools: Vec<_> =
+                tools.iter().map(|t| t.to_internal_tool()).collect();
+            injector::inject_tools_into_messages(
+                &mut openai_request.messages,
+                &internal_tools,
+            );
         }
-
-        // Translate tool-role messages (from tool_result blocks) into user messages.
-        injector::translate_tool_messages(&mut openai_request.messages);
     }
+
+    // Translate tool-role messages (from tool_result blocks) into user messages.
+    injector::translate_tool_messages(&mut openai_request.messages);
 
     // Strip tools/tool_choice — Copilot API does not accept them.
     openai_request.tools = None;
@@ -140,7 +122,7 @@ pub async fn messages(
 
     // Branch on stream field
     if request.stream.unwrap_or(false) {
-        let parse_tools = has_tools && state.config.experimental_tools;
+        let parse_tools = has_tools;
         return handle_streaming(state, &copilot_token, &openai_request, parse_tools).await;
     }
 
@@ -151,44 +133,41 @@ pub async fn messages(
         .await?;
 
     // Log the raw response for debugging tool call issues
-    if state.config.experimental_tools {
-        tracing::debug!(
-            actual_model = %response.model,
-            "Actual model used by Copilot (from non-streaming response)"
-        );
+    tracing::debug!(
+        actual_model = %response.model,
+        "Actual model used by Copilot (from non-streaming response)"
+    );
 
-        // TRACE level: dump full response JSON to see exact structure
-        if tracing::enabled!(tracing::Level::TRACE) {
-            if let Ok(json) = serde_json::to_string_pretty(&response) {
-                tracing::trace!(response_json = %json, "Full response JSON from Copilot");
-            }
-        }
-
-        for (idx, choice) in response.choices.iter().enumerate() {
-            let content_text = choice.message.content.as_text();
-            tracing::debug!(
-                choice_index = idx,
-                content_length = content_text.len(),
-                content_preview = %content_text.chars().take(200).collect::<String>(),
-                finish_reason = ?choice.finish_reason,
-                existing_tool_calls = ?choice.message.tool_calls,
-                "Raw response from Copilot (Anthropic endpoint)"
-            );
-
-            // If content is not too long, log it fully at trace level
-            if tracing::enabled!(tracing::Level::TRACE) && content_text.len() < 2000 {
-                tracing::trace!(
-                    choice_index = idx,
-                    full_content = %content_text,
-                    "Full content text from Copilot response"
-                );
-            }
+    // TRACE level: dump full response JSON to see exact structure
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&response) {
+            tracing::trace!(response_json = %json, "Full response JSON from Copilot");
         }
     }
 
-    // Post-process: parse tool calls from the response content when tools were
-    // requested and the experimental flag is enabled.
-    if has_tools && state.config.experimental_tools {
+    for (idx, choice) in response.choices.iter().enumerate() {
+        let content_text = choice.message.content.as_text();
+        tracing::debug!(
+            choice_index = idx,
+            content_length = content_text.len(),
+            content_preview = %content_text.chars().take(200).collect::<String>(),
+            finish_reason = ?choice.finish_reason,
+            existing_tool_calls = ?choice.message.tool_calls,
+            "Raw response from Copilot (Anthropic endpoint)"
+        );
+
+        // If content is not too long, log it fully at trace level
+        if tracing::enabled!(tracing::Level::TRACE) && content_text.len() < 2000 {
+            tracing::trace!(
+                choice_index = idx,
+                full_content = %content_text,
+                "Full content text from Copilot response"
+            );
+        }
+    }
+
+    // Post-process: parse tool calls from the response content when tools were requested.
+    if has_tools {
         for choice in &mut response.choices {
             let content_text = choice.message.content.as_text();
             let tool_calls = parser::parse_tool_calls(&content_text);

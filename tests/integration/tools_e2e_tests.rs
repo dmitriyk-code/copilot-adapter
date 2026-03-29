@@ -1,4 +1,4 @@
-//! End-to-end integration tests for experimental tool/function support.
+//! End-to-end integration tests for tool/function support.
 //!
 //! These tests spin up **both** a mock Copilot server and the full adapter
 //! server stack, send real HTTP requests through the adapter, and assert on
@@ -71,7 +71,6 @@ async fn spawn_mock_github() -> (std::net::SocketAddr, tokio::task::JoinHandle<(
 async fn create_test_state(
     copilot_api_url: String,
     github_addr: std::net::SocketAddr,
-    experimental_tools: bool,
 ) -> Arc<AppState> {
     let auth = DeviceFlowAuth::with_urls(
         format!("http://{github_addr}/unused"),
@@ -87,10 +86,7 @@ async fn create_test_state(
         token_manager: tm,
         copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
         http_client: client,
-        config: AdapterConfig {
-            experimental_tools,
-            ..AdapterConfig::default()
-        },
+        config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })
 }
@@ -217,7 +213,6 @@ async fn e2e_simple_tool_call_openai() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -300,7 +295,6 @@ async fn e2e_simple_tool_call_anthropic() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -371,7 +365,6 @@ async fn e2e_multi_turn_with_tool_results_openai() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -474,7 +467,6 @@ async fn e2e_multi_turn_with_tool_results_anthropic() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -591,7 +583,6 @@ async fn e2e_complex_arguments_openai() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -695,7 +686,6 @@ async fn e2e_complex_arguments_anthropic() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -779,7 +769,6 @@ async fn e2e_no_tool_calls_passthrough_openai() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -839,7 +828,6 @@ async fn e2e_no_tool_calls_passthrough_anthropic() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -931,7 +919,6 @@ async fn e2e_no_tool_calls_streaming_passthrough() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -997,7 +984,6 @@ async fn e2e_malformed_tool_call_json_openai() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -1062,7 +1048,6 @@ async fn e2e_malformed_tool_call_json_anthropic() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -1142,7 +1127,6 @@ async fn e2e_streaming_tool_call_openai() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);

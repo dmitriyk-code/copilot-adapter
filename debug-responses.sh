@@ -51,6 +51,5 @@ echo ""
 
 # Start the adapter with trace logging
 ./target/release/copilot-adapter start \
-    --experimental-tools \
     --log-level trace \
     --log-file "$LOG_FILE"

@@ -11,7 +11,6 @@ fn parse_start_defaults() {
             host,
             log_level,
             log_file,
-            experimental_tools,
             models_cache_ttl,
             static_models,
         } => {
@@ -20,7 +19,6 @@ fn parse_start_defaults() {
             assert_eq!(host, "127.0.0.1");
             assert_eq!(log_level, "info");
             assert!(log_file.is_none());
-            assert!(!experimental_tools);
             assert_eq!(models_cache_ttl, 300);
             assert!(!static_models);
         }
@@ -107,7 +105,6 @@ fn parse_start_all_flags() {
         "trace",
         "--log-file",
         "/var/log/adapter.log",
-        "--experimental-tools",
     ]);
     match cli.command {
         Command::Start {
@@ -116,7 +113,6 @@ fn parse_start_all_flags() {
             host,
             log_level,
             log_file,
-            experimental_tools,
             models_cache_ttl,
             static_models,
         } => {
@@ -125,7 +121,6 @@ fn parse_start_all_flags() {
             assert_eq!(host, "0.0.0.0");
             assert_eq!(log_level, "trace");
             assert_eq!(log_file, Some("/var/log/adapter.log".to_string()));
-            assert!(experimental_tools);
             assert_eq!(models_cache_ttl, 300);
             assert!(!static_models);
         }
@@ -179,28 +174,6 @@ fn parse_no_command_fails() {
 fn parse_unknown_command_fails() {
     let result = Cli::try_parse_from(["copilot-adapter", "unknown"]);
     assert!(result.is_err());
-}
-
-#[test]
-fn parse_start_experimental_tools_flag() {
-    let cli = Cli::parse_from(["copilot-adapter", "start", "--experimental-tools"]);
-    match cli.command {
-        Command::Start {
-            experimental_tools, ..
-        } => assert!(experimental_tools),
-        _ => panic!("Expected Start command"),
-    }
-}
-
-#[test]
-fn parse_start_experimental_tools_default_false() {
-    let cli = Cli::parse_from(["copilot-adapter", "start"]);
-    match cli.command {
-        Command::Start {
-            experimental_tools, ..
-        } => assert!(!experimental_tools),
-        _ => panic!("Expected Start command"),
-    }
 }
 
 #[test]

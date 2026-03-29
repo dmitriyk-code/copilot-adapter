@@ -22,9 +22,8 @@ use crate::tools::parser;
 /// to the Copilot API and returns the complete JSON response.
 /// For streaming requests (`stream: true`), returns Server-Sent Events.
 ///
-/// When `--experimental-tools` is enabled and the request contains tool
-/// definitions, they are injected into the system prompt and tool calls are
-/// parsed from the model's text response.
+/// When the request contains tool definitions, they are injected into the system
+/// prompt and tool calls are parsed from the model's text response.
 pub async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ChatCompletionRequest>,
@@ -48,37 +47,23 @@ pub async fn chat_completions(
         .as_ref()
         .map_or(false, |t| !t.is_empty());
 
-    let has_tool_role = request.messages.iter().any(|m| m.role == "tool");
-
-    // If the request uses tools but the feature is disabled, reject early.
-    if (has_tools || has_tool_role) && !state.config.experimental_tools {
-        return Err(AppError::InvalidRequest(
-            "Tool/function calling is not supported. Start the adapter with \
-             --experimental-tools to enable experimental tool support via \
-             prompt injection."
-                .to_string(),
-        ));
-    }
-
     // Build the request to send upstream, applying tool injection if needed.
     let mut upstream_request = request.clone();
 
-    if state.config.experimental_tools {
-        // Inject tool definitions into the system prompt.
-        if let Some(ref tools) = request.tools {
-            if !tools.is_empty() {
-                tracing::debug!(
-                    num_tools = tools.len(),
-                    tool_names = ?tools.iter().map(|t| &t.function.name).collect::<Vec<_>>(),
-                    "Injecting tools into prompt"
-                );
-                injector::inject_tools_into_messages(&mut upstream_request.messages, tools);
-            }
+    // Inject tool definitions into the system prompt.
+    if let Some(ref tools) = request.tools {
+        if !tools.is_empty() {
+            tracing::debug!(
+                num_tools = tools.len(),
+                tool_names = ?tools.iter().map(|t| &t.function.name).collect::<Vec<_>>(),
+                "Injecting tools into prompt"
+            );
+            injector::inject_tools_into_messages(&mut upstream_request.messages, tools);
         }
-
-        // Translate tool-role messages into user messages.
-        injector::translate_tool_messages(&mut upstream_request.messages);
     }
+
+    // Translate tool-role messages into user messages.
+    injector::translate_tool_messages(&mut upstream_request.messages);
 
     // Strip tools/tool_choice — Copilot API does not accept them.
     upstream_request.tools = None;
@@ -101,7 +86,7 @@ pub async fn chat_completions(
             .stream_chat_completion(&copilot_token, &upstream_request)
             .await?;
 
-        let parse_tools = has_tools && state.config.experimental_tools;
+        let parse_tools = has_tools;
 
         if parse_tools {
             // Buffer all chunks, detect tool calls at stream end, and emit
@@ -151,44 +136,41 @@ pub async fn chat_completions(
         .await?;
 
     // Log the raw response for debugging tool call issues
-    if state.config.experimental_tools {
-        tracing::debug!(
-            actual_model = %response.model,
-            "Actual model used by Copilot (from non-streaming response)"
-        );
+    tracing::debug!(
+        actual_model = %response.model,
+        "Actual model used by Copilot (from non-streaming response)"
+    );
 
-        // TRACE level: dump full response JSON to see exact structure
-        if tracing::enabled!(tracing::Level::TRACE) {
-            if let Ok(json) = serde_json::to_string_pretty(&response) {
-                tracing::trace!(response_json = %json, "Full response JSON from Copilot");
-            }
-        }
-
-        for (idx, choice) in response.choices.iter().enumerate() {
-            let content_text = choice.message.content.as_text();
-            tracing::debug!(
-                choice_index = idx,
-                content_length = content_text.len(),
-                content_preview = %content_text.chars().take(200).collect::<String>(),
-                finish_reason = ?choice.finish_reason,
-                existing_tool_calls = ?choice.message.tool_calls,
-                "Raw response from Copilot (chat endpoint)"
-            );
-
-            // If content is not too long, log it fully at trace level
-            if tracing::enabled!(tracing::Level::TRACE) && content_text.len() < 2000 {
-                tracing::trace!(
-                    choice_index = idx,
-                    full_content = %content_text,
-                    "Full content text from Copilot response"
-                );
-            }
+    // TRACE level: dump full response JSON to see exact structure
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&response) {
+            tracing::trace!(response_json = %json, "Full response JSON from Copilot");
         }
     }
 
-    // Post-process: parse tool calls from the response content when tools were
-    // requested and the experimental flag is enabled.
-    if has_tools && state.config.experimental_tools {
+    for (idx, choice) in response.choices.iter().enumerate() {
+        let content_text = choice.message.content.as_text();
+        tracing::debug!(
+            choice_index = idx,
+            content_length = content_text.len(),
+            content_preview = %content_text.chars().take(200).collect::<String>(),
+            finish_reason = ?choice.finish_reason,
+            existing_tool_calls = ?choice.message.tool_calls,
+            "Raw response from Copilot (chat endpoint)"
+        );
+
+        // If content is not too long, log it fully at trace level
+        if tracing::enabled!(tracing::Level::TRACE) && content_text.len() < 2000 {
+            tracing::trace!(
+                choice_index = idx,
+                full_content = %content_text,
+                "Full content text from Copilot response"
+            );
+        }
+    }
+
+    // Post-process: parse tool calls from the response content when tools were requested.
+    if has_tools {
         for choice in &mut response.choices {
             let content_text = choice.message.content.as_text();
             let tool_calls = parser::parse_tool_calls(&content_text);

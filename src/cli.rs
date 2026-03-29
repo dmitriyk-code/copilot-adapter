@@ -35,10 +35,6 @@ pub enum Command {
         #[arg(long)]
         log_file: Option<String>,
 
-        /// Enable experimental tool/function calling support via prompt injection
-        #[arg(long)]
-        experimental_tools: bool,
-
         /// Cache TTL for the dynamic models list, in seconds (0 = no caching)
         #[arg(long, default_value_t = 300)]
         models_cache_ttl: u64,

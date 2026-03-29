@@ -1,8 +1,7 @@
-//! Integration tests for experimental tool support in `/v1/chat/completions`.
+//! Integration tests for tool support in `/v1/chat/completions`.
 //!
 //! Covers:
-//! - Requests with tools rejected (400) when `--experimental-tools` is disabled
-//! - Requests with tools succeed when the flag is enabled
+//! - Requests with tools succeed
 //! - Tool calls parsed from mock response content
 //! - `tool` role messages translated correctly
 
@@ -207,7 +206,6 @@ async fn mock_chat_echo_handler(
 async fn create_test_state(
     copilot_api_url: String,
     github_addr: std::net::SocketAddr,
-    experimental_tools: bool,
 ) -> Arc<AppState> {
     let auth = DeviceFlowAuth::with_urls(
         format!("http://{github_addr}/unused"),
@@ -223,136 +221,23 @@ async fn create_test_state(
         token_manager: tm,
         copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
         http_client: client,
-        config: AdapterConfig {
-            experimental_tools,
-            ..AdapterConfig::default()
-        },
+        config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })
 }
 
 // ---------------------------------------------------------------------------
-// Test: tools present with flag disabled → 400
+// Test: tools present → success
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn tools_in_request_returns_400_when_flag_disabled() {
+async fn tools_in_request_succeeds() {
     let (copilot_addr, _h1) = spawn_mock_copilot().await;
     let (github_addr, _h2) = spawn_mock_github().await;
 
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        false, // tools disabled
-    )
-    .await;
-    let app = build_router(state);
-
-    let body = json!({
-        "model": "gpt-4",
-        "messages": [{"role": "user", "content": "What's the weather?"}],
-        "tools": [{
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get the weather",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string"}
-                    },
-                    "required": ["location"]
-                }
-            }
-        }]
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/chat/completions")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(json["error"]["type"], "invalid_request_error");
-    assert!(
-        json["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("--experimental-tools"),
-        "Error message should mention --experimental-tools flag"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test: tool role message returns 400 when flag disabled
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn tool_role_message_returns_400_when_flag_disabled() {
-    let (copilot_addr, _h1) = spawn_mock_copilot().await;
-    let (github_addr, _h2) = spawn_mock_github().await;
-
-    let state = create_test_state(
-        format!("http://{copilot_addr}/chat/completions"),
-        github_addr,
-        false,
-    )
-    .await;
-    let app = build_router(state);
-
-    let body = json!({
-        "model": "gpt-4",
-        "messages": [
-            {"role": "user", "content": "What's the weather?"},
-            {"role": "assistant", "content": "Let me check.", "tool_calls": [{
-                "id": "call_abc123",
-                "type": "function",
-                "function": {"name": "get_weather", "arguments": "{\"location\":\"London\"}"}
-            }]},
-            {"role": "tool", "content": "Sunny, 22°C", "tool_call_id": "call_abc123"}
-        ]
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/chat/completions")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-}
-
-// ---------------------------------------------------------------------------
-// Test: tools present with flag enabled → success
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn tools_in_request_succeeds_when_flag_enabled() {
-    let (copilot_addr, _h1) = spawn_mock_copilot().await;
-    let (github_addr, _h2) = spawn_mock_github().await;
-
-    let state = create_test_state(
-        format!("http://{copilot_addr}/chat/completions"),
-        github_addr,
-        true, // tools enabled
     )
     .await;
     let app = build_router(state);
@@ -411,7 +296,6 @@ async fn tool_call_parsed_from_response_content() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -514,7 +398,6 @@ async fn tool_role_message_translated_to_user() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -600,18 +483,17 @@ async fn tool_role_message_translated_to_user() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: request without tools succeeds even when flag is enabled
+// Test: request without tools succeeds
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn no_tools_succeeds_when_flag_enabled() {
+async fn no_tools_succeeds() {
     let (copilot_addr, _h1) = spawn_mock_copilot().await;
     let (github_addr, _h2) = spawn_mock_github().await;
 
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -637,44 +519,7 @@ async fn no_tools_succeeds_when_flag_enabled() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: request without tools succeeds when flag is disabled (no regression)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn no_tools_succeeds_when_flag_disabled() {
-    let (copilot_addr, _h1) = spawn_mock_copilot().await;
-    let (github_addr, _h2) = spawn_mock_github().await;
-
-    let state = create_test_state(
-        format!("http://{copilot_addr}/chat/completions"),
-        github_addr,
-        false,
-    )
-    .await;
-    let app = build_router(state);
-
-    let body = json!({
-        "model": "gpt-4",
-        "messages": [{"role": "user", "content": "Hello"}]
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/chat/completions")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-// ---------------------------------------------------------------------------
-// Test: no tool calls parsed when tools not in request (even if flag enabled)
+// Test: no tool calls parsed when tools not in request
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -687,7 +532,6 @@ async fn no_tool_calls_parsed_without_tools_in_request() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -743,7 +587,6 @@ async fn empty_tools_array_not_rejected() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        false, // flag disabled
     )
     .await;
     let app = build_router(state);
@@ -965,7 +808,6 @@ async fn streaming_tool_call_detected_and_emitted() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true, // experimental_tools enabled
     )
     .await;
     let app = build_router(state);
@@ -1101,7 +943,6 @@ async fn streaming_without_tool_call_unaffected() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true, // tools enabled, but no tools in request
     )
     .await;
     let app = build_router(state);
@@ -1179,7 +1020,6 @@ async fn streaming_with_tools_but_no_tool_call_replays_chunks() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -1329,7 +1169,6 @@ async fn streaming_with_tools_emits_error_on_upstream_failure() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);
@@ -1402,7 +1241,6 @@ async fn streaming_normal_emits_error_on_upstream_failure() {
     let state = create_test_state(
         format!("http://{copilot_addr}/chat/completions"),
         github_addr,
-        true,
     )
     .await;
     let app = build_router(state);

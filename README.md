@@ -9,7 +9,7 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 - **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
 - **SSE streaming** — real-time token-by-token responses
 - **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
-- **Experimental tool/function support** — opt-in prompt injection for tool calling (see below)
+- **Tool/function support** — prompt injection for tool calling (see below)
 - **Dynamic model discovery** — fetches available models from Copilot API with caching and fallback
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
 - **Secure credential storage** — OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service) with encrypted file fallback
@@ -110,7 +110,6 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 | `copilot-adapter start --host 0.0.0.0` | Bind to all interfaces |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --log-file /tmp/adapter.log` | Log to a file |
-| `copilot-adapter start --experimental-tools` | Enable experimental tool/function support |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds, default: 300) |
 | `copilot-adapter start --static-models` | Use static model list (skip API fetch) |
 | `copilot-adapter status` | Check if the adapter is running |
@@ -326,29 +325,18 @@ curl -s -X POST http://127.0.0.1:6767/v1/messages \
 - **`cache_control` not forwarded:** Anthropic's `cache_control` metadata is accepted to prevent errors but has no effect on the upstream Copilot API.
 - **Model must support vision:** Use a model with vision capabilities (e.g., `gpt-4o`). Non-vision models may ignore or error on image content.
 
-## Experimental Tool/Function Support
+## Tool/Function Support
 
-The adapter supports **experimental tool/function calling** via prompt injection. Since GitHub Copilot's upstream API does not natively support the OpenAI `tools`/`functions` parameters, the adapter works around this by:
+The adapter supports **tool/function calling** via prompt injection. Since GitHub Copilot's upstream API does not natively support the OpenAI `tools`/`functions` parameters, the adapter works around this by:
 
 1. **Injecting** tool definitions into the system prompt as JSON
 2. **Instructing** the model to respond with structured JSON when it wants to call a tool
 3. **Parsing** tool calls from the model's text response
 4. **Returning** them in the standard `tool_calls` format (OpenAI) or `tool_use` content blocks (Anthropic)
 
-### Enabling Tools
-
-Tool support is **disabled by default** and must be explicitly enabled:
-
-```bash
-copilot-adapter start --experimental-tools
-
-# Or as a daemon
-copilot-adapter start --daemon --experimental-tools
-```
-
 ### Usage with Claude Code
 
-Once the adapter is started with `--experimental-tools`, Claude Code's native tool use (file operations, bash commands, etc.) will work through the adapter:
+Claude Code's native tool use (file operations, bash commands, etc.) works automatically through the adapter:
 
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
@@ -385,7 +373,6 @@ curl -X POST http://127.0.0.1:6767/v1/chat/completions \
 
 ### Limitations
 
-- **Opt-in only:** Requires `--experimental-tools` flag. Without it, requests with tools return HTTP 400.
 - **Best-effort parsing:** Tool call parsing is based on regex/JSON extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
 - **`tool_choice` limited:** Only `"auto"` behavior is supported. The `tool_choice` field is accepted but not enforced.
 - **No `parallel_tool_calls`:** The `parallel_tool_calls` parameter is not supported.

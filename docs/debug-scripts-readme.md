@@ -122,7 +122,7 @@ cargo build --release
 target/release/copilot-adapter auth
 
 # Start with logging
-target/release/copilot-adapter start --experimental-tools --log-level trace --log-file my-debug.log
+target/release/copilot-adapter start --log-level trace --log-file my-debug.log
 ```
 
 ## Related Documentation

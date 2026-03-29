@@ -16,9 +16,6 @@ use crate::handlers;
 /// Configuration options that control adapter behaviour.
 #[derive(Debug, Clone)]
 pub struct AdapterConfig {
-    /// When `true`, tool/function definitions in requests are handled via
-    /// prompt injection rather than being rejected.
-    pub experimental_tools: bool,
     /// When `true`, `/v1/models` always returns the static fallback list
     /// without attempting to fetch from the Copilot API.
     pub static_models: bool,
@@ -30,7 +27,6 @@ pub struct AdapterConfig {
 impl Default for AdapterConfig {
     fn default() -> Self {
         Self {
-            experimental_tools: false,
             static_models: false,
             models_cache_ttl: std::time::Duration::from_secs(300),
         }
