@@ -133,12 +133,21 @@ fn default_object_type() -> String {
 }
 
 /// A model object in OpenAI format.
+///
+/// Note: The `created` and `owned_by` fields are optional because GitHub Copilot's
+/// `/models` API returns a different schema that omits these fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Model {
     pub id: String,
     pub object: String,
+    #[serde(default)]
     pub created: i64,
+    #[serde(default = "default_owned_by")]
     pub owned_by: String,
+}
+
+fn default_owned_by() -> String {
+    "github-copilot".to_string()
 }
 
 /// Response for the `/v1/models` list endpoint.
