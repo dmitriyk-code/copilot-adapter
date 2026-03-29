@@ -335,26 +335,26 @@ pub enum ImageSource {
 
 **Goal:** Add `image_url` content block support to OpenAI types.
 
-**Prerequisites:** None (can run in parallel with Epic 1)
+**Prerequisites:** None (can run in parallel with Epic 1) — Epic 1 is DONE.
 
-**Status:** Not Started
+**Status:** DONE
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `ImageUrl` struct with `url` and `detail` fields | `src/copilot/types.rs` | TODO |
-| E2-T2 | IMPL | Add `ImageUrl` variant to `ContentBlock` enum | `src/copilot/types.rs` | TODO |
-| E2-T3 | IMPL | Update `MessageContent::as_text()` to skip `ImageUrl` blocks | `src/copilot/types.rs` | TODO |
-| E2-T4 | TEST | Unit test: serialize `ImageUrl` block to JSON | `tests/unit/copilot_types_tests.rs` | TODO |
-| E2-T5 | TEST | Unit test: `as_text()` skips image blocks | `tests/unit/copilot_types_tests.rs` | TODO |
+| E2-T1 | IMPL | Create `ImageUrl` struct with `url` and `detail` fields | `src/copilot/types.rs` | DONE |
+| E2-T2 | IMPL | Add `ImageUrl` variant to `ContentBlock` enum | `src/copilot/types.rs` | DONE |
+| E2-T3 | IMPL | Update `MessageContent::as_text()` to skip `ImageUrl` blocks | `src/copilot/types.rs` | DONE |
+| E2-T4 | TEST | Unit test: serialize `ImageUrl` block to JSON | `tests/unit/copilot_types_tests.rs` | DONE |
+| E2-T5 | TEST | Unit test: `as_text()` skips image blocks | `tests/unit/copilot_types_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `ImageUrl` struct compiles and serializes correctly
-- [ ] `ContentBlock::ImageUrl` variant works
-- [ ] `as_text()` gracefully skips images
-- [ ] JSON output matches OpenAI format
-- [ ] All unit tests pass
+- [x] `ImageUrl` struct compiles and serializes correctly
+- [x] `ContentBlock::ImageUrl` variant works
+- [x] `as_text()` gracefully skips images
+- [x] JSON output matches OpenAI format
+- [x] All unit tests pass
 
 **Code References:**
 

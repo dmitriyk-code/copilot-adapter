@@ -360,3 +360,113 @@ fn mixed_content_blocks_in_message_deserialize() {
     let openai = req.to_chat_completion_request();
     assert_eq!(openai.messages[0].content.as_text(), "Look at this: [Image] and this doc: Analysis");
 }
+
+// ---------------------------------------------------------------------------
+// cache_control on ToolUse and ToolResult blocks
+// ---------------------------------------------------------------------------
+
+#[test]
+fn deserialize_cache_control_on_tool_use_block() {
+    let json = serde_json::json!({
+        "type": "tool_use",
+        "id": "toolu_01A",
+        "name": "get_weather",
+        "input": {"location": "London"},
+        "cache_control": {
+            "type": "ephemeral"
+        }
+    });
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    match block {
+        ContentBlock::ToolUse { id, name, input, cache_control } => {
+            assert_eq!(id, "toolu_01A");
+            assert_eq!(name, "get_weather");
+            assert_eq!(input["location"], "London");
+            let cc = cache_control.expect("cache_control should be present");
+            assert_eq!(cc.cache_type, "ephemeral");
+            assert!(cc.ttl.is_none());
+        }
+        _ => panic!("Expected ToolUse variant"),
+    }
+}
+
+#[test]
+fn deserialize_cache_control_on_tool_result_block() {
+    let json = serde_json::json!({
+        "type": "tool_result",
+        "tool_use_id": "toolu_01A",
+        "content": "Sunny, 22°C",
+        "cache_control": {
+            "type": "ephemeral",
+            "ttl": 600
+        }
+    });
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    match block {
+        ContentBlock::ToolResult { tool_use_id, content, cache_control } => {
+            assert_eq!(tool_use_id, "toolu_01A");
+            match content {
+                ToolResultContent::Text(t) => assert_eq!(t, "Sunny, 22°C"),
+                _ => panic!("Expected Text content"),
+            }
+            let cc = cache_control.expect("cache_control should be present");
+            assert_eq!(cc.cache_type, "ephemeral");
+            assert_eq!(cc.ttl, Some(600));
+        }
+        _ => panic!("Expected ToolResult variant"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// URL sources without media_type (should deserialize successfully)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn deserialize_image_url_without_media_type() {
+    let json = serde_json::json!({
+        "type": "image",
+        "source": {
+            "type": "url",
+            "url": "https://example.com/photo.jpg"
+        }
+    });
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    match block {
+        ContentBlock::Image { source, .. } => {
+            match source {
+                ImageSource::Url { media_type, url } => {
+                    assert!(media_type.is_none());
+                    assert_eq!(url, "https://example.com/photo.jpg");
+                }
+                _ => panic!("Expected Url variant"),
+            }
+        }
+        _ => panic!("Expected Image variant"),
+    }
+}
+
+#[test]
+fn deserialize_document_url_without_media_type() {
+    let json = serde_json::json!({
+        "type": "document",
+        "source": {
+            "type": "url",
+            "url": "https://example.com/report.pdf"
+        },
+        "title": "Report"
+    });
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    match block {
+        ContentBlock::Document { source, title, .. } => {
+            assert_eq!(title, Some("Report".to_string()));
+            match source {
+                DocumentSource::Url { media_type, url } => {
+                    assert!(media_type.is_none());
+                    assert_eq!(url, "https://example.com/report.pdf");
+                }
+                _ => panic!("Expected Url variant"),
+            }
+        }
+        _ => panic!("Expected Document variant"),
+    }
+}

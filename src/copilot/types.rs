@@ -2,11 +2,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::tools::types::ToolCall;
 
-/// Content block in a message (used by Claude models).
+/// Image URL reference in a content block (OpenAI multimodal format).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageUrl {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Content block in a message (used by Claude models and OpenAI multimodal).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     Text { text: String },
+    ImageUrl { image_url: ImageUrl },
     #[serde(other)]
     Other,
 }
@@ -28,6 +37,7 @@ impl MessageContent {
                 .iter()
                 .filter_map(|b| match b {
                     ContentBlock::Text { text } => Some(text.as_str()),
+                    ContentBlock::ImageUrl { .. } => None,
                     ContentBlock::Other => None,
                 })
                 .collect::<Vec<_>>()
