@@ -1,6 +1,6 @@
 use copilot_adapter::copilot::types::{Message, MessageContent};
 use copilot_adapter::tools::injector::{
-    format_tools_as_json, inject_tools_into_messages, translate_tool_messages,
+    format_tools_as_xml, inject_tools_into_messages, translate_tool_messages,
     TOOL_USAGE_INSTRUCTIONS,
 };
 use copilot_adapter::tools::types::{Function, Tool};
@@ -41,11 +41,11 @@ fn make_tool_message(content: &str, call_id: &str) -> Message {
 }
 
 // ---------------------------------------------------------------------------
-// E2-T7: Tools formatted as valid JSON
+// E2-T7: Tools formatted as valid XML
 // ---------------------------------------------------------------------------
 
 #[test]
-fn format_tools_produces_valid_json_single_tool() {
+fn format_tools_produces_valid_xml_single_tool() {
     let tools = vec![sample_tool(
         "get_weather",
         Some("Get the current weather"),
@@ -58,22 +58,20 @@ fn format_tools_produces_valid_json_single_tool() {
         })),
     )];
 
-    let output = format_tools_as_json(&tools);
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let output = format_tools_as_xml(&tools);
 
-    assert!(parsed["functions"].is_array());
-    assert_eq!(parsed["functions"].as_array().unwrap().len(), 1);
-    assert_eq!(parsed["functions"][0]["name"], "get_weather");
-    assert_eq!(parsed["functions"][0]["description"], "Get the current weather");
-    assert_eq!(parsed["functions"][0]["parameters"]["type"], "object");
-    assert_eq!(
-        parsed["functions"][0]["parameters"]["properties"]["location"]["type"],
-        "string"
-    );
+    assert!(output.starts_with("<tools>"));
+    assert!(output.ends_with("</tools>"));
+    assert!(output.contains("<tool_name>get_weather</tool_name>"));
+    assert!(output.contains("<description>Get the current weather</description>"));
+    assert!(output.contains("<name>location</name>"));
+    assert!(output.contains("<type>string</type>"));
+    assert!(output.contains("<description>City name</description>"));
+    assert!(output.contains("<required>true</required>"));
 }
 
 #[test]
-fn format_tools_produces_valid_json_multiple_tools() {
+fn format_tools_produces_valid_xml_multiple_tools() {
     let tools = vec![
         sample_tool(
             "read_file",
@@ -98,35 +96,34 @@ fn format_tools_produces_valid_json_multiple_tools() {
         ),
     ];
 
-    let output = format_tools_as_json(&tools);
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let output = format_tools_as_xml(&tools);
 
-    let funcs = parsed["functions"].as_array().unwrap();
-    assert_eq!(funcs.len(), 2);
-    assert_eq!(funcs[0]["name"], "read_file");
-    assert_eq!(funcs[1]["name"], "write_file");
+    let tool_count = output.matches("<tool_description>").count();
+    assert_eq!(tool_count, 2);
+    assert!(output.contains("<tool_name>read_file</tool_name>"));
+    assert!(output.contains("<tool_name>write_file</tool_name>"));
 }
 
 #[test]
 fn format_tools_omits_missing_optional_fields() {
     let tools = vec![sample_tool("noop", None, None)];
 
-    let output = format_tools_as_json(&tools);
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let output = format_tools_as_xml(&tools);
 
-    let func = &parsed["functions"][0];
-    assert_eq!(func["name"], "noop");
-    assert!(func.get("description").is_none());
-    assert!(func.get("parameters").is_none());
+    assert!(output.contains("<tool_name>noop</tool_name>"));
+    assert!(output.contains("<description></description>"));
+    assert!(output.contains("<parameters>\n</parameters>"));
 }
 
 #[test]
-fn format_tools_empty_list_produces_empty_array() {
+fn format_tools_empty_list_produces_empty_tools_element() {
     let tools: Vec<Tool> = vec![];
-    let output = format_tools_as_json(&tools);
-    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let output = format_tools_as_xml(&tools);
 
-    assert!(parsed["functions"].as_array().unwrap().is_empty());
+    assert!(output.starts_with("<tools>"));
+    assert!(output.ends_with("</tools>"));
+    // No tool_description elements
+    assert!(!output.contains("<tool_description>"));
 }
 
 // ---------------------------------------------------------------------------
@@ -166,13 +163,13 @@ fn inject_prepends_to_existing_system_message() {
     // Tool definitions appear at the start
     assert!(system_content.starts_with("# Available Functions"));
 
-    // Contains the formatted tool JSON
+    // Contains the formatted tool XML
     assert!(system_content.contains("bash"));
     assert!(system_content.contains("Execute a command"));
 
-    // Contains usage instructions
-    assert!(system_content.contains("# How to Call Functions"));
-    assert!(system_content.contains("function_call"));
+    // Contains usage instructions (XML format with attribute syntax)
+    assert!(system_content.contains("<function_calls>"));
+    assert!(system_content.contains("invoke name="));
 }
 
 #[test]
@@ -230,7 +227,7 @@ fn inject_creates_system_message_when_missing() {
     let system_content = messages[0].content.as_text();
     assert!(system_content.contains("# Available Functions"));
     assert!(system_content.contains("get_weather"));
-    assert!(system_content.contains("# How to Call Functions"));
+    assert!(system_content.contains("<function_calls>"));
 }
 
 #[test]
@@ -339,10 +336,11 @@ fn translate_tool_message_without_call_id() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tool_usage_instructions_constant_mentions_json_fencing() {
-    assert!(TOOL_USAGE_INSTRUCTIONS.contains("```json"));
-    assert!(TOOL_USAGE_INSTRUCTIONS.contains("function_call"));
-    assert!(TOOL_USAGE_INSTRUCTIONS.contains("arguments"));
+fn tool_usage_instructions_constant_mentions_xml_format() {
+    assert!(TOOL_USAGE_INSTRUCTIONS.contains("<function_calls>"));
+    // Invocation format must use attribute syntax matching the parser
+    assert!(TOOL_USAGE_INSTRUCTIONS.contains(r#"invoke name="#));
+    assert!(TOOL_USAGE_INSTRUCTIONS.contains(r#"parameter name="#));
 }
 
 #[test]
@@ -366,4 +364,84 @@ fn inject_with_multiple_tools_includes_all() {
     assert!(content.contains("Third tool"));
     // Original preserved
     assert!(content.contains("Base instructions."));
+}
+
+// ---------------------------------------------------------------------------
+// Round-trip: injector format → parser
+// ---------------------------------------------------------------------------
+
+/// Verify that a model response written in the format taught by the injected
+/// instructions can be successfully parsed by `parse_tool_calls()`. This
+/// guards against format drift between the injector and parser.
+#[test]
+fn round_trip_injected_format_is_parseable() {
+    use copilot_adapter::tools::parser::parse_tool_calls;
+
+    // Simulate a model response that follows the TOOL_USAGE_INSTRUCTIONS format
+    let model_response = r#"I'll check the weather for you.
+
+<function_calls>
+<invoke name="get_weather">
+<parameter name="location">London</parameter>
+<parameter name="units">celsius</parameter>
+</invoke>
+</function_calls>"#;
+
+    let calls = parse_tool_calls(model_response);
+    assert_eq!(calls.len(), 1, "Expected 1 tool call, got {}", calls.len());
+
+    let call = &calls[0];
+    assert_eq!(call.function.name, Some("get_weather".to_string()));
+
+    let args: serde_json::Value =
+        serde_json::from_str(call.function.arguments.as_deref().unwrap()).unwrap();
+    assert_eq!(args["location"], "London");
+    assert_eq!(args["units"], "celsius");
+}
+
+/// Round-trip with multiple tool calls in a single `<function_calls>` block.
+#[test]
+fn round_trip_multiple_tool_calls() {
+    use copilot_adapter::tools::parser::parse_tool_calls;
+
+    let model_response = r#"Let me run both commands.
+
+<function_calls>
+<invoke name="bash">
+<parameter name="command">ls -la</parameter>
+</invoke>
+<invoke name="grep">
+<parameter name="pattern">TODO</parameter>
+<parameter name="path">src/</parameter>
+</invoke>
+</function_calls>"#;
+
+    let calls = parse_tool_calls(model_response);
+    assert_eq!(calls.len(), 2, "Expected 2 tool calls, got {}", calls.len());
+
+    assert_eq!(calls[0].function.name, Some("bash".to_string()));
+    assert_eq!(calls[1].function.name, Some("grep".to_string()));
+
+    let grep_args: serde_json::Value =
+        serde_json::from_str(calls[1].function.arguments.as_deref().unwrap()).unwrap();
+    assert_eq!(grep_args["pattern"], "TODO");
+    assert_eq!(grep_args["path"], "src/");
+}
+
+/// Round-trip with a tool call that has no parameters.
+#[test]
+fn round_trip_no_parameters() {
+    use copilot_adapter::tools::parser::parse_tool_calls;
+
+    let model_response = r#"<function_calls>
+<invoke name="get_status">
+</invoke>
+</function_calls>"#;
+
+    let calls = parse_tool_calls(model_response);
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].function.name, Some("get_status".to_string()));
+    // Arguments should be empty object
+    let args = calls[0].function.arguments.as_deref().unwrap();
+    assert_eq!(args, "{}");
 }

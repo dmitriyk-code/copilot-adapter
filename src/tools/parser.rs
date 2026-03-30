@@ -3,9 +3,9 @@
 //! This module extracts tool calls from assistant responses. It supports two
 //! formats (tried in order):
 //!
-//! 1. **JSON** — `{"function_call": {"name": "...", "arguments": {...}}}`
+//! 1. **JSON** (legacy) — `{"function_call": {"name": "...", "arguments": {...}}}`
 //!    inside fenced `` ```json `` code blocks or inline.
-//! 2. **XML** (fallback) —
+//! 2. **XML** (primary) —
 //!    ```xml
 //!    <function_calls>
 //!      <invoke name="ToolName">
@@ -14,8 +14,8 @@
 //!    </function_calls>
 //!    ```
 //!
-//! JSON is the format requested via prompt injection. XML is the format Claude
-//! models sometimes generate natively, so it is parsed as a fallback. If both
+//! XML is the format requested via prompt injection (see
+//! `src/tools/injector.rs`). JSON is retained as a legacy fallback. If both
 //! formats appear in the same response, JSON takes priority.
 //!
 //! The public API consists of two functions:

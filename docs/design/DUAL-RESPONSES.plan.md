@@ -126,7 +126,7 @@ See [docs/known-issues.md](./docs/known-issues.md) for information about:
 
 ---
 
-### Epic 2: XML Tool Injector (Day 1-2, 1.5 days)
+### Epic 2: XML Tool Injector (Day 1-2, 1.5 days) — **DONE**
 
 Replace JSON-based tool injection with XML-based format.
 
@@ -166,11 +166,11 @@ fn format_parameter_xml(name: &str, schema: &serde_json::Value) -> String {
 ```
 
 **Acceptance Criteria:**
-- [ ] `format_tools_as_xml()` implemented
-- [ ] Handles tools with/without parameters
-- [ ] Handles required/optional parameters
-- [ ] Handles various parameter types (string, number, boolean, object, array)
-- [ ] Unit tests pass
+- [x] `format_tools_as_xml()` implemented
+- [x] Handles tools with/without parameters
+- [x] Handles required/optional parameters
+- [x] Handles various parameter types (string, number, boolean, object, array)
+- [x] Unit tests pass
 
 #### Task 2.2: Update Tool Usage Instructions
 
@@ -203,9 +203,9 @@ Important rules:
 ```
 
 **Acceptance Criteria:**
-- [ ] Instructions updated to XML format
-- [ ] Clear about `<function_calls>` wrapper requirement
-- [ ] Multiple tool calls explained
+- [x] Instructions updated to XML format (attribute-based: `<invoke name="..."><parameter name="...">value</parameter></invoke>`)
+- [x] Clear about `<function_calls>` wrapper requirement
+- [x] Multiple tool calls explained
 
 #### Task 2.3: Update `build_tool_prompt()`
 
@@ -223,9 +223,9 @@ fn build_tool_prompt(tools: &[Tool]) -> String {
 ```
 
 **Acceptance Criteria:**
-- [ ] Uses XML formatter
-- [ ] Maintains "Available Functions" header
-- [ ] Instructions follow tool definitions
+- [x] Uses XML formatter
+- [x] Maintains "Available Functions" header
+- [x] Instructions follow tool definitions
 
 #### Task 2.4: Unit Tests for XML Injector
 
@@ -239,12 +239,20 @@ Add tests:
 - `build_tool_prompt_contains_instructions` — Full prompt build
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] Edge cases covered
+- [x] All unit tests pass
+- [x] Edge cases covered
+- [x] Round-trip integration tests added (injected format → model response → parse_tool_calls())
+- [x] Duplicate inline tests removed; covered by external test file
+
+**Completion Notes:**
+- TOOL_USAGE_INSTRUCTIONS updated to attribute-based XML format (`<invoke name="..."><parameter name="...">value</parameter></invoke>`) matching parser.rs regexes
+- parser.rs module doc updated: XML labeled 'primary' (injected format), JSON labeled 'legacy'
+- 3 round-trip integration tests added to tests/unit/tools_injector_tests.rs
+- Follow-up: module doc vs function doc terminology inconsistency (non-blocking) — 'primary' means different things in each; recommend clarifying in next pass
 
 ---
 
-### Epic 3: XML Tool Parser (Day 2-3, 1.5 days)
+### Epic 3: XML Tool Parser(Day 2-3, 1.5 days)
 
 Replace JSON parsing with XML parsing.
 
