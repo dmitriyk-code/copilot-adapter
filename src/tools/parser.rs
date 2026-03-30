@@ -1,3 +1,27 @@
+//! Tool call parser for model-generated text content.
+//!
+//! This module extracts tool calls from assistant responses. It supports two
+//! formats (tried in order):
+//!
+//! 1. **JSON** — `{"function_call": {"name": "...", "arguments": {...}}}`
+//!    inside fenced `` ```json `` code blocks or inline.
+//! 2. **XML** (fallback) —
+//!    ```xml
+//!    <function_calls>
+//!      <invoke name="ToolName">
+//!        <parameter name="key">value</parameter>
+//!      </invoke>
+//!    </function_calls>
+//!    ```
+//!
+//! JSON is the format requested via prompt injection. XML is the format Claude
+//! models sometimes generate natively, so it is parsed as a fallback. If both
+//! formats appear in the same response, JSON takes priority.
+//!
+//! The public API consists of two functions:
+//! - [`parse_tool_calls`] — extract `ToolCall` structs from text
+//! - [`strip_tool_calls`] — remove tool call markup, leaving surrounding prose
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 use uuid::Uuid;

@@ -1,6 +1,6 @@
 # XML Tool Call Parsing Support — Implementation Plan
 
-**Status:** IN PROGRESS (Epic 5 remaining)
+**Status:** DONE (all epics complete)
 **Date:** 2026-03-30
 **Related:** [TOOLS-SUPPORT.plan.md](./TOOLS-SUPPORT.plan.md), [REGRESSION-FIX.md](./REGRESSION-FIX.md)
 **Issue:** Parser only recognizes JSON format; Claude models generate XML format
@@ -440,22 +440,24 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
 
 ---
 
-### Epic 5: Documentation
+### Epic 5: Documentation ✅ DONE
 
 **Tasks:**
 
-1. **E5-T1:** Update inline code documentation
+1. **E5-T1:** Update inline code documentation ✅ DONE
+   - Added module-level doc comment to parser.rs documenting both formats
    - Document `parse_xml_tool_calls()` function
    - Document XML format in parser.rs comments
    - Update `parse_tool_calls()` docstring to mention both formats
 
-2. **E5-T2:** Update debugging guide
+2. **E5-T2:** Update debugging guide ✅ DONE
    - Add XML format to expected formats in `docs/development/debugging-tool-calls.md`
    - Add example of XML in logs
+   - Updated "Tool call in response but not parsed" section
 
 **Acceptance Criteria:**
-- Code is well-documented
-- Debugging guide mentions both formats
+- Code is well-documented ✅
+- Debugging guide mentions both formats ✅
 
 ---
 

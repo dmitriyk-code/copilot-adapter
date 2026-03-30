@@ -79,7 +79,16 @@ TRACE Full response JSON from Copilot
   }"
 ```
 
-### 6. Parsed Tool Calls (DEBUG level)
+### 6. Tool Call Format Detection (DEBUG level)
+```
+DEBUG Parsed tool calls from JSON format num_calls=1
+```
+or, when Claude responds with its native XML format:
+```
+DEBUG Parsed tool calls from XML format num_calls=1
+```
+
+### 7. Parsed Tool Calls (DEBUG level)
 ```
 DEBUG Parsed tool calls from Anthropic response
   num_tool_calls=1
@@ -133,7 +142,22 @@ Look at the `content_preview` or `full_content` fields:
 {"function_call": {"name": "WebSearch", "arguments": {"query": "some query"}}}
 ```
 
-If Copilot's response uses a different format (XML, plain text, etc.), our parser won't detect it.
+**XML format (Claude's native tool call style):**
+```xml
+<function_calls>
+  <invoke name="WebSearch">
+    <parameter name="query">some query</parameter>
+  </invoke>
+</function_calls>
+```
+
+The parser tries JSON first; if no JSON tool calls are found, it falls back to
+XML. Claude models sometimes generate this XML format instead of the requested
+JSON format. Multiple `<invoke>` blocks inside a single `<function_calls>` are
+supported.
+
+If Copilot's response uses a format other than the above (e.g., plain text tool
+names), our parser won't detect it.
 
 ### 3. Check if tool calls are being parsed
 Search for:
@@ -175,10 +199,11 @@ DEBUG Raw response ... content_preview="<tool_call><name>WebSearch</name>..."
 ```
 (No "Parsed tool calls" message)
 
-**Cause:** The response contains a tool call but in a format our parser doesn't recognize (e.g., XML instead of JSON).
+**Cause:** The response contains a tool call but in a format our parser doesn't recognize. The parser supports JSON and XML `<function_calls>` format — other XML tag names (e.g., `<tool_call>`) are not supported.
 
 **Solutions:**
-- Check the full content at TRACE level
+- Check the full content at TRACE level to see the exact format
+- Look for the format detection log: `Parsed tool calls from JSON format` or `Parsed tool calls from XML format` — if neither appears, the format is unrecognized
 - File an issue with the exact format Copilot used
 - We may need to add parsers for additional formats (see `src/tools/parser.rs`)
 
