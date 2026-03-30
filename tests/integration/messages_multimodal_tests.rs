@@ -120,8 +120,7 @@ async fn create_test_state(
 
     Arc::new(AppState {
         token_manager: tm,
-        copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
-        http_client: client,
+        copilot_client: CopilotClient::with_api_url(client, copilot_api_url),
         config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })

@@ -595,6 +595,11 @@ copilot-adapter start --log-level trace
 RUST_LOG=trace copilot-adapter start
 ```
 
+## Known Issues
+
+See [docs/known-issues.md](./docs/known-issues.md) for information about:
+- Multiple responses when using Claude Code
+
 ## License
 
 See LICENSE file for details.

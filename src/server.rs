@@ -36,8 +36,6 @@ impl Default for AdapterConfig {
 /// Shared application state available to all handlers via axum's `State` extractor.
 pub struct AppState {
     pub token_manager: Arc<TokenManager>,
-    /// Shared HTTP client for direct upstream calls (used by the Epic 4 streaming handler).
-    pub http_client: reqwest::Client,
     pub copilot_client: CopilotClient,
     pub config: AdapterConfig,
     /// In-memory cache for the Copilot models list with TTL-based expiration.
@@ -90,10 +88,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(handlers::health::health))
         .route(
-            "/v1/chat/completions",
-            axum::routing::post(handlers::chat::chat_completions),
-        )
-        .route(
             "/v1/messages",
             axum::routing::post(handlers::messages::messages),
         )
@@ -119,8 +113,7 @@ pub async fn run(
     let models_cache = ModelsCache::new(config.models_cache_ttl);
     let state = Arc::new(AppState {
         token_manager,
-        copilot_client: CopilotClient::new(http_client.clone()),
-        http_client,
+        copilot_client: CopilotClient::new(http_client),
         config,
         models_cache,
     });

@@ -49,9 +49,8 @@ async fn create_dynamic_state(
 
     Arc::new(AppState {
         token_manager: tm,
-        copilot_client: CopilotClient::with_api_url(client.clone(), "http://localhost:1/unused".into())
+        copilot_client: CopilotClient::with_api_url(client, "http://localhost:1/unused".into())
             .with_models_url(models_url),
-        http_client: client,
         config: AdapterConfig {
             static_models: false,
             ..AdapterConfig::default()
@@ -73,8 +72,7 @@ async fn create_static_state() -> Arc<AppState> {
 
     Arc::new(AppState {
         token_manager: tm,
-        copilot_client: CopilotClient::new(client.clone()),
-        http_client: client,
+        copilot_client: CopilotClient::new(client),
         config: AdapterConfig {
             static_models: true,
             ..AdapterConfig::default()

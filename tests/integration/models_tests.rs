@@ -27,8 +27,7 @@ async fn test_state() -> Arc<AppState> {
     let client = reqwest::Client::new();
     Arc::new(AppState {
         token_manager: tm,
-        copilot_client: CopilotClient::new(client.clone()),
-        http_client: client,
+        copilot_client: CopilotClient::new(client),
         config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
     })

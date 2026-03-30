@@ -580,19 +580,19 @@ fn strip_tool_calls_preserves_text() {
 
 ---
 
-### Epic 4: Remove OpenAI Endpoint (Day 3, 1 day)
+### Epic 4: Remove OpenAI Endpoint (Day 3, 1 day) ✅ DONE
 
 Remove the `/v1/chat/completions` endpoint and clean up related code.
 
-#### Task 4.1: Remove Chat Handler
+#### Task 4.1: Remove Chat Handler — ✅ DONE
 
-**File:** `src/handlers/chat.rs` — DELETE ENTIRE FILE
+**File:** `src/handlers/chat.rs` — DELETED
 
 **Acceptance Criteria:**
-- [ ] File deleted
-- [ ] Git tracks deletion
+- [x] File deleted
+- [x] Git tracks deletion
 
-#### Task 4.2: Update Handlers Module
+#### Task 4.2: Update Handlers Module — ✅ DONE
 
 **File:** `src/handlers/mod.rs`
 
@@ -612,10 +612,10 @@ pub mod models;
 ```
 
 **Acceptance Criteria:**
-- [ ] `chat` module removed
-- [ ] Compiles without errors
+- [x] `chat` module removed
+- [x] Compiles without errors
 
-#### Task 4.3: Update Server Routes
+#### Task 4.3: Update Server Routes — ✅ DONE
 
 **File:** `src/server.rs`
 
@@ -630,11 +630,11 @@ Remove the `/v1/chat/completions` route:
 ```
 
 **Acceptance Criteria:**
-- [ ] Route removed
-- [ ] Server compiles
-- [ ] `/v1/chat/completions` returns 404
+- [x] Route removed
+- [x] Server compiles
+- [x] `/v1/chat/completions` returns 404
 
-#### Task 4.4: Clean Up Unused Imports
+#### Task 4.4: Clean Up Unused Imports — ✅ DONE
 
 **Files:** Various
 
@@ -644,10 +644,10 @@ Check and remove unused imports from:
 - Any file that imported from `handlers::chat`
 
 **Acceptance Criteria:**
-- [ ] No unused import warnings
-- [ ] `cargo clippy` passes
+- [x] No unused import warnings
+- [x] `cargo clippy` passes
 
-#### Task 4.5: Update Tests
+#### Task 4.5: Update Tests — ✅ DONE
 
 **Files:** `tests/integration/*.rs`
 
@@ -655,8 +655,8 @@ Check and remove unused imports from:
 - Or update them to use `/v1/messages` instead
 
 **Acceptance Criteria:**
-- [ ] All integration tests pass
-- [ ] No tests for removed endpoint
+- [x] All integration tests pass
+- [x] No tests for removed endpoint
 
 ---
 
@@ -1288,9 +1288,10 @@ All changes are additive then subtractive, making rollback straightforward via g
 - [x] Unit tests pass
 
 ### Epic 4: Remove OpenAI Endpoint
-- [ ] `src/handlers/chat.rs` deleted
-- [ ] Route removed from server
-- [ ] Unused imports cleaned up
+- [x] `src/handlers/chat.rs` deleted
+- [x] Route removed from server
+- [x] Unused imports cleaned up
+- [x] Dead `http_client` field removed from `AppState`
 
 ### Epic 5: Messages Handler
 - [ ] Handler reviewed and simplified
