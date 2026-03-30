@@ -198,26 +198,26 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
 
 ## Implementation Plan
 
-### Epic 1: Extract JSON Parsing Logic
+### Epic 1: Extract JSON Parsing Logic ✅ DONE
 
 **Goal:** Refactor existing code to make room for XML parsing
 
 **Tasks:**
 
-1. **E1-T1:** Create `parse_json_tool_calls()` function
+1. **E1-T1:** Create `parse_json_tool_calls()` function ✅ DONE
    - Move existing `parse_tool_calls()` logic into new function
    - Return `Vec<ToolCall>`
    - No behavior changes
 
-2. **E1-T2:** Update `parse_tool_calls()` to call `parse_json_tool_calls()`
+2. **E1-T2:** Update `parse_tool_calls()` to call `parse_json_tool_calls()` ✅ DONE
    - Simple wrapper for now
    - Maintains API compatibility
    - All existing tests should still pass
 
 **Acceptance Criteria:**
-- All existing unit tests pass unchanged
-- No functional changes
-- Code is cleaner and ready for XML parsing
+- All existing unit tests pass unchanged ✅
+- No functional changes ✅
+- Code is cleaner and ready for XML parsing ✅
 
 ---
 

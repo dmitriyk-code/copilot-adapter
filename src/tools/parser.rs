@@ -47,6 +47,23 @@ static COLLAPSE_NEWLINES: Lazy<Regex> = Lazy::new(|| {
 ///
 /// Invalid or malformed JSON is silently skipped.
 pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
+    parse_json_tool_calls(content)
+}
+
+// ---------------------------------------------------------------------------
+// Format-specific parsers
+// ---------------------------------------------------------------------------
+
+/// Parse JSON-format tool calls from model-generated text content.
+///
+/// Looks for JSON blocks matching the injected tool-call format:
+/// ```json
+/// {"function_call": {"name": "func_name", "arguments": {...}}}
+/// ```
+///
+/// Tries fenced code blocks (` ```json ... ``` `) first, then falls back to
+/// inline JSON objects containing `"function_call"`.
+fn parse_json_tool_calls(content: &str) -> Vec<ToolCall> {
     let mut candidates: Vec<(usize, usize, String)> = Vec::new(); // (start, end, json_str)
 
     // Collect fenced code block matches
