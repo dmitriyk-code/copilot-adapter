@@ -83,6 +83,7 @@ src/
 | `copilot-adapter start --daemon` | Start as background daemon |
 | `copilot-adapter start -p 9090` | Start on custom port |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
+| `copilot-adapter start --log-level trace` | Enable trace logging (very verbose, logs full request/response JSON) |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds) |
 | `copilot-adapter start --static-models` | Use static model list (skip API) |
 | `copilot-adapter status` | Check if adapter is running |
@@ -136,6 +137,7 @@ cargo test
 
 ## Notes for Development
 
+- **Trace logging**: When `--log-level trace` is enabled, the adapter logs the full request/response JSON at every transformation point: (1) incoming from Claude Code, (2) outgoing to GitHub Copilot API, (3) incoming from GitHub Copilot API, (4) outgoing to Claude Code. For streaming requests, each SSE chunk is logged individually. This is useful for debugging tool calls, model normalization, format translation, and streaming issues. Trace logs include structured fields: `direction` (INCOMING/OUTGOING), `source`/`destination` (Claude Code/GitHub Copilot API), `endpoint`, `format` (OpenAI/Anthropic), `mode` (streaming/non-streaming), and full JSON payloads.
 - **Model name normalization**: The adapter automatically translates Claude Code's versioned model identifiers (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's expected format (e.g., `claude-haiku-4.5`). This normalization happens in `src/model_mapper.rs` and is applied to all incoming requests at both the `/v1/chat/completions` and `/v1/messages` endpoints.
 - **Dynamic models**: `/v1/models` fetches from Copilot API with in-memory caching (TTL-based via `ModelsCache` in `AppState`). Falls back to a static list on API errors. Controlled by `--models-cache-ttl` (default 300s) and `--static-models` flags.
 - `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration

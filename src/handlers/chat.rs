@@ -35,6 +35,19 @@ pub async fn chat_completions(
         "Received chat completion request"
     );
 
+    // TRACE: Log the full incoming request from Claude Code
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&request) {
+            tracing::trace!(
+                direction = "INCOMING",
+                source = "Claude Code",
+                endpoint = "/v1/chat/completions",
+                request_json = %json,
+                "Full request received from Claude Code"
+            );
+        }
+    }
+
     // Validate: messages must be non-empty
     if request.messages.is_empty() {
         return Err(AppError::InvalidRequest(
@@ -96,6 +109,19 @@ pub async fn chat_completions(
     upstream_request.tools = None;
     upstream_request.tool_choice = None;
 
+    // TRACE: Log the full request being sent to GitHub Copilot API
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&upstream_request) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                request_json = %json,
+                "Full request being sent to GitHub Copilot API"
+            );
+        }
+    }
+
     // Get a valid Copilot token
     let copilot_token = state
         .token_manager
@@ -108,6 +134,17 @@ pub async fn chat_completions(
 
     // Branch on stream field
     if upstream_request.stream.unwrap_or(false) {
+        // TRACE: Log that we're initiating a streaming request
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                mode = "streaming",
+                "Initiating streaming request to GitHub Copilot API"
+            );
+        }
+
         let chunk_stream = state
             .copilot_client
             .stream_chat_completion(&copilot_token, &upstream_request)
@@ -124,14 +161,29 @@ pub async fn chat_completions(
         // Normal streaming path (no tools) — pass through chunks unmodified.
         let event_stream = chunk_stream.map(|result| -> Result<Event, Infallible> {
             match result {
-                Ok(chunk) => match serde_json::to_string(&chunk) {
-                    Ok(json) => Ok(Event::default().data(json)),
-                    Err(e) => {
-                        tracing::warn!("Failed to serialize SSE chunk: {e}");
-                        let err_json = serde_json::json!({
-                            "error": { "message": format!("Serialization error: {e}"), "type": "stream_error" }
-                        });
-                        Ok(Event::default().data(err_json.to_string()))
+                Ok(chunk) => {
+                    // TRACE: Log each chunk received from GitHub Copilot
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        if let Ok(json) = serde_json::to_string(&chunk) {
+                            tracing::trace!(
+                                direction = "INCOMING",
+                                source = "GitHub Copilot API",
+                                mode = "streaming",
+                                chunk_json = %json,
+                                "Received SSE chunk from GitHub Copilot API"
+                            );
+                        }
+                    }
+
+                    match serde_json::to_string(&chunk) {
+                        Ok(json) => Ok(Event::default().data(json)),
+                        Err(e) => {
+                            tracing::warn!("Failed to serialize SSE chunk: {e}");
+                            let err_json = serde_json::json!({
+                                "error": { "message": format!("Serialization error: {e}"), "type": "stream_error" }
+                            });
+                            Ok(Event::default().data(err_json.to_string()))
+                        }
                     }
                 }
                 Err(e) => {
@@ -161,6 +213,19 @@ pub async fn chat_completions(
         .copilot_client
         .send_chat_completion(&copilot_token, &upstream_request)
         .await?;
+
+    // TRACE: Log the full response received from GitHub Copilot API
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&response) {
+            tracing::trace!(
+                direction = "INCOMING",
+                source = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                response_json = %json,
+                "Full response received from GitHub Copilot API"
+            );
+        }
+    }
 
     // Log the raw response for debugging tool call issues
     tracing::debug!(
@@ -222,6 +287,19 @@ pub async fn chat_completions(
         }
     }
 
+    // TRACE: Log the final response being sent back to Claude Code
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&response) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "Claude Code",
+                endpoint = "/v1/chat/completions",
+                response_json = %json,
+                "Final response being sent to Claude Code"
+            );
+        }
+    }
+
     Ok(Json(response).into_response())
 }
 
@@ -245,6 +323,19 @@ async fn handle_streaming_with_tools(
         while let Some(result) = stream.next().await {
             match result {
                 Ok(chunk) => {
+                    // TRACE: Log each chunk received from GitHub Copilot
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        if let Ok(json) = serde_json::to_string(&chunk) {
+                            tracing::trace!(
+                                direction = "INCOMING",
+                                source = "GitHub Copilot API",
+                                mode = "streaming_with_tools",
+                                chunk_json = %json,
+                                "Received SSE chunk from GitHub Copilot API (buffering for tool parsing)"
+                            );
+                        }
+                    }
+
                     for choice in &chunk.choices {
                         if let Some(ref text) = choice.delta.content {
                             content_buffer.push_str(text);
@@ -342,6 +433,21 @@ async fn handle_streaming_with_tools(
                         finish_reason: None,
                     }],
                 };
+
+                // TRACE: Log synthetic chunk being sent
+                if tracing::enabled!(tracing::Level::TRACE) {
+                    if let Ok(json) = serde_json::to_string(&role_chunk) {
+                        tracing::trace!(
+                            direction = "OUTGOING",
+                            destination = "Claude Code",
+                            mode = "streaming_with_tools",
+                            chunk_type = "role",
+                            chunk_json = %json,
+                            "Sending synthetic role chunk to Claude Code"
+                        );
+                    }
+                }
+
                 match serde_json::to_string(&role_chunk) {
                     Ok(json) => yield Ok(Event::default().data(json)),
                     Err(e) => {
@@ -366,6 +472,21 @@ async fn handle_streaming_with_tools(
                             finish_reason: None,
                         }],
                     };
+
+                    // TRACE: Log synthetic text chunk being sent
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        if let Ok(json) = serde_json::to_string(&text_chunk) {
+                            tracing::trace!(
+                                direction = "OUTGOING",
+                                destination = "Claude Code",
+                                mode = "streaming_with_tools",
+                                chunk_type = "text_content",
+                                chunk_json = %json,
+                                "Sending synthetic text content chunk to Claude Code"
+                            );
+                        }
+                    }
+
                     match serde_json::to_string(&text_chunk) {
                         Ok(json) => yield Ok(Event::default().data(json)),
                         Err(e) => {
@@ -390,6 +511,21 @@ async fn handle_streaming_with_tools(
                         finish_reason: Some("tool_calls".to_string()),
                     }],
                 };
+
+                // TRACE: Log synthetic tool_calls chunk being sent
+                if tracing::enabled!(tracing::Level::TRACE) {
+                    if let Ok(json) = serde_json::to_string(&tool_chunk) {
+                        tracing::trace!(
+                            direction = "OUTGOING",
+                            destination = "Claude Code",
+                            mode = "streaming_with_tools",
+                            chunk_type = "tool_calls",
+                            chunk_json = %json,
+                            "Sending synthetic tool_calls chunk to Claude Code"
+                        );
+                    }
+                }
+
                 match serde_json::to_string(&tool_chunk) {
                     Ok(json) => yield Ok(Event::default().data(json)),
                     Err(e) => {

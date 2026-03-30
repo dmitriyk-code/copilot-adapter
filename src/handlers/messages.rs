@@ -40,6 +40,19 @@ pub async fn messages(
         "Received Anthropic messages request"
     );
 
+    // TRACE: Log the full incoming request from Claude Code
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&request) {
+            tracing::trace!(
+                direction = "INCOMING",
+                source = "Claude Code",
+                endpoint = "/v1/messages",
+                request_json = %json,
+                "Full request received from Claude Code (Anthropic format)"
+            );
+        }
+    }
+
     // Validate: messages must be non-empty
     if request.messages.is_empty() {
         return Err(AppError::InvalidRequest(
@@ -132,6 +145,20 @@ pub async fn messages(
     openai_request.tools = None;
     openai_request.tool_choice = None;
 
+    // TRACE: Log the full request being sent to GitHub Copilot API (translated to OpenAI format)
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&openai_request) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                format = "OpenAI (translated from Anthropic)",
+                request_json = %json,
+                "Full request being sent to GitHub Copilot API (Anthropic endpoint)"
+            );
+        }
+    }
+
     // Get a valid Copilot token
     let copilot_token = state
         .token_manager
@@ -145,6 +172,20 @@ pub async fn messages(
     // Branch on stream field
     if request.stream.unwrap_or(false) {
         let parse_tools = has_tools;
+
+        // TRACE: Log that we're initiating a streaming request
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                format = "OpenAI (translated from Anthropic)",
+                mode = "streaming",
+                parse_tools = parse_tools,
+                "Initiating streaming request to GitHub Copilot API (Anthropic endpoint)"
+            );
+        }
+
         return handle_streaming(state, &copilot_token, &openai_request, parse_tools).await;
     }
 
@@ -153,6 +194,20 @@ pub async fn messages(
         .copilot_client
         .send_chat_completion(&copilot_token, &openai_request)
         .await?;
+
+    // TRACE: Log the full response received from GitHub Copilot API
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&response) {
+            tracing::trace!(
+                direction = "INCOMING",
+                source = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                format = "OpenAI (will be translated to Anthropic)",
+                response_json = %json,
+                "Full response received from GitHub Copilot API (Anthropic endpoint)"
+            );
+        }
+    }
 
     // Log the raw response for debugging tool call issues
     tracing::debug!(
@@ -213,6 +268,21 @@ pub async fn messages(
     }
 
     let anthropic_response = response.to_anthropic_response();
+
+    // TRACE: Log the final response being sent back to Claude Code (translated to Anthropic format)
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&anthropic_response) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "Claude Code",
+                endpoint = "/v1/messages",
+                format = "Anthropic",
+                response_json = %json,
+                "Final response being sent to Claude Code (Anthropic format)"
+            );
+        }
+    }
+
     Ok(Json(anthropic_response).into_response())
 }
 
@@ -254,6 +324,20 @@ async fn handle_streaming(
         while let Some(result) = stream.next().await {
             match result {
                 Ok(chunk) => {
+                    // TRACE: Log each chunk received from GitHub Copilot
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        if let Ok(json) = serde_json::to_string(&chunk) {
+                            tracing::trace!(
+                                direction = "INCOMING",
+                                source = "GitHub Copilot API",
+                                format = "OpenAI",
+                                mode = "streaming",
+                                chunk_json = %json,
+                                "Received SSE chunk from GitHub Copilot API (will translate to Anthropic)"
+                            );
+                        }
+                    }
+
                     if !message_started {
                         let msg = build_message_start_response(&chunk.id, &model);
                         let event = StreamEvent::MessageStart { message: msg };
@@ -407,6 +491,20 @@ async fn handle_streaming_with_tools(
         while let Some(result) = stream.next().await {
             match result {
                 Ok(chunk) => {
+                    // TRACE: Log each chunk received from GitHub Copilot
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        if let Ok(json) = serde_json::to_string(&chunk) {
+                            tracing::trace!(
+                                direction = "INCOMING",
+                                source = "GitHub Copilot API",
+                                format = "OpenAI",
+                                mode = "streaming_with_tools",
+                                chunk_json = %json,
+                                "Received SSE chunk from GitHub Copilot API (buffering for tool parsing and Anthropic translation)"
+                            );
+                        }
+                    }
+
                     for choice in &chunk.choices {
                         if let Some(ref text) = choice.delta.content {
                             content_buffer.push_str(text);
