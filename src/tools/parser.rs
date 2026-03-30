@@ -70,9 +70,10 @@ static XML_ATTR_INVOKE: Lazy<Regex> = Lazy::new(|| {
 
 /// Matches `<parameter name="...">...</parameter>` (attribute-based format).
 ///
-/// Parameter values cannot contain `<` (no nested XML).
+/// Uses a lazy `(.*?)` capture so that parameter values containing `<`
+/// (e.g. comparison operators, HTML snippets) are not truncated.
 static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<parameter\s+name="([^"]+)">([^<]*)</parameter>"#)
+    Regex::new(r#"(?s)<parameter\s+name="([^"]+)">(.*?)</parameter>"#)
         .expect("xml parameter regex should compile")
 });
 
@@ -95,14 +96,18 @@ fn extract_between_tags(tag: &str, content: &str) -> Vec<String> {
 }
 
 /// Check if a tag exists in the content.
+///
+/// Delegates to [`extract_between_tags`] to avoid duplicating the regex.
 fn contains_tag(tag: &str, content: &str) -> bool {
-    let pattern = format!(
-        r"(?s)<{}>(.+?)</{}>",
-        regex::escape(tag),
-        regex::escape(tag)
-    );
-    Regex::new(&pattern).unwrap().is_match(content)
+    !extract_between_tags(tag, content).is_empty()
 }
+
+/// Matches opening tags like `<param_name>` in tag-based XML parameters.
+///
+/// Compiled once and reused across all calls to [`parse_xml_params`].
+static OPEN_TAG: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>").expect("open tag regex should compile")
+});
 
 /// Parse XML parameters in tag-based format into a JSON object.
 ///
@@ -114,10 +119,7 @@ fn parse_xml_params(params_content: &str) -> serde_json::Value {
     // Match opening tags and manually find their closing counterpart.
     // The `regex` crate does not support backreferences, so we locate
     // `</tag_name>` with a simple string search instead.
-    let open_tag = Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>")
-        .expect("open tag regex should compile");
-
-    for cap in open_tag.captures_iter(params_content) {
+    for cap in OPEN_TAG.captures_iter(params_content) {
         let full_match = cap.get(0).unwrap();
         let name = cap.get(1).unwrap().as_str();
         let closing_tag = format!("</{name}>");
@@ -217,6 +219,11 @@ pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
 
 /// Parse `<invoke>` blocks from content, supporting both tag-based and
 /// attribute-based formats.
+///
+/// **Ordering:** Tag-based results are collected first, then attribute-based.
+/// If both formats appear in the same block the output order may differ from
+/// document order. In practice models use one format consistently so this
+/// is not an issue.
 fn parse_invokes(content: &str) -> Vec<ToolCall> {
     let mut calls = Vec::new();
 

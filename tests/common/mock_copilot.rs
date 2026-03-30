@@ -421,11 +421,15 @@ async fn mock_models_handler(
 // ---------------------------------------------------------------------------
 
 /// Build a non-streaming response whose assistant content contains a single
-/// tool call embedded in a fenced ```json code block.
+/// tool call embedded in attribute-based XML.
 ///
 /// The tool call uses the format the adapter's parser expects:
-/// ```json
-/// {"function_call": {"name": "<tool_name>", "arguments": <args>}}
+/// ```xml
+/// <function_calls>
+/// <invoke name="tool_name">
+/// <parameter name="key">value</parameter>
+/// </invoke>
+/// </function_calls>
 /// ```
 pub fn build_tool_call_response(
     model: &str,

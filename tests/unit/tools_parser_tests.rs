@@ -694,3 +694,60 @@ Second:
     assert_eq!(calls[0].function.name, Some("Tool1".to_string()));
     assert_eq!(calls[1].function.name, Some("Tool2".to_string()));
 }
+
+// ===========================================================================
+// Parameter values containing '<' (Bug 1 regression test)
+// ===========================================================================
+
+#[test]
+fn parse_attr_parameter_with_less_than_sign() {
+    let content = r#"<function_calls>
+<invoke name="Bash">
+<parameter name="command">echo x < 10</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert_eq!(tool_calls.len(), 1);
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["command"], "echo x < 10");
+}
+
+#[test]
+fn parse_attr_parameter_with_html_content() {
+    let content = r#"<function_calls>
+<invoke name="WriteFile">
+<parameter name="path">/tmp/test.html</parameter>
+<parameter name="content"><div><p>hello</p></div></parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert_eq!(tool_calls.len(), 1);
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["path"], "/tmp/test.html");
+    assert_eq!(args["content"], "<div><p>hello</p></div>");
+}
+
+#[test]
+fn parse_attr_parameter_with_comparison_operator() {
+    let content = r#"<function_calls>
+<invoke name="Bash">
+<parameter name="command">if x < 10 && y > 5; then echo ok; fi</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert_eq!(tool_calls.len(), 1);
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        args["command"],
+        "if x < 10 && y > 5; then echo ok; fi"
+    );
+}

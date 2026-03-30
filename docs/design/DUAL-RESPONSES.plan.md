@@ -252,7 +252,7 @@ Add tests:
 
 ---
 
-### Epic 3: XML Tool Parser(Day 2-3, 1.5 days) ✅ DONE
+### Epic 3: XML Tool Parser (Day 2-3, 1.5 days) ✅ DONE
 
 Replace JSON parsing with XML parsing.
 
@@ -280,9 +280,9 @@ fn contains_tag(tag: &str, content: &str) -> bool {
 ```
 
 **Acceptance Criteria:**
-- [ ] `extract_between_tags()` works with multiline content
-- [ ] `contains_tag()` returns correct boolean
-- [ ] Handles nested tags correctly
+- [x] `extract_between_tags()` works with multiline content
+- [x] `contains_tag()` returns correct boolean
+- [x] Handles nested tags correctly
 
 #### Task 3.2: Implement XML Parameter Parser
 
@@ -318,9 +318,9 @@ fn parse_xml_params(params_content: &str) -> serde_json::Value {
 ```
 
 **Acceptance Criteria:**
-- [ ] Parses simple parameters
-- [ ] Handles whitespace correctly
-- [ ] Returns empty object for no parameters
+- [x] Parses simple parameters
+- [x] Handles whitespace correctly
+- [x] Returns empty object for no parameters
 
 #### Task 3.3: Implement Main XML Parser
 
@@ -412,12 +412,12 @@ fn try_parse_invoke(invoke_content: &str) -> Option<ToolCall> {
 ```
 
 **Acceptance Criteria:**
-- [ ] Parses `<function_calls>` wrapped format
-- [ ] Falls back to standalone `<invoke>` blocks
-- [ ] Extracts `<tool_name>` correctly
-- [ ] Parses `<parameters>` correctly
-- [ ] Generates unique call IDs
-- [ ] Logs parsing results
+- [x] Parses `<function_calls>` wrapped format
+- [x] Falls back to standalone `<invoke>` blocks
+- [x] Extracts `<tool_name>` correctly
+- [x] Parses `<parameters>` correctly
+- [x] Generates unique call IDs
+- [x] Logs parsing results
 
 #### Task 3.4: Update `strip_tool_calls()`
 
@@ -449,10 +449,10 @@ pub fn strip_tool_calls(content: &str) -> String {
 ```
 
 **Acceptance Criteria:**
-- [ ] Removes `<function_calls>` blocks
-- [ ] Removes standalone `<invoke>` blocks
-- [ ] Preserves surrounding text
-- [ ] Collapses extra newlines
+- [x] Removes `<function_calls>` blocks
+- [x] Removes standalone `<invoke>` blocks
+- [x] Preserves surrounding text
+- [x] Collapses extra newlines
 
 #### Task 3.5: Remove JSON Parsing Code
 
@@ -467,9 +467,9 @@ Delete:
 - JSON-related unit tests
 
 **Acceptance Criteria:**
-- [ ] All JSON parsing code removed
-- [ ] No dead code warnings
-- [ ] File compiles cleanly
+- [x] All JSON parsing code removed
+- [x] No dead code warnings
+- [x] File compiles cleanly
 
 #### Task 3.6: Add Unrecognized Pattern Logging
 
@@ -491,9 +491,9 @@ if calls.is_empty() {
 ```
 
 **Acceptance Criteria:**
-- [ ] WARN logged when tool-like patterns present but not parsed
-- [ ] Content preview included for debugging
-- [ ] Normal text doesn't trigger warning
+- [x] WARN logged when tool-like patterns present but not parsed
+- [x] Content preview included for debugging
+- [x] Normal text doesn't trigger warning
 
 #### Task 3.7: Unit Tests for XML Parser
 
@@ -566,9 +566,17 @@ fn strip_tool_calls_preserves_text() {
 ```
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] Edge cases covered (empty params, no wrapper, etc.)
-- [ ] Stripping tests included
+- [x] All unit tests pass
+- [x] Edge cases covered (empty params, no wrapper, etc.)
+- [x] Stripping tests included
+
+**Completion Notes (Review Fix):**
+- Bug fix: Changed `XML_PARAMETER` regex from `([^<]*)` to `(?s)(.*?)` so parameter values containing `<` (comparison operators, HTML, XML snippets) are no longer silently truncated
+- Bug fix: Updated `build_tool_call_response` doc-comment in `tests/common/mock_copilot.rs` from stale JSON format to current attribute-based XML format
+- Performance fix: Extracted open-tag regex in `parse_xml_params` to a static `OPEN_TAG Lazy<Regex>` compiled once instead of on every call
+- Performance fix: Simplified `contains_tag` to delegate to `!extract_between_tags(tag, content).is_empty()`, eliminating duplicate regex compilation
+- Documentation fix: Added doc-comment to `parse_invokes` documenting tag-based results are collected before attribute-based results, clarifying the ordering contract
+- 44 parser unit tests pass; 3 new tests added covering the regex fix edge cases
 
 ---
 
@@ -1266,18 +1274,18 @@ All changes are additive then subtractive, making rollback straightforward via g
 - [x] README links to known issues
 
 ### Epic 2: XML Injector
-- [ ] `format_tools_as_xml()` implemented
-- [ ] `TOOL_USAGE_INSTRUCTIONS` updated
-- [ ] Unit tests pass
+- [x] `format_tools_as_xml()` implemented
+- [x] `TOOL_USAGE_INSTRUCTIONS` updated
+- [x] Unit tests pass
 
 ### Epic 3: XML Parser
-- [ ] `extract_between_tags()` implemented
-- [ ] `parse_xml_params()` implemented
-- [ ] `parse_tool_calls()` uses XML
-- [ ] `strip_tool_calls()` uses XML
-- [ ] JSON code removed
-- [ ] Unrecognized pattern logging added
-- [ ] Unit tests pass
+- [x] `extract_between_tags()` implemented
+- [x] `parse_xml_params()` implemented
+- [x] `parse_tool_calls()` uses XML
+- [x] `strip_tool_calls()` uses XML
+- [x] JSON code removed
+- [x] Unrecognized pattern logging added
+- [x] Unit tests pass
 
 ### Epic 4: Remove OpenAI Endpoint
 - [ ] `src/handlers/chat.rs` deleted
