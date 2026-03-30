@@ -589,13 +589,13 @@ RUST_LOG=trace copilot-adapter start
 3. **Expected response:**
    - `content` array should contain a `tool_use` block with `name`, `id`, and `input`
    - `stop_reason` should be `"tool_use"`
-   - Text blocks should not contain fenced JSON
+   - Text blocks should not contain raw XML tool call tags
 
 ### Verification
 
 - Response has valid `tool_use` content blocks
 - `input` contains valid JSON arguments
-- Content does not contain ````json` blocks
+- Content does not contain `<function_calls>` or `<invoke>` XML blocks (these are stripped during parsing)
 
 ---
 
@@ -727,6 +727,73 @@ RUST_LOG=trace copilot-adapter start
    - `content` array should contain a `tool_use` block with `name`, `id`, and `input`
    - `stop_reason` should be `"tool_use"`
    - Text blocks should not contain fenced JSON
+
+---
+
+## Test 14b: XML Tool Call Format Verification
+
+**Purpose:** Verify that the adapter uses XML format for tool injection and correctly parses XML tool call responses.
+
+### Steps
+
+1. **Start the adapter with trace logging:**
+   ```bash
+   copilot-adapter start --log-level trace
+   ```
+
+2. **Send a tool request:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "tools": [{
+         "name": "bash",
+         "description": "Run a bash command",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "command": {"type": "string", "description": "The command to run"}
+           },
+           "required": ["command"]
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Check trace logs for XML tool injection:**
+   - The outgoing request to Copilot API should contain XML tool definitions in the system prompt:
+     ```xml
+     <tool_description>
+     <tool_name>bash</tool_name>
+     <description>Run a bash command</description>
+     <parameters>
+     <parameter>
+     <name>command</name>
+     <type>string</type>
+     <description>The command to run</description>
+     <required>true</required>
+     </parameter>
+     </parameters>
+     </tool_description>
+     ```
+   - The tool usage instructions should reference `<function_calls>` and `<invoke>` XML tags
+   - There should be **no** JSON-format tool injection (`{"function_call": ...}`)
+
+4. **Verify response parsing:**
+   - The response should contain `tool_use` content blocks (Anthropic format)
+   - Any `<function_calls>` XML blocks from the model response should be stripped from text content
+   - The `input` field should contain the parsed parameters as JSON
+
+### Verification
+
+- Trace logs confirm XML format is used for injection
+- Response `tool_use` blocks have correctly parsed parameters
+- No JSON tool format artifacts in logs or responses
 
 ---
 
@@ -1040,6 +1107,7 @@ Check the adapter logs for:
 | 12 | Tool call (streaming, Anthropic) | | |
 | 13 | Multi-turn with tool results | | |
 | 14 | Tool call with multiple tools | | |
+| 14b | XML tool call format verification | | |
 | 15 | Claude Code with tools | | |
 | 16 | Image upload (base64) | | |
 | 17 | Image upload (URL) | | |

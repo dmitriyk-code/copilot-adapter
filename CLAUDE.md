@@ -36,7 +36,7 @@ src/
 ├── main.rs              # Entry point, CLI handling
 ├── cli.rs               # CLI argument definitions (clap)
 ├── server.rs            # Axum HTTP server setup
-├── error.rs             # Error types with OpenAI-compatible responses
+├── error.rs             # Error types with structured error responses
 ├── model_mapper.rs      # Model name normalization (Claude Code format → Copilot format)
 ├── lib.rs               # Library exports
 ├── handlers/
@@ -118,7 +118,7 @@ cargo test
 ## API Endpoints
 
 - `GET /health` - Health check
-- `POST /v1/messages` - Anthropic-format messages (translated to OpenAI internally)
+- `POST /v1/messages` - Anthropic-format messages (Claude Code native)
 - `GET /v1/models` - List available models
 - `GET /v1/models/:model` - Get model details
 
@@ -128,22 +128,25 @@ cargo test
 - `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
 - `DYNAMIC-MODELS.design.md` - Design document for dynamic models list feature (implemented)
 - `DYNAMIC-MODELS.plan.md` - Implementation plan for dynamic models
-- `TOOLS-SUPPORT.design.md` - Design document for tools/functions support (implemented)
-- `TOOLS-SUPPORT.plan.md` - Implementation plan for tools support
+- `TOOLS-SUPPORT.design.md` - **Deprecated** — original tools design (JSON format). See `DUAL-RESPONSES.design.md`
+- `TOOLS-SUPPORT.plan.md` - **Deprecated** — original tools plan. See `DUAL-RESPONSES.plan.md`
+- `DUAL-RESPONSES.design.md` - Design document for XML tool format migration and endpoint cleanup
+- `DUAL-RESPONSES.plan.md` - Implementation plan for XML tool format migration
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
+- `docs/known-issues.md` - Known issues and workarounds
 
 ## Notes for Development
 
-- **Trace logging**: When `--log-level trace` is enabled, the adapter logs the full request/response JSON at every transformation point: (1) incoming from Claude Code, (2) outgoing to GitHub Copilot API, (3) incoming from GitHub Copilot API, (4) outgoing to Claude Code. For streaming requests, each SSE chunk is logged individually. This is useful for debugging tool calls, model normalization, format translation, and streaming issues. Trace logs include structured fields: `direction` (INCOMING/OUTGOING), `source`/`destination` (Claude Code/GitHub Copilot API), `endpoint`, `format` (OpenAI/Anthropic), `mode` (streaming/non-streaming), and full JSON payloads.
+- **Trace logging**: When `--log-level trace` is enabled, the adapter logs the full request/response data at every transformation point: (1) incoming from Claude Code, (2) outgoing to GitHub Copilot API, (3) incoming from GitHub Copilot API, (4) outgoing to Claude Code. For streaming requests, each SSE chunk is logged individually. This is useful for debugging tool calls, model normalization, format translation, and streaming issues. Trace logs include structured fields: `direction` (INCOMING/OUTGOING), `source`/`destination` (Claude Code/GitHub Copilot API), `endpoint`, `format` (Anthropic), `mode` (streaming/non-streaming), and full payloads.
 - **Model name normalization**: The adapter automatically translates Claude Code's versioned model identifiers (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's expected format (e.g., `claude-haiku-4.5`). This normalization happens in `src/model_mapper.rs` and is applied to all incoming requests at the `/v1/messages` endpoint.
 - **Dynamic models**: `/v1/models` fetches from Copilot API with in-memory caching (TTL-based via `ModelsCache` in `AppState`). Falls back to a static list on API errors. Controlled by `--models-cache-ttl` (default 300s) and `--static-models` flags.
 - `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration
 - `CopilotClient::fetch_models()` calls `https://api.githubcopilot.com/models` with standard Copilot headers
 - `resolve_models()` in `src/handlers/models.rs` orchestrates cache → API fetch → fallback flow
-- **Tools/functions support** is always enabled — tool definitions are injected into the system prompt; tool calls are parsed from model text responses
+- **Tools/functions support** is always enabled — tool definitions are injected into the system prompt using XML format (following the Anthropic Cookbook); tool calls are parsed from `<function_calls>` XML blocks in model responses
 - The tools implementation lives in `src/tools/` (types, injector, parser)
-- Tool call parsing is best-effort; malformed JSON is silently skipped (graceful degradation)
+- Tool call parsing is best-effort; malformed XML is silently skipped (graceful degradation)
 - `tool_choice` only supports `"auto"` behavior; `parallel_tool_calls` is not supported
 - Copilot tokens expire in ~30 min; the adapter refreshes them proactively
 - Required Copilot headers: `Copilot-Integration-Id`, `Editor-Version`, `Editor-Plugin-Version`
-- All errors return OpenAI-compatible JSON format
+- All errors return structured JSON format

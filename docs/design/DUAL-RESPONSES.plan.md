@@ -714,11 +714,11 @@ Update trace logging messages to reflect that this is now the only endpoint:
 
 ---
 
-### Epic 6: Documentation Updates (Day 4, 0.5 days)
+### Epic 6: Documentation Updates (Day 4, 0.5 days) ✅ DONE
 
 Update all documentation to reflect the changes.
 
-#### Task 6.1: Update CLAUDE.md
+#### Task 6.1: Update CLAUDE.md — ✅ DONE
 
 **File:** `CLAUDE.md`
 
@@ -743,11 +743,11 @@ Updates:
 ```
 
 **Acceptance Criteria:**
-- [ ] API Endpoints updated
-- [ ] Tool format description updated
-- [ ] No references to OpenAI endpoint
+- [x] API Endpoints updated
+- [x] Tool format description updated
+- [x] No references to OpenAI endpoint
 
-#### Task 6.2: Update README.md
+#### Task 6.2: Update README.md — ✅ DONE
 
 **File:** `README.md`
 
@@ -757,12 +757,12 @@ Updates:
 3. Remove any OpenAI endpoint examples
 
 **Acceptance Criteria:**
-- [ ] README accurate
-- [ ] Known issues linked
+- [x] README accurate
+- [x] Known issues linked
 
-#### Task 6.3: Update E2E Testing Doc
+#### Task 6.3: Update E2E Testing Doc — ✅ DONE
 
-**File:** `docs/e2e-testing.md`
+**File:** `docs/development/e2e-testing.md`
 
 Updates:
 1. Remove any `/v1/chat/completions` test procedures
@@ -770,10 +770,10 @@ Updates:
 3. Add test case for XML tool calls
 
 **Acceptance Criteria:**
-- [ ] Testing procedures accurate
-- [ ] XML format documented
+- [x] Testing procedures accurate
+- [x] XML format documented
 
-#### Task 6.4: Update TOOLS-SUPPORT Documents
+#### Task 6.4: Update TOOLS-SUPPORT Documents — ✅ DONE
 
 **Files:**
 - `docs/design/TOOLS-SUPPORT.design.md`
@@ -789,8 +789,8 @@ for current implementation.
 ```
 
 **Acceptance Criteria:**
-- [ ] Deprecation notes added
-- [ ] References to new design doc
+- [x] Deprecation notes added
+- [x] References to new design doc
 
 ---
 

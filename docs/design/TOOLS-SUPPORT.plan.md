@@ -1,6 +1,10 @@
 # Tools/Functions Support for Copilot Adapter — Implementation Plan
 
-**Status:** COMPLETE
+**Status:** Deprecated (superseded by DUAL-RESPONSES.plan.md)
+**Note:** The JSON tool format described in this document has been replaced
+with XML format following the Anthropic Cookbook. See [DUAL-RESPONSES.plan.md](./DUAL-RESPONSES.plan.md)
+for current implementation.
+
 **Date:** 2026-03-27
 **Based on:** [TOOLS-SUPPORT.design.md](./TOOLS-SUPPORT.design.md)
 **Prerequisite:** Core adapter implementation — **COMPLETE**

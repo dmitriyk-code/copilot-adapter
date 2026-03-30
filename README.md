@@ -285,12 +285,12 @@ curl -s -X POST http://127.0.0.1:6767/v1/messages \
 
 ## Tool/Function Support
 
-The adapter supports **tool/function calling** via prompt injection. Since GitHub Copilot's upstream API does not natively support the OpenAI `tools`/`functions` parameters, the adapter works around this by:
+The adapter supports **tool/function calling** via prompt injection. Since GitHub Copilot's upstream API does not natively support the Anthropic `tools` parameter, the adapter works around this by:
 
-1. **Injecting** tool definitions into the system prompt as JSON
-2. **Instructing** the model to respond with structured JSON when it wants to call a tool
-3. **Parsing** tool calls from the model's text response
-4. **Returning** them in the standard `tool_calls` format (OpenAI) or `tool_use` content blocks (Anthropic)
+1. **Injecting** tool definitions into the system prompt as XML (following the Anthropic Cookbook format)
+2. **Instructing** the model to respond with structured XML when it wants to call a tool
+3. **Parsing** tool calls from `<function_calls>` XML blocks in the model's text response
+4. **Returning** them as `tool_use` content blocks (Anthropic format)
 
 ### Usage with Claude Code
 
@@ -331,7 +331,7 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
 
 ### Limitations
 
-- **Best-effort parsing:** Tool call parsing is based on regex/JSON extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
+- **Best-effort parsing:** Tool call parsing is based on XML extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
 - **`tool_choice` limited:** Only `"auto"` behavior is supported. The `tool_choice` field is accepted but not enforced.
 - **No `parallel_tool_calls`:** The `parallel_tool_calls` parameter is not supported.
 - **Increased token usage:** Tool definitions are injected into the system prompt, increasing the token count.
