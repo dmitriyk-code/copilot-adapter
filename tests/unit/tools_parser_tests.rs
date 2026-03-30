@@ -814,6 +814,40 @@ More."#;
     assert!(stripped.contains("<function_calls>"));
 }
 
+#[test]
+fn strip_preserves_regular_xml() {
+    // Non-function_calls XML tags must not be touched
+    let content = "See: <note>Important</note>";
+    let stripped = strip_tool_calls(content);
+    assert!(stripped.contains("<note>"));
+    assert!(stripped.contains("Important"));
+    assert!(stripped.contains("</note>"));
+}
+
+#[test]
+fn strip_mixed_json_and_xml_tool_calls() {
+    let content = r#"Intro text.
+
+```json
+{"function_call": {"name": "JsonTool", "arguments": {"a": 1}}}
+```
+
+Middle.
+
+<function_calls>
+<invoke name="XmlTool"><parameter name="b">2</parameter></invoke>
+</function_calls>
+
+End."#;
+
+    let stripped = strip_tool_calls(content);
+    assert!(!stripped.contains("function_call"));
+    assert!(!stripped.contains("<function_calls>"));
+    assert!(stripped.contains("Intro text."));
+    assert!(stripped.contains("Middle."));
+    assert!(stripped.contains("End."));
+}
+
 // ---------------------------------------------------------------------------
 // XML parameter trimming tests
 // ---------------------------------------------------------------------------

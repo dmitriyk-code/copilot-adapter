@@ -1,6 +1,6 @@
 # XML Tool Call Parsing Support — Implementation Plan
 
-**Status:** DRAFT
+**Status:** IN PROGRESS (Epic 5 remaining)
 **Date:** 2026-03-30
 **Related:** [TOOLS-SUPPORT.plan.md](./TOOLS-SUPPORT.plan.md), [REGRESSION-FIX.md](./REGRESSION-FIX.md)
 **Issue:** Parser only recognizes JSON format; Claude models generate XML format
@@ -300,7 +300,7 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
 
 ---
 
-### Epic 4: Testing
+### Epic 4: Testing ✅ DONE
 
 **Goal:** Comprehensive test coverage
 
@@ -308,7 +308,7 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
 
 **Tasks:**
 
-1. **E4-T1:** XML parsing tests - basic
+1. **E4-T1:** XML parsing tests - basic ✅ DONE
    ```rust
    #[test]
    fn parse_single_xml_tool_call() {
@@ -363,7 +363,7 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
    }
    ```
 
-2. **E4-T2:** XML parsing tests - edge cases
+2. **E4-T2:** XML parsing tests - edge cases ✅ DONE
    ```rust
    #[test]
    fn parse_xml_with_surrounding_text() {
@@ -392,7 +392,7 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
    }
    ```
 
-3. **E4-T3:** Mixed format tests
+3. **E4-T3:** Mixed format tests ✅ DONE
    ```rust
    #[test]
    fn parse_mixed_json_and_xml_prefers_json() {
@@ -413,7 +413,7 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
    }
    ```
 
-4. **E4-T4:** XML stripping tests
+4. **E4-T4:** XML stripping tests ✅ DONE
    ```rust
    #[test]
    fn strip_xml_tool_calls() {
@@ -433,10 +433,10 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
    ```
 
 **Acceptance Criteria:**
-- All new XML tests pass
-- All existing JSON tests still pass
-- Code coverage > 90% for new code
-- Edge cases handled gracefully
+- [x] All new XML tests pass
+- [x] All existing JSON tests still pass
+- [x] Code coverage > 90% for new code
+- [x] Edge cases handled gracefully
 
 ---
 
