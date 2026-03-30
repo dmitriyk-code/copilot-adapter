@@ -11,3 +11,4 @@ mod server_tests;
 mod test_helpers;
 mod tools_e2e_tests;
 mod tools_messages_tests;
+mod tools_xml_tests;

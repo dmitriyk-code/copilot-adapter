@@ -13,6 +13,7 @@ use crate::anthropic::types::{
     ContentBlockInput, ContentDelta, InputJsonDelta, MessageDeltaBody, MessageDeltaUsage,
     ResponseContentBlock, StreamEvent, TextDelta, ToolResultContent,
 };
+use crate::conversation_log::ConversationCycleBuilder;
 use crate::copilot::types::MessageContent;
 use crate::error::AppError;
 use crate::server::AppState;
@@ -91,6 +92,16 @@ pub async fn messages(
         }
     }
 
+    // --- Conversation log: capture incoming request ---
+    let mut cycle_builder = state.conversation_logger.as_ref().map(|logger| {
+        let mut builder = ConversationCycleBuilder::new(
+            logger.next_request_number(),
+            uuid::Uuid::new_v4().to_string(),
+        );
+        builder.set_incoming(&request);
+        builder
+    });
+
     let has_tools = request
         .tools
         .as_ref()
@@ -113,6 +124,9 @@ pub async fn messages(
     // IMPORTANT: Only inject if tools are explicitly provided in this request.
     // Claude Code is responsible for re-sending tool definitions on every turn
     // when tool calling is active (including turns with tool_result blocks).
+    let mut tools_injected = false;
+    let mut xml_injection_size = 0usize;
+
     if let Some(ref tools) = request.tools {
         if !tools.is_empty() {
             tracing::debug!(
@@ -122,15 +136,14 @@ pub async fn messages(
             );
             let internal_tools: Vec<_> =
                 tools.iter().map(|t| t.to_internal_tool()).collect();
-            injector::inject_tools_into_messages(
+            xml_injection_size = injector::inject_tools_into_messages(
                 &mut openai_request.messages,
                 &internal_tools,
+                state.config.debug_tools,
             );
+            tools_injected = true;
         }
     } else if has_tool_results_in_messages {
-        // Tool results are present but no tool definitions were provided.
-        // This is likely a bug in the client (Claude Code should re-send tool
-        // definitions on every turn). Log a warning to help debug.
         tracing::warn!(
             "Request contains tool_result blocks but no tool definitions. \
              The model may generate malformed tool calls without schema context. \
@@ -145,6 +158,11 @@ pub async fn messages(
     // Strip tools/tool_choice — Copilot API does not accept them.
     openai_request.tools = None;
     openai_request.tool_choice = None;
+
+    // --- Conversation log: capture outgoing request ---
+    if let Some(ref mut builder) = cycle_builder {
+        builder.set_outgoing(&openai_request, tools_injected, xml_injection_size);
+    }
 
     // TRACE: Log the translated request being sent to GitHub Copilot API
     if tracing::enabled!(tracing::Level::TRACE) {
@@ -187,7 +205,14 @@ pub async fn messages(
             );
         }
 
-        return handle_streaming(state, &copilot_token, &openai_request, parse_tools).await;
+        return handle_streaming(
+            state,
+            &copilot_token,
+            &openai_request,
+            parse_tools,
+            cycle_builder,
+        )
+        .await;
     }
 
     // Non-streaming: forward to the Copilot API and translate response
@@ -240,7 +265,7 @@ pub async fn messages(
     if has_tools {
         for choice in &mut response.choices {
             let content_text = choice.message.content.as_text();
-            let tool_calls = parser::parse_tool_calls(&content_text);
+            let tool_calls = parser::parse_tool_calls(&content_text, state.config.debug_tools);
 
             if !tool_calls.is_empty() {
                 tracing::debug!(
@@ -260,7 +285,39 @@ pub async fn messages(
         }
     }
 
+    // --- Conversation log: capture Copilot response ---
+    if let Some(ref mut builder) = cycle_builder {
+        builder.set_copilot_response(&response);
+    }
+
     let anthropic_response = response.to_anthropic_response();
+
+    // --- Conversation log: capture final response and write ---
+    if let Some(builder) = cycle_builder {
+        // Collect tool calls from the Anthropic response for logging
+        let all_tool_calls: Vec<_> = response
+            .choices
+            .iter()
+            .flat_map(|c| c.message.tool_calls.as_deref().unwrap_or(&[]))
+            .cloned()
+            .collect();
+
+        let mut builder = builder;
+        builder.set_final(
+            anthropic_response.stop_reason.as_deref(),
+            &anthropic_response.content,
+            &all_tool_calls,
+        );
+        let cycle = builder.build();
+        if let Some(ref logger) = state.conversation_logger {
+            let logger = logger.clone();
+            tokio::spawn(async move {
+                if let Err(e) = logger.log_cycle(&cycle).await {
+                    tracing::warn!(error = %e, "Failed to write conversation log");
+                }
+            });
+        }
+    }
 
     // TRACE: Log the final response being sent back to Claude Code
     if tracing::enabled!(tracing::Level::TRACE) {
@@ -294,6 +351,7 @@ async fn handle_streaming(
     copilot_token: &str,
     openai_request: &crate::copilot::types::ChatCompletionRequest,
     parse_tools: bool,
+    cycle_builder: Option<ConversationCycleBuilder>,
 ) -> Result<Response, AppError> {
     let chunk_stream = state
         .copilot_client
@@ -301,16 +359,27 @@ async fn handle_streaming(
         .await?;
 
     let model = openai_request.model.clone();
+    let debug_tools = state.config.debug_tools;
+    let conversation_logger = state.conversation_logger.clone();
 
     if parse_tools {
-        return handle_streaming_with_tools(chunk_stream, model).await;
+        return handle_streaming_with_tools(
+            chunk_stream,
+            model,
+            debug_tools,
+            cycle_builder,
+            conversation_logger,
+        )
+        .await;
     }
 
+    // For non-tool streaming, fire conversation log at the end if builder is present.
     // Normal streaming path (no tool parsing) — translate events inline.
     let event_stream = async_stream::stream! {
         let mut content_block_opened = false;
         let mut message_started = false;
         let mut last_finish_reason: Option<String> = None;
+        let mut content_buffer = String::new();
 
         let mut stream = std::pin::pin!(chunk_stream);
 
@@ -351,6 +420,8 @@ async fn handle_streaming(
                     for choice in &chunk.choices {
                         // Handle text content deltas
                         if let Some(ref text) = choice.delta.content {
+                            content_buffer.push_str(text);
+
                             if !content_block_opened {
                                 let event = StreamEvent::ContentBlockStart {
                                     index: 0,
@@ -455,6 +526,30 @@ async fn handle_streaming(
             };
             yield Ok(Event::default().event("message_stop").data(json));
         }
+
+        // --- Conversation log: write cycle for non-tool streaming ---
+        if let Some(mut builder) = cycle_builder {
+            let stop_reason = map_stop_reason(last_finish_reason.as_deref());
+            builder.set_copilot_streaming_response(
+                &model,
+                &content_buffer,
+                last_finish_reason.as_deref(),
+                false,
+            );
+            let text_block = crate::anthropic::types::ResponseContentBlock::text(
+                content_buffer,
+            );
+            builder.set_final(stop_reason.as_deref(), &[text_block], &[]);
+            let cycle = builder.build();
+            if let Some(ref logger) = conversation_logger {
+                let logger = logger.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = logger.log_cycle(&cycle).await {
+                        tracing::warn!(error = %e, "Failed to write conversation log");
+                    }
+                });
+            }
+        }
     };
 
     let sse = Sse::new(event_stream).keep_alive(
@@ -475,6 +570,9 @@ async fn handle_streaming_with_tools(
         > + Send
         + 'static,
     model: String,
+    debug_tools: bool,
+    cycle_builder: Option<ConversationCycleBuilder>,
+    conversation_logger: Option<crate::conversation_log::ConversationLogger>,
 ) -> Result<Response, AppError> {
     let event_stream = async_stream::stream! {
         let mut buffered_chunks: Vec<crate::copilot::types::ChatCompletionChunk> = Vec::new();
@@ -562,7 +660,7 @@ async fn handle_streaming_with_tools(
             );
         }
 
-        let tool_calls = parser::parse_tool_calls(&content_buffer);
+        let tool_calls = parser::parse_tool_calls(&content_buffer, debug_tools);
         let has_tool_calls = !tool_calls.is_empty();
 
         if has_tool_calls {
@@ -610,7 +708,7 @@ async fn handle_streaming_with_tools(
                 index: block_index,
                 delta: ContentDelta::Text(TextDelta {
                     delta_type: "text_delta".to_string(),
-                    text: stripped_text,
+                    text: stripped_text.clone(),
                 }),
             };
             match serde_json::to_string(&event) {
@@ -687,6 +785,8 @@ async fn handle_streaming_with_tools(
             map_stop_reason(last_fr.as_deref())
         };
 
+        let stop_reason_for_log = stop_reason.clone();
+
         let event = StreamEvent::MessageDelta {
             delta: MessageDeltaBody {
                 stop_reason,
@@ -704,6 +804,43 @@ async fn handle_streaming_with_tools(
         match serde_json::to_string(&event) {
             Ok(json) => yield Ok(Event::default().event("message_stop").data(json)),
             Err(e) => { tracing::error!("failed to serialise SSE event: {e}"); return; }
+        }
+
+        // --- Conversation log: write cycle for tool-enabled streaming ---
+        if let Some(mut builder) = cycle_builder {
+            let last_fr = buffered_chunks.iter().rev()
+                .flat_map(|c| c.choices.iter())
+                .find_map(|choice| choice.finish_reason.clone());
+            builder.set_copilot_streaming_response(
+                actual_model,
+                &content_buffer,
+                last_fr.as_deref(),
+                has_tool_calls,
+            );
+
+            // Build content blocks for logging
+            let mut log_blocks = Vec::new();
+            if !stripped_text.is_empty() {
+                log_blocks.push(ResponseContentBlock::text(stripped_text.clone()));
+            }
+            for tc in &tool_calls {
+                log_blocks.push(ResponseContentBlock::tool_use(tc));
+            }
+
+            builder.set_final(
+                stop_reason_for_log.as_deref(),
+                &log_blocks,
+                &tool_calls,
+            );
+            let cycle = builder.build();
+            if let Some(ref logger) = conversation_logger {
+                let logger = logger.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = logger.log_cycle(&cycle).await {
+                        tracing::warn!(error = %e, "Failed to write conversation log");
+                    }
+                });
+            }
         }
     };
 

@@ -1,6 +1,7 @@
 mod anthropic_image_tests;
 mod anthropic_types_tests;
 mod cli_tests;
+mod conversation_log_tests;
 mod copilot_client_tests;
 mod copilot_types_tests;
 mod error_tests;

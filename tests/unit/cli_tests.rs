@@ -13,6 +13,9 @@ fn parse_start_defaults() {
             log_file,
             models_cache_ttl,
             static_models,
+            conversation_log,
+            conversation_log_max_size,
+            debug_tools,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -21,6 +24,9 @@ fn parse_start_defaults() {
             assert!(log_file.is_none());
             assert_eq!(models_cache_ttl, 300);
             assert!(!static_models);
+            assert!(conversation_log.is_none());
+            assert_eq!(conversation_log_max_size, 10_485_760);
+            assert!(!debug_tools);
         }
         _ => panic!("Expected Start command"),
     }
@@ -115,6 +121,7 @@ fn parse_start_all_flags() {
             log_file,
             models_cache_ttl,
             static_models,
+            ..
         } => {
             assert!(daemon);
             assert_eq!(port, 9000);
@@ -249,6 +256,57 @@ fn parse_start_all_model_flags() {
             assert_eq!(models_cache_ttl, 120);
             assert!(static_models);
         }
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_conversation_log() {
+    let cli = Cli::parse_from([
+        "copilot-adapter",
+        "start",
+        "--conversation-log",
+        "/tmp/conv.log",
+    ]);
+    match cli.command {
+        Command::Start {
+            conversation_log, ..
+        } => assert_eq!(conversation_log, Some("/tmp/conv.log".to_string())),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_conversation_log_max_size() {
+    let cli = Cli::parse_from([
+        "copilot-adapter",
+        "start",
+        "--conversation-log-max-size",
+        "5000000",
+    ]);
+    match cli.command {
+        Command::Start {
+            conversation_log_max_size,
+            ..
+        } => assert_eq!(conversation_log_max_size, 5_000_000),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_debug_tools_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--debug-tools"]);
+    match cli.command {
+        Command::Start { debug_tools, .. } => assert!(debug_tools),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_debug_tools_default_false() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start { debug_tools, .. } => assert!(!debug_tools),
         _ => panic!("Expected Start command"),
     }
 }

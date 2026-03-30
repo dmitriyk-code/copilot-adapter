@@ -123,6 +123,7 @@ async fn create_test_state(
         copilot_client: CopilotClient::with_api_url(client, copilot_api_url),
         config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
+        conversation_logger: None,
     })
 }
 

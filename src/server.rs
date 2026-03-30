@@ -9,6 +9,7 @@ use axum::{routing::get, Router};
 use tower_http::cors::CorsLayer;
 
 use crate::auth::token::TokenManager;
+use crate::conversation_log::ConversationLogger;
 use crate::copilot::client::CopilotClient;
 use crate::copilot::models_cache::ModelsCache;
 use crate::handlers;
@@ -22,6 +23,12 @@ pub struct AdapterConfig {
     /// TTL for the dynamic models cache. After this duration the cached
     /// model list is considered stale and will be re-fetched.
     pub models_cache_ttl: std::time::Duration,
+    /// Path to write human-readable conversation logs. `None` disables logging.
+    pub conversation_log_path: Option<std::path::PathBuf>,
+    /// Maximum size for the conversation log before rotation (bytes).
+    pub conversation_log_max_size: u64,
+    /// When `true`, emit additional INFO-level logs for tool injection/parsing.
+    pub debug_tools: bool,
 }
 
 impl Default for AdapterConfig {
@@ -29,6 +36,9 @@ impl Default for AdapterConfig {
         Self {
             static_models: false,
             models_cache_ttl: std::time::Duration::from_secs(300),
+            conversation_log_path: None,
+            conversation_log_max_size: 10_485_760,
+            debug_tools: false,
         }
     }
 }
@@ -40,6 +50,8 @@ pub struct AppState {
     pub config: AdapterConfig,
     /// In-memory cache for the Copilot models list with TTL-based expiration.
     pub models_cache: ModelsCache,
+    /// Optional conversation logger for human-readable request/response logs.
+    pub conversation_logger: Option<ConversationLogger>,
 }
 
 /// Request tracing middleware that logs method, path, status, duration, and request ID.
@@ -111,11 +123,33 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
     let models_cache = ModelsCache::new(config.models_cache_ttl);
+
+    let conversation_logger = if let Some(ref path) = config.conversation_log_path {
+        // Validate that the parent directory exists at startup
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                anyhow::bail!(
+                    "Conversation log directory does not exist: {}",
+                    parent.display()
+                );
+            }
+        }
+        tracing::info!(
+            path = %path.display(),
+            max_size = config.conversation_log_max_size,
+            "Conversation logging enabled"
+        );
+        Some(ConversationLogger::new(path, config.conversation_log_max_size))
+    } else {
+        None
+    };
+
     let state = Arc::new(AppState {
         token_manager,
         copilot_client: CopilotClient::new(http_client),
         config,
         models_cache,
+        conversation_logger,
     });
 
     let app = build_router(state);

@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod auth;
 pub mod cli;
+pub mod conversation_log;
 pub mod copilot;
 pub mod daemon;
 pub mod error;

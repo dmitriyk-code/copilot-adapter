@@ -43,6 +43,12 @@ pub fn normalize_model_name(model: &str) -> String {
         let major = parts[2];  // 4
         let minor = parts[3];  // 5
 
+        // Guard: if parts[3] is a datestamp (8-digit number like 20250514),
+        // not a minor version, return the model name as-is.
+        if minor.len() == 8 && minor.chars().all(|c| c.is_ascii_digit()) {
+            return model.to_string();
+        }
+
         // Construct normalized model name
         format!("claude-{}-{}.{}", family, major, minor)
     } else {
@@ -101,6 +107,23 @@ mod tests {
         assert_eq!(
             normalize_model_name("gemini-3-flash-preview"),
             "gemini-3-flash-preview"
+        );
+    }
+
+    #[test]
+    fn test_normalize_claude_with_datestamp_only() {
+        // claude-sonnet-4-20250514 has parts[3] = "20250514" (a datestamp, not minor version)
+        assert_eq!(
+            normalize_model_name("claude-sonnet-4-20250514"),
+            "claude-sonnet-4-20250514"
+        );
+    }
+
+    #[test]
+    fn test_normalize_claude_opus_with_datestamp_only() {
+        assert_eq!(
+            normalize_model_name("claude-opus-4-20250514"),
+            "claude-opus-4-20250514"
         );
     }
 }

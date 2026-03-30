@@ -147,7 +147,7 @@ fn inject_prepends_to_existing_system_message() {
         make_message("user", "Hello"),
     ];
 
-    inject_tools_into_messages(&mut messages, &tools);
+    inject_tools_into_messages(&mut messages, &tools, false);
 
     // Still exactly 2 messages
     assert_eq!(messages.len(), 2);
@@ -180,7 +180,7 @@ fn inject_preserves_user_message_content() {
         make_message("user", "What time is it?"),
     ];
 
-    inject_tools_into_messages(&mut messages, &tools);
+    inject_tools_into_messages(&mut messages, &tools, false);
 
     assert_eq!(messages[1].role, "user");
     assert_eq!(messages[1].content.as_text(), "What time is it?");
@@ -194,7 +194,7 @@ fn inject_with_empty_tools_does_nothing() {
         make_message("user", "Hi"),
     ];
 
-    inject_tools_into_messages(&mut messages, &tools);
+    inject_tools_into_messages(&mut messages, &tools, false);
 
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].content.as_text(), "You are helpful.");
@@ -217,7 +217,7 @@ fn inject_creates_system_message_when_missing() {
 
     let mut messages = vec![make_message("user", "What's the weather in London?")];
 
-    inject_tools_into_messages(&mut messages, &tools);
+    inject_tools_into_messages(&mut messages, &tools, false);
 
     // Now 2 messages — system was inserted at index 0
     assert_eq!(messages.len(), 2);
@@ -240,7 +240,7 @@ fn inject_creates_system_message_preserving_message_order() {
         make_message("user", "Do something"),
     ];
 
-    inject_tools_into_messages(&mut messages, &tools);
+    inject_tools_into_messages(&mut messages, &tools, false);
 
     assert_eq!(messages.len(), 4);
     assert_eq!(messages[0].role, "system");
@@ -353,7 +353,7 @@ fn inject_with_multiple_tools_includes_all() {
 
     let mut messages = vec![make_message("system", "Base instructions.")];
 
-    inject_tools_into_messages(&mut messages, &tools);
+    inject_tools_into_messages(&mut messages, &tools, false);
 
     let content = messages[0].content.as_text();
     assert!(content.contains("tool_a"));
@@ -387,7 +387,7 @@ fn round_trip_injected_format_is_parseable() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(model_response);
+    let calls = parse_tool_calls(model_response, false);
     assert_eq!(calls.len(), 1, "Expected 1 tool call, got {}", calls.len());
 
     let call = &calls[0];
@@ -416,7 +416,7 @@ fn round_trip_multiple_tool_calls() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(model_response);
+    let calls = parse_tool_calls(model_response, false);
     assert_eq!(calls.len(), 2, "Expected 2 tool calls, got {}", calls.len());
 
     assert_eq!(calls[0].function.name, Some("bash".to_string()));
@@ -438,10 +438,41 @@ fn round_trip_no_parameters() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(model_response);
+    let calls = parse_tool_calls(model_response, false);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].function.name, Some("get_status".to_string()));
     // Arguments should be empty object
     let args = calls[0].function.arguments.as_deref().unwrap();
     assert_eq!(args, "{}");
+}
+
+// ---------------------------------------------------------------------------
+// Return value assertions for inject_tools_into_messages
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inject_returns_nonzero_size_when_tools_injected() {
+    let tools = vec![sample_tool(
+        "bash",
+        Some("Execute a command"),
+        Some(serde_json::json!({
+            "type": "object",
+            "properties": { "command": { "type": "string" } },
+            "required": ["command"]
+        })),
+    )];
+
+    let mut messages = vec![make_message("system", "You are helpful.")];
+    let size = inject_tools_into_messages(&mut messages, &tools, false);
+
+    assert!(size > 0, "Expected non-zero injection size, got {size}");
+}
+
+#[test]
+fn inject_returns_zero_when_tools_empty() {
+    let tools: Vec<Tool> = vec![];
+    let mut messages = vec![make_message("system", "You are helpful.")];
+    let size = inject_tools_into_messages(&mut messages, &tools, false);
+
+    assert_eq!(size, 0, "Expected zero injection size for empty tools list");
 }

@@ -56,6 +56,7 @@ async fn create_dynamic_state(
             ..AdapterConfig::default()
         },
         models_cache: ModelsCache::new(cache_ttl),
+        conversation_logger: None,
     })
 }
 
@@ -78,6 +79,7 @@ async fn create_static_state() -> Arc<AppState> {
             ..AdapterConfig::default()
         },
         models_cache: ModelsCache::new(Duration::from_secs(300)),
+        conversation_logger: None,
     })
 }
 

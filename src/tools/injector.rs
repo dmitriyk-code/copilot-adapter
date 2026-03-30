@@ -160,12 +160,29 @@ pub fn format_tools_as_xml(tools: &[Tool]) -> String {
 ///
 /// The original system message content is preserved — the tool block is
 /// prepended so it appears before any existing instructions.
-pub fn inject_tools_into_messages(messages: &mut Vec<Message>, tools: &[Tool]) {
+///
+/// Returns the size of the injected XML prompt (0 if no tools were injected).
+pub fn inject_tools_into_messages(
+    messages: &mut Vec<Message>,
+    tools: &[Tool],
+    debug_tools: bool,
+) -> usize {
     if tools.is_empty() {
-        return;
+        return 0;
     }
 
     let tool_prompt = build_tool_prompt(tools);
+    let injection_size = tool_prompt.len();
+
+    if debug_tools {
+        tracing::info!(
+            num_tools = tools.len(),
+            tool_names = ?tools.iter().map(|t| &t.function.name).collect::<Vec<_>>(),
+            xml_size = injection_size,
+            xml_preview = %tool_prompt.chars().take(500).collect::<String>(),
+            "DEBUG_TOOLS: Injecting tools into system prompt"
+        );
+    }
 
     if let Some(system_msg) = messages.iter_mut().find(|m| m.role == "system") {
         // Prepend tool definitions to the existing system message content.
@@ -184,6 +201,8 @@ pub fn inject_tools_into_messages(messages: &mut Vec<Message>, tools: &[Tool]) {
             },
         );
     }
+
+    injection_size
 }
 
 /// Build the full prompt block that gets injected into the system message.

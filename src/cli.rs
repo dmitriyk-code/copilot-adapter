@@ -42,6 +42,18 @@ pub enum Command {
         /// Always return the built-in static models list instead of fetching from Copilot API
         #[arg(long)]
         static_models: bool,
+
+        /// Path to write human-readable conversation logs
+        #[arg(long)]
+        conversation_log: Option<String>,
+
+        /// Maximum size for conversation log before rotation (bytes, default: 10MB)
+        #[arg(long, default_value_t = 10_485_760)]
+        conversation_log_max_size: u64,
+
+        /// Enable verbose tool-related logging at INFO level
+        #[arg(long)]
+        debug_tools: bool,
     },
 
     /// Stop the background adapter

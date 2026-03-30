@@ -24,7 +24,7 @@ When trace logging is enabled, the adapter logs the complete JSON payload at fou
 ### 1. Incoming from Claude Code
 - Full request as received from Claude Code
 - Includes all fields: model, messages, tools, parameters, etc.
-- Format: Anthropic (for `/v1/messages`) or OpenAI (for `/v1/chat/completions`)
+- Format: Anthropic (for `/v1/messages`) — the sole Claude Code entrypoint
 
 ### 2. Outgoing to GitHub Copilot API
 - Full request after all transformations
@@ -50,7 +50,7 @@ All trace logs include structured fields for easy filtering:
 | `direction` | `INCOMING`, `OUTGOING` | Whether data is coming in or going out |
 | `source` | `Claude Code`, `GitHub Copilot API` | Where the data came from |
 | `destination` | `Claude Code`, `GitHub Copilot API` | Where the data is going |
-| `endpoint` | `/v1/messages`, `/v1/chat/completions`, `/chat/completions` | API endpoint |
+| `endpoint` | `/v1/messages`, `/chat/completions` | API endpoint |
 | `format` | `OpenAI`, `Anthropic` | Data format |
 | `mode` | `streaming`, `streaming_with_tools`, `non-streaming` | Request mode |
 | `chunk_type` | `role`, `text_content`, `tool_calls` | Type of SSE chunk (streaming only) |
@@ -79,7 +79,7 @@ TRACE direction=INCOMING source="GitHub Copilot API" format="OpenAI" mode="strea
 ### Streaming with tools (buffered):
 
 ```
-TRACE direction=INCOMING source="Claude Code" endpoint="/v1/chat/completions" request_json="{...}" Full request received from Claude Code
+TRACE direction=INCOMING source="Claude Code" endpoint="/v1/messages" request_json="{...}" Full request received from Claude Code
 TRACE direction=OUTGOING destination="GitHub Copilot API" endpoint="/chat/completions" mode="streaming" Initiating streaming request to GitHub Copilot API
 TRACE direction=INCOMING source="GitHub Copilot API" mode="streaming_with_tools" chunk_json="{...}" Received SSE chunk from GitHub Copilot API (buffering for tool parsing)
 TRACE direction=INCOMING source="GitHub Copilot API" mode="streaming_with_tools" chunk_json="{...}" Received SSE chunk from GitHub Copilot API (buffering for tool parsing)
@@ -165,8 +165,7 @@ grep 'format="OpenAI (translated from Anthropic)"' adapter.log
 ## Code Implementation
 
 The trace logging is implemented in:
-- `src/handlers/chat.rs` - OpenAI chat completions endpoint
-- `src/handlers/messages.rs` - Anthropic messages endpoint
+- `src/handlers/messages.rs` - Anthropic messages endpoint (the sole Claude Code entrypoint)
 
 Key implementation patterns:
 ```rust
@@ -183,6 +182,110 @@ if tracing::enabled!(tracing::Level::TRACE) {
     }
 }
 ```
+
+## Conversation Logging
+
+For easier debugging without full trace-level JSON dumps, the adapter can
+write human-readable conversation summaries to a file:
+
+```bash
+copilot-adapter start --conversation-log /tmp/conversations.log
+```
+
+Each request/response cycle produces a single log entry showing four sections:
+
+1. **FROM CLAUDE CODE** — Incoming model, message count, tool names, system prompt size
+2. **TO GITHUB COPILOT API** — Outgoing model (after normalization), message count, whether tools were injected, XML injection size
+3. **FROM GITHUB COPILOT API** — Response model, finish reason, content preview, tool call presence
+4. **TO CLAUDE CODE** — Final stop reason, content block count, parsed tool call details
+
+### Log rotation
+
+When the log file exceeds `--conversation-log-max-size` (default: 10 MB), the
+current file is renamed to `<path>.1` and a new file is started.
+
+```bash
+# Custom rotation size (5 MB)
+copilot-adapter start --conversation-log /tmp/conv.log --conversation-log-max-size 5000000
+```
+
+### Example output
+
+```
+================================================================================
+[2026-03-30 22:15:00.123 UTC] Request #1 (abc-123)
+================================================================================
+
+>>> FROM CLAUDE CODE (Anthropic format)
+Model: claude-sonnet-4-20250514
+Stream: true
+Messages: 3
+System prompt: 1234 chars
+Tools (2): read_file, write_file
+  [0] role=user, 45 chars: Can you read the main.rs file?
+  [1] role=assistant [tool_use], 120 chars: I'll read that file for you.
+  [2] role=user [tool_result], 500 chars: fn main() { ...
+
+--------------------------------------------------------------------------------
+>>> TO GITHUB COPILOT API (OpenAI format)
+Model: claude-sonnet-4
+Messages: 4
+Tools injected: true
+XML injection size: 2048 bytes
+
+--------------------------------------------------------------------------------
+<<< FROM GITHUB COPILOT API (OpenAI format)
+Model: claude-sonnet-4
+Finish reason: stop
+Has tool calls: true
+Content preview: Here is the file content. Let me now...
+
+--------------------------------------------------------------------------------
+<<< TO CLAUDE CODE (Anthropic format)
+Stop reason: tool_use
+Content blocks: 2
+  [0] type=text: Here is the file content.
+  [1] type=tool_use: read_file (id=call_abc123)
+Parsed tool calls: 1
+  - read_file (id=call_abc123): {"path":"/src/main.rs"}
+
+================================================================================
+```
+
+## Debug Tools Mode
+
+For tool-specific debugging without full trace logs or conversation logging:
+
+```bash
+copilot-adapter start --debug-tools
+```
+
+This emits additional INFO-level logs for:
+
+- **Tool injection:** Number of tools, tool names, XML prompt size, and an XML preview (first 500 chars)
+- **Tool parsing:** Number of parsed tool calls, tool names, or diagnostic info when no calls are found (content length, presence of known tags, content preview)
+
+Example log output:
+
+```
+INFO DEBUG_TOOLS: Injecting tools into system prompt num_tools=5 tool_names=["read_file", "write_file", "bash", "grep", "glob"] xml_size=4096 xml_preview="<tools>..."
+INFO DEBUG_TOOLS: Successfully parsed tool calls num_calls=1 tool_names=[Some("read_file")]
+```
+
+When no tool calls are parsed:
+
+```
+INFO DEBUG_TOOLS: No tool calls parsed from response content_length=1234 has_invoke=false has_tool_name=false has_function_calls=false content_preview="Here is my response..."
+```
+
+### When to use each option
+
+| Need | Use |
+|------|-----|
+| Quick overview of request/response flow | `--conversation-log` |
+| Tool injection/parsing issues | `--debug-tools` |
+| Full JSON payloads at every stage | `--log-level trace` |
+| Production debugging | `--conversation-log` (lowest overhead) |
 
 ## See Also
 

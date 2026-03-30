@@ -30,6 +30,7 @@ async fn test_state() -> Arc<AppState> {
         copilot_client: CopilotClient::new(client),
         config: AdapterConfig::default(),
         models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
+        conversation_logger: None,
     })
 }
 

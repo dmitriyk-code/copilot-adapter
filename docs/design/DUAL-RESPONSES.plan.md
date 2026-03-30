@@ -1,6 +1,6 @@
 # Tool Format Migration and Cleanup — Implementation Plan
 
-**Status:** Draft
+**Status:** DONE (all epics complete)
 **Date:** 2026-03-30
 **Based on:** [DUAL-RESPONSES.design.md](./DUAL-RESPONSES.design.md)
 **Severity:** High
@@ -859,7 +859,7 @@ cargo fmt --check
 
 ---
 
-### Epic 8: Enhanced Debuggability (Day 5-6, 1 day)
+### Epic 8: Enhanced Debuggability (Day 5-6, 1 day) ✅ DONE
 
 Add human-readable conversation logging and improved debug output.
 
@@ -884,9 +884,9 @@ debug_tools: bool,
 ```
 
 **Acceptance Criteria:**
-- [ ] Flags added to CLI
-- [ ] Help text is clear
-- [ ] Flags parsed correctly
+- [x] Flags added to CLI
+- [x] Help text is clear
+- [x] Flags parsed correctly
 
 #### Task 8.2: Create Conversation Log Module
 
@@ -965,9 +965,9 @@ pub struct ToolCallSummary {
 ```
 
 **Acceptance Criteria:**
-- [ ] Module compiles
-- [ ] Async file writes work
-- [ ] Log rotation works
+- [x] Module compiles
+- [x] Async file writes work
+- [x] Log rotation works
 
 #### Task 8.3: Implement Summary Formatters
 
@@ -1021,10 +1021,10 @@ impl ConversationCycle {
 ```
 
 **Acceptance Criteria:**
-- [ ] Output is human-readable
-- [ ] Content is appropriately truncated (previews)
-- [ ] All four sections present
-- [ ] Tool information clearly shown
+- [x] Output is human-readable
+- [x] Content is appropriately truncated (previews)
+- [x] All four sections present
+- [x] Tool information clearly shown
 
 #### Task 8.4: Integrate Logger into Messages Handler
 
@@ -1078,9 +1078,9 @@ if let Some(ref mut builder) = cycle_builder {
 ```
 
 **Acceptance Criteria:**
-- [ ] Logger integrated without blocking request
-- [ ] All four phases captured
-- [ ] Works for both streaming and non-streaming
+- [x] Logger integrated without blocking request
+- [x] All four phases captured
+- [x] Works for both streaming and non-streaming
 
 #### Task 8.5: Add Debug Tools Mode
 
@@ -1142,10 +1142,10 @@ pub fn parse_tool_calls(content: &str, debug_tools: bool) -> Vec<ToolCall> {
 ```
 
 **Acceptance Criteria:**
-- [ ] `--debug-tools` produces useful INFO logs
-- [ ] Logs show injection details
-- [ ] Logs show parsing results
-- [ ] No overhead when flag not set
+- [x] `--debug-tools` produces useful INFO logs
+- [x] Logs show injection details
+- [x] Logs show parsing results
+- [x] No overhead when flag not set
 
 #### Task 8.6: Update AppState
 
@@ -1178,9 +1178,9 @@ pub struct AdapterConfig {
 ```
 
 **Acceptance Criteria:**
-- [ ] AppState updated
-- [ ] Config passed through correctly
-- [ ] Logger initialized on startup if path provided
+- [x] AppState updated
+- [x] Config passed through correctly
+- [x] Logger initialized on startup if path provided
 
 #### Task 8.7: Update Trace Logging Documentation
 
@@ -1220,9 +1220,9 @@ This logs (at INFO level):
 ```
 
 **Acceptance Criteria:**
-- [ ] Documentation updated
-- [ ] Examples provided
-- [ ] Clear explanation of when to use each option
+- [x] Documentation updated
+- [x] Examples provided
+- [x] Clear explanation of when to use each option
 
 #### Task 8.8: Unit Tests for Conversation Logger
 
@@ -1236,8 +1236,8 @@ Add tests:
 - `truncates_long_content`
 
 **Acceptance Criteria:**
-- [ ] All tests pass
-- [ ] Edge cases covered
+- [x] All tests pass
+- [x] Edge cases covered
 
 ---
 
@@ -1332,16 +1332,16 @@ All changes are additive then subtractive, making rollback straightforward via g
 - [x] Manual E2E tests pass (documented in e2e-testing.md)
 - [x] Full test suite passes (1 pre-existing model normalization failure unrelated to this epic)
 
-### Epic 8: Debuggability
-- [ ] `--conversation-log` flag added
-- [ ] `--conversation-log-max-size` flag added
-- [ ] `--debug-tools` flag added
-- [ ] `ConversationLogger` module created
-- [ ] Human-readable format implemented
-- [ ] Logger integrated into messages handler
-- [ ] Debug tools mode in injector/parser
-- [ ] TRACE-LOGGING.md updated
-- [ ] Unit tests for logger pass
+### Epic 8: Debuggability — DONE
+- [x] `--conversation-log` flag added
+- [x] `--conversation-log-max-size` flag added
+- [x] `--debug-tools` flag added
+- [x] `ConversationLogger` module created
+- [x] Human-readable format implemented
+- [x] Logger integrated into messages handler
+- [x] Debug tools mode in injector/parser
+- [x] TRACE-LOGGING.md updated
+- [x] Unit tests for logger pass
 
 ---
 

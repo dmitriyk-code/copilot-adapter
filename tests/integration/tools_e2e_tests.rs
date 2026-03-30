@@ -23,13 +23,9 @@ use tokio::net::TcpListener;
 use tower::ServiceExt;
 
 use copilot_adapter::anthropic::types::AnthropicResponse;
-use copilot_adapter::auth::device_flow::DeviceFlowAuth;
-use copilot_adapter::auth::token::TokenManager;
-use copilot_adapter::copilot::client::CopilotClient;
-use copilot_adapter::copilot::models_cache::ModelsCache;
-use copilot_adapter::server::{build_router, AdapterConfig, AppState};
+use copilot_adapter::server::build_router;
 
-use super::test_helpers::InMemoryStorage;
+use super::test_helpers::create_test_state;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -64,29 +60,6 @@ async fn spawn_mock_github() -> (std::net::SocketAddr, tokio::task::JoinHandle<(
     });
 
     (addr, handle)
-}
-
-/// Create an `AppState` wired to the given mock servers.
-async fn create_test_state(
-    copilot_api_url: String,
-    github_addr: std::net::SocketAddr,
-) -> Arc<AppState> {
-    let auth = DeviceFlowAuth::with_urls(
-        format!("http://{github_addr}/unused"),
-        format!("http://{github_addr}/unused"),
-        format!("http://{github_addr}/copilot_internal/v2/token"),
-    );
-
-    let storage = InMemoryStorage::with_token("test_github_token");
-    let tm = Arc::new(TokenManager::new(Box::new(storage), auth).await.unwrap());
-    let client = reqwest::Client::new();
-
-    Arc::new(AppState {
-        token_manager: tm,
-        copilot_client: CopilotClient::with_api_url(client, copilot_api_url),
-        config: AdapterConfig::default(),
-        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
-    })
 }
 
 /// Spawn a mock Copilot server backed by a custom handler function.

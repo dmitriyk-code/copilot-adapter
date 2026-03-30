@@ -171,7 +171,10 @@ fn parse_attribute_params(invoke_body: &str) -> serde_json::Value {
 /// Multiple tool calls are returned in document order.
 ///
 /// Invalid or malformed content is silently skipped.
-pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
+///
+/// When `debug_tools` is `true`, additional INFO-level logs are emitted
+/// showing parsing results and diagnostic details.
+pub fn parse_tool_calls(content: &str, debug_tools: bool) -> Vec<ToolCall> {
     // Primary: Look for <function_calls> wrapper
     if contains_tag("function_calls", content) {
         let fc_content = extract_between_tags("function_calls", content);
@@ -184,6 +187,13 @@ pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
                 num_calls = calls.len(),
                 "Parsed tool calls from <function_calls> blocks"
             );
+            if debug_tools {
+                tracing::info!(
+                    num_calls = calls.len(),
+                    tool_names = ?calls.iter().map(|tc| &tc.function.name).collect::<Vec<_>>(),
+                    "DEBUG_TOOLS: Successfully parsed tool calls from <function_calls> blocks"
+                );
+            }
             return calls;
         }
     }
@@ -195,6 +205,13 @@ pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
             num_calls = calls.len(),
             "Parsed tool calls from standalone <invoke> blocks"
         );
+        if debug_tools {
+            tracing::info!(
+                num_calls = calls.len(),
+                tool_names = ?calls.iter().map(|tc| &tc.function.name).collect::<Vec<_>>(),
+                "DEBUG_TOOLS: Successfully parsed tool calls from standalone <invoke> blocks"
+            );
+        }
         return calls;
     }
 
@@ -207,6 +224,17 @@ pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
         tracing::warn!(
             content_preview = %content.chars().take(500).collect::<String>(),
             "Content contains tool-like patterns but no valid tool calls were parsed"
+        );
+    }
+
+    if debug_tools {
+        tracing::info!(
+            content_length = content.len(),
+            has_invoke = content.contains("<invoke"),
+            has_tool_name = contains_tag("tool_name", content),
+            has_function_calls = contains_tag("function_calls", content),
+            content_preview = %content.chars().take(300).collect::<String>(),
+            "DEBUG_TOOLS: No tool calls parsed from response"
         );
     }
 

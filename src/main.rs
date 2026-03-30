@@ -20,6 +20,9 @@ async fn main() -> anyhow::Result<()> {
             log_file,
             models_cache_ttl,
             static_models,
+            conversation_log,
+            conversation_log_max_size,
+            debug_tools,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -57,6 +60,15 @@ async fn main() -> anyhow::Result<()> {
                     if static_models {
                         args.push("--static-models".to_string());
                     }
+                    if let Some(ref cl) = conversation_log {
+                        args.push("--conversation-log".to_string());
+                        args.push(cl.clone());
+                    }
+                    args.push("--conversation-log-max-size".to_string());
+                    args.push(conversation_log_max_size.to_string());
+                    if debug_tools {
+                        args.push("--debug-tools".to_string());
+                    }
 
                     let pid = daemon::spawn_background(&args)?;
                     println!("Adapter started in background (PID {pid})");
@@ -76,12 +88,19 @@ async fn main() -> anyhow::Result<()> {
             let config = server::AdapterConfig {
                 static_models,
                 models_cache_ttl: std::time::Duration::from_secs(models_cache_ttl),
+                conversation_log_path: conversation_log.map(std::path::PathBuf::from),
+                conversation_log_max_size,
+                debug_tools,
             };
 
             if static_models {
                 tracing::info!("Static models mode is ENABLED (dynamic fetching disabled)");
             } else {
                 tracing::info!("Models cache TTL: {}s", models_cache_ttl);
+            }
+
+            if debug_tools {
+                tracing::info!("Debug tools mode is ENABLED (verbose tool logging at INFO level)");
             }
 
             // write_pid=true when running as daemon so stop/status can find us;
