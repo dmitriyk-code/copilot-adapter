@@ -252,7 +252,7 @@ Add tests:
 
 ---
 
-### Epic 3: XML Tool Parser(Day 2-3, 1.5 days)
+### Epic 3: XML Tool Parser(Day 2-3, 1.5 days) ✅ DONE
 
 Replace JSON parsing with XML parsing.
 

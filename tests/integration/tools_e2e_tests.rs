@@ -260,10 +260,10 @@ async fn e2e_simple_tool_call_openai() {
 
     // Validate content is cleaned
     let content = resp.choices[0].message.content.as_text();
-    assert!(!content.contains("```json"), "fenced block should be stripped");
+    assert!(!content.contains("<function_calls>"), "XML block should be stripped");
     assert!(
-        !content.contains("function_call"),
-        "tool call JSON should be stripped"
+        !content.contains("<invoke"),
+        "tool call XML should be stripped"
     );
 
     // Validate finish_reason
@@ -547,18 +547,11 @@ async fn e2e_multi_turn_with_tool_results_anthropic() {
 async fn e2e_complex_arguments_openai() {
     use crate::common::mock_copilot::build_tool_call_response;
 
+    // XML parameters are flat key-value strings; use string-based args
     let complex_args = json!({
         "query": "SELECT * FROM users WHERE active = true",
-        "options": {
-            "limit": 100,
-            "offset": 0,
-            "order_by": ["created_at", "name"],
-            "filters": {
-                "role": "admin",
-                "verified": true
-            }
-        },
-        "timeout_ms": 5000
+        "limit": "100",
+        "timeout_ms": "5000"
     });
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler({
@@ -599,16 +592,8 @@ async fn e2e_complex_arguments_openai() {
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
-                        "options": {
-                            "type": "object",
-                            "properties": {
-                                "limit": {"type": "integer"},
-                                "offset": {"type": "integer"},
-                                "order_by": {"type": "array", "items": {"type": "string"}},
-                                "filters": {"type": "object"}
-                            }
-                        },
-                        "timeout_ms": {"type": "integer"}
+                        "limit": {"type": "string"},
+                        "timeout_ms": {"type": "string"}
                     },
                     "required": ["query"]
                 }
@@ -646,27 +631,23 @@ async fn e2e_complex_arguments_openai() {
         Some("execute_query".to_string())
     );
 
-    // Parse and verify complex arguments
+    // Parse and verify arguments (all values are strings in XML)
     let args: serde_json::Value =
         serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
     assert_eq!(args["query"], "SELECT * FROM users WHERE active = true");
-    assert_eq!(args["options"]["limit"], 100);
-    assert_eq!(args["options"]["filters"]["role"], "admin");
-    assert_eq!(args["options"]["order_by"][0], "created_at");
-    assert_eq!(args["timeout_ms"], 5000);
+    assert_eq!(args["limit"], "100");
+    assert_eq!(args["timeout_ms"], "5000");
 }
 
 #[tokio::test]
 async fn e2e_complex_arguments_anthropic() {
     use crate::common::mock_copilot::build_tool_call_response;
 
+    // XML parameters are flat key-value strings
     let complex_args = json!({
         "command": "find /home -name '*.rs' -type f",
         "working_directory": "/home/user/project",
-        "env_vars": {
-            "PATH": "/usr/bin:/usr/local/bin",
-            "RUST_LOG": "debug"
-        }
+        "timeout": "30"
     });
 
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler({
@@ -702,7 +683,7 @@ async fn e2e_complex_arguments_anthropic() {
                 "properties": {
                     "command": {"type": "string"},
                     "working_directory": {"type": "string"},
-                    "env_vars": {"type": "object"}
+                    "timeout": {"type": "string"}
                 },
                 "required": ["command"]
             }
@@ -744,7 +725,7 @@ async fn e2e_complex_arguments_anthropic() {
         tool_use["input"]["working_directory"],
         "/home/user/project"
     );
-    assert_eq!(tool_use["input"]["env_vars"]["RUST_LOG"], "debug");
+    assert_eq!(tool_use["input"]["timeout"], "30");
 
     assert_eq!(resp.stop_reason, Some("tool_use".to_string()));
 }
@@ -1184,13 +1165,13 @@ async fn e2e_streaming_tool_call_openai() {
         serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
     assert_eq!(args["location"], "Berlin");
 
-    // Text should not contain fenced JSON
+    // Text should not contain XML tool call markup
     let all_text: String = chunks
         .iter()
         .flat_map(|c| c.choices.iter())
         .filter_map(|ch| ch.delta.content.as_ref())
         .cloned()
         .collect();
-    assert!(!all_text.contains("```json"));
-    assert!(!all_text.contains("function_call"));
+    assert!(!all_text.contains("<function_calls>"));
+    assert!(!all_text.contains("<invoke"));
 }

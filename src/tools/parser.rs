@@ -1,11 +1,22 @@
 //! Tool call parser for model-generated text content.
 //!
-//! This module extracts tool calls from assistant responses. It supports two
-//! formats (tried in order):
+//! This module extracts tool calls from assistant responses using XML format.
 //!
-//! 1. **JSON** (legacy) — `{"function_call": {"name": "...", "arguments": {...}}}`
-//!    inside fenced `` ```json `` code blocks or inline.
-//! 2. **XML** (primary) —
+//! Two XML dialects are supported:
+//!
+//! 1. **Tag-based** —
+//!    ```xml
+//!    <function_calls>
+//!      <invoke>
+//!        <tool_name>ToolName</tool_name>
+//!        <parameters>
+//!          <param_name>value</param_name>
+//!        </parameters>
+//!      </invoke>
+//!    </function_calls>
+//!    ```
+//!
+//! 2. **Attribute-based** (emitted by injector instructions) —
 //!    ```xml
 //!    <function_calls>
 //!      <invoke name="ToolName">
@@ -14,9 +25,8 @@
 //!    </function_calls>
 //!    ```
 //!
-//! XML is the format requested via prompt injection (see
-//! `src/tools/injector.rs`). JSON is retained as a legacy fallback. If both
-//! formats appear in the same response, JSON takes priority.
+//! Both dialects are tried when parsing. Standalone `<invoke>` blocks
+//! (without a `<function_calls>` wrapper) are accepted as a fallback.
 //!
 //! The public API consists of two functions:
 //! - [`parse_tool_calls`] — extract `ToolCall` structs from text
@@ -32,48 +42,33 @@ use crate::tools::types::{FunctionCall, ToolCall};
 // Regex patterns — compiled once
 // ---------------------------------------------------------------------------
 
-/// Matches a tool call inside a fenced ```json code block.
-///
-/// Captures the JSON content between the fences. The pattern allows optional
-/// whitespace around the JSON and handles multi-line content. The `(?s)` flag
-/// makes `.` match newlines.
-static FENCED_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)```json\s*\n(\{.*?\})\s*\n```").expect("fenced regex should compile")
-});
-
-/// Finds the start of a potential inline tool call JSON object.
-/// Used to locate candidates for brace-counting extraction.
-static INLINE_START: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{"function_call"\s*:"#).expect("inline start regex should compile")
-});
-
 /// Collapses runs of 3+ newlines down to 2 (one blank line).
 static COLLAPSE_NEWLINES: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\n{3,}").expect("collapse regex should compile")
 });
 
-// ---------------------------------------------------------------------------
-// XML regex patterns — compiled once
-// ---------------------------------------------------------------------------
-
-/// Matches `<function_calls>...</function_calls>` blocks.
-///
-/// The `(?s)` flag makes `.` match newlines so multi-line XML is captured.
-static XML_FUNCTION_CALLS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)<function_calls>(.*?)</function_calls>")
-        .expect("xml function_calls regex should compile")
+/// Matches `<function_calls>...</function_calls>` blocks for stripping.
+static STRIP_FUNCTION_CALLS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?s)<function_calls>.*?</function_calls>")
+        .expect("function_calls strip regex should compile")
 });
 
-/// Matches `<invoke name="...">...</invoke>` blocks within a function_calls body.
+/// Matches standalone `<invoke...>...</invoke>` blocks for stripping.
+static STRIP_INVOKE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?s)<invoke[^>]*>.*?</invoke>")
+        .expect("invoke strip regex should compile")
+});
+
+/// Matches `<invoke name="...">...</invoke>` blocks (attribute-based format).
 ///
-/// The name capture uses `[^"]*` (zero-or-more) so that empty names are captured
-/// and rejected by the `try_parse_xml_invoke` guard rather than silently ignored.
-static XML_INVOKE: Lazy<Regex> = Lazy::new(|| {
+/// The name capture uses `[^"]*` (zero-or-more) so that empty names are
+/// captured and rejected by the guard rather than silently ignored.
+static XML_ATTR_INVOKE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?s)<invoke\s+name="([^"]*)">(.*?)</invoke>"#)
-        .expect("xml invoke regex should compile")
+        .expect("xml attr invoke regex should compile")
 });
 
-/// Matches `<parameter name="...">...</parameter>` within an invoke body.
+/// Matches `<parameter name="...">...</parameter>` (attribute-based format).
 ///
 /// Parameter values cannot contain `<` (no nested XML).
 static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
@@ -82,144 +77,69 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
 });
 
 // ---------------------------------------------------------------------------
-// Public API
+// XML extraction helpers
 // ---------------------------------------------------------------------------
 
-/// Parse tool calls from model-generated text content.
-///
-/// Supports two formats:
-/// 1. **JSON** (primary): `{"function_call": {"name": "...", "arguments": {...}}}`
-///    in fenced code blocks or inline.
-/// 2. **XML** (fallback): `<function_calls><invoke name="...">...</invoke></function_calls>`
-///
-/// JSON is tried first. If no JSON tool calls are found, the function falls
-/// back to XML parsing. This ensures backwards compatibility while handling
-/// Claude models that generate their native XML format.
-///
-/// Each extracted tool call is assigned a unique `call_xxx` ID.
-/// Multiple tool calls are returned in document order.
-///
-/// Invalid or malformed content is silently skipped.
-pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
-    let json_calls = parse_json_tool_calls(content);
-    if !json_calls.is_empty() {
-        tracing::debug!(
-            num_calls = json_calls.len(),
-            "Parsed tool calls from JSON format"
-        );
-        return json_calls;
-    }
-
-    let xml_calls = parse_xml_tool_calls(content);
-    if !xml_calls.is_empty() {
-        tracing::debug!(
-            num_calls = xml_calls.len(),
-            "Parsed tool calls from XML format"
-        );
-    }
-    xml_calls
+/// Extract content between XML tags.
+fn extract_between_tags(tag: &str, content: &str) -> Vec<String> {
+    let pattern = format!(
+        r"(?s)<{}>(.+?)</{}>",
+        regex::escape(tag),
+        regex::escape(tag)
+    );
+    let regex = Regex::new(&pattern).expect("tag extraction regex should compile");
+    regex
+        .captures_iter(content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Format-specific parsers
-// ---------------------------------------------------------------------------
+/// Check if a tag exists in the content.
+fn contains_tag(tag: &str, content: &str) -> bool {
+    let pattern = format!(
+        r"(?s)<{}>(.+?)</{}>",
+        regex::escape(tag),
+        regex::escape(tag)
+    );
+    Regex::new(&pattern).unwrap().is_match(content)
+}
 
-/// Parse JSON-format tool calls from model-generated text content.
+/// Parse XML parameters in tag-based format into a JSON object.
 ///
-/// Looks for JSON blocks matching the injected tool-call format:
-/// ```json
-/// {"function_call": {"name": "func_name", "arguments": {...}}}
-/// ```
-///
-/// Tries fenced code blocks (` ```json ... ``` `) first, then falls back to
-/// inline JSON objects containing `"function_call"`.
-fn parse_json_tool_calls(content: &str) -> Vec<ToolCall> {
-    let mut candidates: Vec<(usize, usize, String)> = Vec::new(); // (start, end, json_str)
+/// Input: `<file_path>/src/main.rs</file_path><limit>100</limit>`
+/// Output: `{"file_path": "/src/main.rs", "limit": "100"}`
+fn parse_xml_params(params_content: &str) -> serde_json::Value {
+    let mut params = serde_json::Map::new();
 
-    // Collect fenced code block matches
-    for cap in FENCED_PATTERN.captures_iter(content) {
+    // Match opening tags and manually find their closing counterpart.
+    // The `regex` crate does not support backreferences, so we locate
+    // `</tag_name>` with a simple string search instead.
+    let open_tag = Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>")
+        .expect("open tag regex should compile");
+
+    for cap in open_tag.captures_iter(params_content) {
         let full_match = cap.get(0).unwrap();
-        let json_str = cap.get(1).unwrap().as_str();
-        candidates.push((full_match.start(), full_match.end(), json_str.to_string()));
-    }
+        let name = cap.get(1).unwrap().as_str();
+        let closing_tag = format!("</{name}>");
 
-    // Collect inline JSON matches using brace-counting
-    for mat in INLINE_START.find_iter(content) {
-        let start = mat.start();
-        // Skip if this start position is inside a fenced block
-        if candidates.iter().any(|(cs, ce, _)| start >= *cs && start < *ce) {
-            continue;
-        }
-        if let Some(end) = find_matching_brace(content, start) {
-            let json_str = &content[start..end];
-            candidates.push((start, end, json_str.to_string()));
+        let after_open = full_match.end();
+        if let Some(close_pos) = params_content[after_open..].find(&closing_tag) {
+            let value = &params_content[after_open..after_open + close_pos];
+            params.insert(
+                name.to_string(),
+                serde_json::Value::String(value.trim().to_string()),
+            );
         }
     }
 
-    // Sort by position for document-order output
-    candidates.sort_by_key(|(start, _, _)| *start);
-
-    // Deduplicate overlapping candidates (fenced takes priority)
-    let mut used_ranges: Vec<(usize, usize)> = Vec::new();
-    let mut tool_calls = Vec::new();
-
-    for (start, end, json_str) in &candidates {
-        if is_overlapping(&used_ranges, *start, *end) {
-            continue;
-        }
-        if let Some(tc) = try_parse_tool_call(json_str) {
-            used_ranges.push((*start, *end));
-            tool_calls.push(tc);
-        }
-    }
-
-    tool_calls
+    serde_json::Value::Object(params)
 }
 
-/// Parse XML-format tool calls from model-generated text content.
+/// Parse attribute-based XML parameters into a JSON object.
 ///
-/// Looks for `<function_calls>` blocks containing `<invoke>` elements:
-/// ```xml
-/// <function_calls>
-///   <invoke name="ToolName">
-///     <parameter name="param1">value1</parameter>
-///     <parameter name="param2">value2</parameter>
-///   </invoke>
-/// </function_calls>
-/// ```
-///
-/// Claude models sometimes generate this format instead of the JSON format
-/// requested via prompt injection. This parser handles it as a fallback.
-fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
-    let mut tool_calls = Vec::new();
-
-    for fc_cap in XML_FUNCTION_CALLS.captures_iter(content) {
-        let body = fc_cap.get(1).unwrap().as_str();
-
-        for invoke_cap in XML_INVOKE.captures_iter(body) {
-            let name = invoke_cap.get(1).unwrap().as_str();
-            let invoke_body = invoke_cap.get(2).unwrap().as_str();
-
-            if let Some(tc) = try_parse_xml_invoke(name, invoke_body) {
-                tool_calls.push(tc);
-            }
-        }
-    }
-
-    tool_calls
-}
-
-/// Parse a single XML `<invoke>` block into a `ToolCall`.
-///
-/// `name` is the tool name from the `name` attribute.
-/// `invoke_body` is the inner content of the `<invoke>` element (parameters).
-///
-/// Returns `None` if the name is empty.
-fn try_parse_xml_invoke(name: &str, invoke_body: &str) -> Option<ToolCall> {
-    if name.is_empty() {
-        return None;
-    }
-
+/// Input: `<parameter name="file_path">/src/main.rs</parameter>`
+/// Output: `{"file_path": "/src/main.rs"}`
+fn parse_attribute_params(invoke_body: &str) -> serde_json::Value {
     let mut params = serde_json::Map::new();
 
     for param_cap in XML_PARAMETER.captures_iter(invoke_body) {
@@ -231,10 +151,144 @@ fn try_parse_xml_invoke(name: &str, invoke_body: &str) -> Option<ToolCall> {
         );
     }
 
-    let arguments = if params.is_empty() {
+    serde_json::Value::Object(params)
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Parse tool calls from model-generated text content.
+///
+/// Primary: Look for `<function_calls>` wrapper blocks containing `<invoke>`
+/// elements in either tag-based or attribute-based format.
+///
+/// Fallback: Look for standalone `<invoke>` blocks.
+///
+/// Each extracted tool call is assigned a unique `call_xxx` ID.
+/// Multiple tool calls are returned in document order.
+///
+/// Invalid or malformed content is silently skipped.
+pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
+    // Primary: Look for <function_calls> wrapper
+    if contains_tag("function_calls", content) {
+        let fc_content = extract_between_tags("function_calls", content);
+        let mut calls = Vec::new();
+        for fc in fc_content {
+            calls.extend(parse_invokes(&fc));
+        }
+        if !calls.is_empty() {
+            tracing::debug!(
+                num_calls = calls.len(),
+                "Parsed tool calls from <function_calls> blocks"
+            );
+            return calls;
+        }
+    }
+
+    // Fallback: Look for standalone <invoke> blocks
+    let calls = parse_invokes(content);
+    if !calls.is_empty() {
+        tracing::debug!(
+            num_calls = calls.len(),
+            "Parsed tool calls from standalone <invoke> blocks"
+        );
+        return calls;
+    }
+
+    // If no tool calls found but content looks like it might have them, log for debugging
+    if content.contains("<invoke")
+        || content.contains("<tool")
+        || content.contains("function_call")
+        || content.contains("<function")
+    {
+        tracing::warn!(
+            content_preview = %content.chars().take(500).collect::<String>(),
+            "Content contains tool-like patterns but no valid tool calls were parsed"
+        );
+    }
+
+    calls
+}
+
+// ---------------------------------------------------------------------------
+// Internal parsers
+// ---------------------------------------------------------------------------
+
+/// Parse `<invoke>` blocks from content, supporting both tag-based and
+/// attribute-based formats.
+fn parse_invokes(content: &str) -> Vec<ToolCall> {
+    let mut calls = Vec::new();
+
+    // Tag-based: <invoke><tool_name>...</tool_name>...</invoke>
+    for invoke_content in extract_between_tags("invoke", content) {
+        if let Some(tc) = try_parse_tag_invoke(&invoke_content) {
+            calls.push(tc);
+        }
+    }
+
+    // Attribute-based: <invoke name="...">...</invoke>
+    for cap in XML_ATTR_INVOKE.captures_iter(content) {
+        let name = cap.get(1).unwrap().as_str();
+        let invoke_body = cap.get(2).unwrap().as_str();
+        if let Some(tc) = try_parse_attr_invoke(name, invoke_body) {
+            calls.push(tc);
+        }
+    }
+
+    calls
+}
+
+/// Try to parse a tag-based `<invoke>` block.
+///
+/// Expected inner content:
+/// ```xml
+/// <tool_name>ToolName</tool_name>
+/// <parameters>
+///   <param_name>value</param_name>
+/// </parameters>
+/// ```
+fn try_parse_tag_invoke(invoke_content: &str) -> Option<ToolCall> {
+    let tool_name = extract_between_tags("tool_name", invoke_content)
+        .first()
+        .map(|s| s.trim().to_string())?;
+
+    if tool_name.is_empty() {
+        return None;
+    }
+
+    let params = extract_between_tags("parameters", invoke_content)
+        .first()
+        .map(|s| parse_xml_params(s))
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+    Some(ToolCall {
+        id: Some(generate_call_id()),
+        call_type: Some("function".to_string()),
+        function: FunctionCall {
+            name: Some(tool_name),
+            arguments: Some(params.to_string()),
+        },
+    })
+}
+
+/// Try to parse an attribute-based `<invoke name="...">` block.
+///
+/// `name` is the tool name from the `name` attribute.
+/// `invoke_body` is the inner content of the `<invoke>` element.
+///
+/// Returns `None` if the name is empty.
+fn try_parse_attr_invoke(name: &str, invoke_body: &str) -> Option<ToolCall> {
+    if name.is_empty() {
+        return None;
+    }
+
+    let params = parse_attribute_params(invoke_body);
+
+    let arguments = if params.as_object().map_or(true, |m| m.is_empty()) {
         Some("{}".to_string())
     } else {
-        Some(serde_json::Value::Object(params).to_string())
+        Some(params.to_string())
     };
 
     Some(ToolCall {
@@ -247,91 +301,24 @@ fn try_parse_xml_invoke(name: &str, invoke_body: &str) -> Option<ToolCall> {
     })
 }
 
-/// Strip tool call text from the content, returning the cleaned text.
+/// Strip tool call XML from the content, returning the cleaned text.
 ///
-/// Removes JSON tool calls (fenced code blocks + inline) and XML
-/// `<function_calls>` blocks, leaving surrounding prose intact. Only blocks
-/// that parse as valid tool calls are removed — regular code examples are
-/// preserved. Extra blank lines left by removal are collapsed.
+/// Removes `<function_calls>` blocks and standalone `<invoke>` blocks,
+/// leaving surrounding prose intact. Extra blank lines left by removal
+/// are collapsed.
 ///
 /// **Note:** The result is always trimmed of leading/trailing whitespace
 /// regardless of whether any tool calls were removed.
 pub fn strip_tool_calls(content: &str) -> String {
     let mut result = content.to_string();
 
-    // ----- JSON: fenced code blocks -----
-    // Only remove fenced blocks that parse as valid tool calls.
-    let fenced_removals: Vec<(usize, usize)> = FENCED_PATTERN
-        .captures_iter(&result)
-        .filter_map(|cap| {
-            let full_match = cap.get(0)?;
-            let json_str = cap.get(1)?.as_str();
-            if try_parse_tool_call(json_str).is_some() {
-                Some((full_match.start(), full_match.end()))
-            } else {
-                None
-            }
-        })
-        .collect();
+    // Remove <function_calls>...</function_calls> blocks
+    result = STRIP_FUNCTION_CALLS
+        .replace_all(&result, "")
+        .to_string();
 
-    // Remove in reverse order so earlier offsets remain valid
-    for (start, end) in fenced_removals.into_iter().rev() {
-        result.replace_range(start..end, "");
-    }
-
-    // ----- JSON: inline objects -----
-    // Track a search offset so we skip past non-valid matches instead of
-    // stopping at the first failure.
-    let mut search_from = 0;
-    loop {
-        let haystack = &result[search_from..];
-        let mat = INLINE_START.find(haystack);
-        match mat {
-            Some(m) => {
-                let abs_start = search_from + m.start();
-                if let Some(abs_end) = find_matching_brace(&result, abs_start) {
-                    let json_str = &result[abs_start..abs_end];
-                    if try_parse_tool_call(json_str).is_some() {
-                        result.replace_range(abs_start..abs_end, "");
-                        // Don't advance search_from — positions shifted, rescan
-                        // from same offset.
-                        continue;
-                    }
-                    // Not a valid tool call — advance past this match's start
-                    search_from = abs_start + 1;
-                } else {
-                    // Unbalanced braces — skip past this candidate
-                    search_from = abs_start + 1;
-                }
-            }
-            None => break,
-        }
-    }
-
-    // ----- XML: <function_calls> blocks -----
-    // Only remove blocks that contain at least one valid <invoke>.
-    let xml_removals: Vec<(usize, usize)> = XML_FUNCTION_CALLS
-        .captures_iter(&result)
-        .filter_map(|cap| {
-            let full_match = cap.get(0)?;
-            let body = cap.get(1)?.as_str();
-            // Check that at least one invoke parses successfully
-            let has_valid_invoke = XML_INVOKE.captures_iter(body).any(|invoke_cap| {
-                let name = invoke_cap.get(1).unwrap().as_str();
-                let invoke_body = invoke_cap.get(2).unwrap().as_str();
-                try_parse_xml_invoke(name, invoke_body).is_some()
-            });
-            if has_valid_invoke {
-                Some((full_match.start(), full_match.end()))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    for (start, end) in xml_removals.into_iter().rev() {
-        result.replace_range(start..end, "");
-    }
+    // Remove standalone <invoke>...</invoke> blocks
+    result = STRIP_INVOKE.replace_all(&result, "").to_string();
 
     // Collapse runs of 3+ newlines down to 2 (one blank line)
     result = COLLAPSE_NEWLINES.replace_all(&result, "\n\n").to_string();
@@ -343,91 +330,12 @@ pub fn strip_tool_calls(content: &str) -> String {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Find the position just past the matching closing brace for the `{` at `start`.
-///
-/// Handles nested braces and respects JSON string escaping (skips braces
-/// inside quoted strings).
-fn find_matching_brace(content: &str, start: usize) -> Option<usize> {
-    let bytes = content.as_bytes();
-    if start >= bytes.len() || bytes[start] != b'{' {
-        return None;
-    }
-
-    let mut depth = 0;
-    let mut in_string = false;
-    let mut escape_next = false;
-    let mut i = start;
-
-    while i < bytes.len() {
-        let ch = bytes[i];
-
-        if escape_next {
-            escape_next = false;
-            i += 1;
-            continue;
-        }
-
-        if ch == b'\\' && in_string {
-            escape_next = true;
-            i += 1;
-            continue;
-        }
-
-        if ch == b'"' {
-            in_string = !in_string;
-        } else if !in_string {
-            if ch == b'{' {
-                depth += 1;
-            } else if ch == b'}' {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i + 1);
-                }
-            }
-        }
-
-        i += 1;
-    }
-
-    None // unbalanced braces
-}
-
-/// Try to parse a JSON string as a tool call.
-///
-/// Expects the format: `{"function_call": {"name": "...", "arguments": {...}}}`
-/// Returns `None` if the JSON is malformed or doesn't match the expected schema.
-fn try_parse_tool_call(json_str: &str) -> Option<ToolCall> {
-    let value: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    let fc = value.get("function_call")?;
-
-    let name = fc.get("name")?.as_str()?.to_string();
-
-    // Arguments can be any JSON value — we store it as a raw JSON string
-    let arguments = fc.get("arguments").map(|v| v.to_string());
-
-    let id = generate_call_id();
-
-    Some(ToolCall {
-        id: Some(id),
-        call_type: Some("function".to_string()),
-        function: FunctionCall {
-            name: Some(name),
-            arguments,
-        },
-    })
-}
-
 /// Generate a unique tool call ID in the format `call_<short-hex>`.
 fn generate_call_id() -> String {
     let uuid = Uuid::new_v4();
     // Use first 12 hex chars of the UUID for a compact but unique ID
     let hex = uuid.as_simple().to_string();
     format!("call_{}", &hex[..12])
-}
-
-/// Check if a range overlaps with any existing range.
-fn is_overlapping(ranges: &[(usize, usize)], start: usize, end: usize) -> bool {
-    ranges.iter().any(|(rs, re)| start < *re && end > *rs)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +345,8 @@ fn is_overlapping(ranges: &[(usize, usize)], start: usize, end: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- generate_call_id -------------------------------------------------
 
     #[test]
     fn generate_call_id_has_correct_prefix() {
@@ -452,71 +362,125 @@ mod tests {
         assert_ne!(id1, id2);
     }
 
+    // -- extract_between_tags ---------------------------------------------
+
     #[test]
-    fn try_parse_valid_tool_call() {
-        let json = r#"{"function_call": {"name": "bash", "arguments": {"command": "ls"}}}"#;
-        let tc = try_parse_tool_call(json).unwrap();
-        assert_eq!(tc.function.name, Some("bash".to_string()));
-        assert!(tc.function.arguments.is_some());
-        assert!(tc.id.unwrap().starts_with("call_"));
-        assert_eq!(tc.call_type, Some("function".to_string()));
+    fn extract_between_tags_simple() {
+        let content = "<tool_name>Read</tool_name>";
+        let results = extract_between_tags("tool_name", content);
+        assert_eq!(results, vec!["Read"]);
     }
 
     #[test]
-    fn try_parse_missing_function_call_key() {
-        let json = r#"{"name": "bash", "arguments": {}}"#;
-        assert!(try_parse_tool_call(json).is_none());
+    fn extract_between_tags_multiline() {
+        let content = "<parameters>\n<file_path>/a.rs</file_path>\n</parameters>";
+        let results = extract_between_tags("parameters", content);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].contains("<file_path>"));
     }
 
     #[test]
-    fn try_parse_missing_name() {
-        let json = r#"{"function_call": {"arguments": {}}}"#;
-        assert!(try_parse_tool_call(json).is_none());
+    fn extract_between_tags_multiple() {
+        let content = "<invoke>first</invoke> text <invoke>second</invoke>";
+        let results = extract_between_tags("invoke", content);
+        assert_eq!(results, vec!["first", "second"]);
     }
 
     #[test]
-    fn try_parse_invalid_json() {
-        let json = r#"{not valid json"#;
-        assert!(try_parse_tool_call(json).is_none());
+    fn extract_between_tags_empty_returns_none() {
+        let content = "<invoke></invoke>";
+        let results = extract_between_tags("invoke", content);
+        assert!(results.is_empty());
+    }
+
+    // -- contains_tag -----------------------------------------------------
+
+    #[test]
+    fn contains_tag_found() {
+        assert!(contains_tag(
+            "function_calls",
+            "<function_calls>body</function_calls>"
+        ));
     }
 
     #[test]
-    fn find_matching_brace_simple() {
-        let s = r#"{"key": "value"}"#;
-        assert_eq!(find_matching_brace(s, 0), Some(16));
+    fn contains_tag_not_found() {
+        assert!(!contains_tag("function_calls", "no xml here"));
     }
 
     #[test]
-    fn find_matching_brace_nested() {
-        let s = r#"{"a": {"b": {"c": 1}}}"#;
-        assert_eq!(find_matching_brace(s, 0), Some(22));
+    fn contains_tag_empty_body() {
+        assert!(!contains_tag(
+            "function_calls",
+            "<function_calls></function_calls>"
+        ));
+    }
+
+    // -- parse_xml_params -------------------------------------------------
+
+    #[test]
+    fn parse_xml_params_simple() {
+        let content = "<file_path>/src/main.rs</file_path><limit>100</limit>";
+        let params = parse_xml_params(content);
+        assert_eq!(params["file_path"], "/src/main.rs");
+        assert_eq!(params["limit"], "100");
     }
 
     #[test]
-    fn find_matching_brace_with_escaped_quotes() {
-        let s = r#"{"key": "val\"ue"}"#;
-        assert_eq!(find_matching_brace(s, 0), Some(18));
+    fn parse_xml_params_with_whitespace() {
+        let content = "<name>  hello world  </name>";
+        let params = parse_xml_params(content);
+        assert_eq!(params["name"], "hello world");
     }
 
     #[test]
-    fn find_matching_brace_with_brace_in_string() {
-        let s = r#"{"key": "}{{"}"#;
-        assert_eq!(find_matching_brace(s, 0), Some(14));
+    fn parse_xml_params_empty() {
+        let params = parse_xml_params("");
+        assert!(params.as_object().unwrap().is_empty());
+    }
+
+    // -- try_parse_tag_invoke ---------------------------------------------
+
+    #[test]
+    fn try_parse_tag_invoke_basic() {
+        let content = "<tool_name>Read</tool_name>\n<parameters>\n<file_path>/a.rs</file_path>\n</parameters>";
+        let tc = try_parse_tag_invoke(content).unwrap();
+        assert_eq!(tc.function.name, Some("Read".to_string()));
+        let args: serde_json::Value =
+            serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
+        assert_eq!(args["file_path"], "/a.rs");
     }
 
     #[test]
-    fn find_matching_brace_unbalanced() {
-        let s = r#"{"key": "value""#;
-        assert!(find_matching_brace(s, 0).is_none());
+    fn try_parse_tag_invoke_no_params() {
+        let content = "<tool_name>NoOp</tool_name>";
+        let tc = try_parse_tag_invoke(content).unwrap();
+        assert_eq!(tc.function.name, Some("NoOp".to_string()));
+        let args: serde_json::Value =
+            serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
+        assert!(args.as_object().unwrap().is_empty());
     }
 
     #[test]
-    fn is_overlapping_detects_overlap() {
-        let ranges = vec![(10, 50)];
-        assert!(is_overlapping(&ranges, 20, 30));
-        assert!(is_overlapping(&ranges, 0, 15));
-        assert!(is_overlapping(&ranges, 45, 60));
-        assert!(!is_overlapping(&ranges, 50, 60));
-        assert!(!is_overlapping(&ranges, 0, 10));
+    fn try_parse_tag_invoke_empty_name() {
+        let content = "<tool_name></tool_name>";
+        assert!(try_parse_tag_invoke(content).is_none());
+    }
+
+    // -- try_parse_attr_invoke --------------------------------------------
+
+    #[test]
+    fn try_parse_attr_invoke_basic() {
+        let body = r#"<parameter name="command">ls</parameter>"#;
+        let tc = try_parse_attr_invoke("Bash", body).unwrap();
+        assert_eq!(tc.function.name, Some("Bash".to_string()));
+        let args: serde_json::Value =
+            serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
+        assert_eq!(args["command"], "ls");
+    }
+
+    #[test]
+    fn try_parse_attr_invoke_empty_name() {
+        assert!(try_parse_attr_invoke("", "").is_none());
     }
 }

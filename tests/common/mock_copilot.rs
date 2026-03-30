@@ -437,16 +437,25 @@ pub fn build_tool_call_response(
         "I'll call the tool for you.",
         "Let me know if you need anything else.",
     ));
-    let tool_json = serde_json::json!({
-        "function_call": {
-            "name": tool_name,
-            "arguments": arguments
-        }
-    });
+
+    // Build XML parameter elements from arguments
+    let params_xml = if let Some(obj) = arguments.as_object() {
+        obj.iter()
+            .map(|(k, v)| {
+                let val = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                format!("<parameter name=\"{k}\">{val}</parameter>")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        String::new()
+    };
 
     let content = format!(
-        "{before}\n\n```json\n{}\n```\n\n{after}",
-        serde_json::to_string(&tool_json).unwrap()
+        "{before}\n\n<function_calls>\n<invoke name=\"{tool_name}\">\n{params_xml}\n</invoke>\n</function_calls>\n\n{after}"
     );
 
     serde_json::json!({
@@ -471,25 +480,26 @@ pub fn build_tool_call_response(
 }
 
 /// Build a non-streaming response whose assistant content contains multiple
-/// tool calls in separate fenced ```json code blocks.
+/// tool calls in XML format.
 pub fn build_multi_tool_call_response(
     model: &str,
     tool_calls: &[(&str, serde_json::Value)],
 ) -> serde_json::Value {
-    let mut content = String::from("I'll call several tools.\n");
+    let mut content = String::from("I'll call several tools.\n\n<function_calls>\n");
     for (name, args) in tool_calls {
-        let tool_json = serde_json::json!({
-            "function_call": {
-                "name": name,
-                "arguments": args
+        content.push_str(&format!("<invoke name=\"{name}\">\n"));
+        if let Some(obj) = args.as_object() {
+            for (k, v) in obj {
+                let val = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                content.push_str(&format!("<parameter name=\"{k}\">{val}</parameter>\n"));
             }
-        });
-        content.push_str(&format!(
-            "\n```json\n{}\n```\n",
-            serde_json::to_string(&tool_json).unwrap()
-        ));
+        }
+        content.push_str("</invoke>\n");
     }
-    content.push_str("\nDone.");
+    content.push_str("</function_calls>\n\nDone.");
 
     serde_json::json!({
         "id": "chatcmpl-multitool",
@@ -513,13 +523,16 @@ pub fn build_multi_tool_call_response(
 }
 
 /// Build a non-streaming response whose assistant content contains
-/// malformed JSON inside a fenced code block (not a valid tool call).
+/// malformed XML (not a valid tool call).
 pub fn build_malformed_tool_call_response(model: &str) -> serde_json::Value {
+    // Broken XML: invoke with empty name (rejected by guard) and mangled tags
     let content = r#"Let me try to call a tool.
 
-```json
-{"function_call": {"name": "get_weather", "arguments": {invalid json here}}}
-```
+<function_calls>
+<invoke name="">
+<parameter name="location">London</parameter>
+</invoke>
+</function_calls>
 
 I hope that worked."#;
 
@@ -567,19 +580,32 @@ pub fn build_plain_response(model: &str, content: &str) -> serde_json::Value {
     })
 }
 
-/// Build SSE streaming chunks that include a tool call in a fenced JSON
-/// block, spread across multiple chunks.
+/// Build SSE streaming chunks that include a tool call in XML format,
+/// spread across multiple chunks.
 pub fn build_streaming_tool_call_chunks(
     model: &str,
     tool_name: &str,
     arguments: serde_json::Value,
 ) -> String {
-    let tool_json = serde_json::json!({
-        "function_call": {
-            "name": tool_name,
-            "arguments": arguments
-        }
-    });
+    // Build XML parameter elements
+    let params_xml = if let Some(obj) = arguments.as_object() {
+        obj.iter()
+            .map(|(k, v)| {
+                let val = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                format!("<parameter name=\"{k}\">{val}</parameter>")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        String::new()
+    };
+
+    let xml_block = format!(
+        "<function_calls>\n<invoke name=\"{tool_name}\">\n{params_xml}\n</invoke>\n</function_calls>"
+    );
 
     let chunks = vec![
         format!(
@@ -609,7 +635,7 @@ pub fn build_streaming_tool_call_chunks(
                 "object": "chat.completion.chunk",
                 "created": 1700000000,
                 "model": model,
-                "choices": [{"index": 0, "delta": {"content": format!("```json\n{}\n```", serde_json::to_string(&tool_json).unwrap())}, "finish_reason": serde_json::Value::Null}]
+                "choices": [{"index": 0, "delta": {"content": xml_block}, "finish_reason": serde_json::Value::Null}]
             })
         ),
         format!(

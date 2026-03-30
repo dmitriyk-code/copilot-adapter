@@ -104,7 +104,7 @@ async fn mock_chat_handler(
 }
 
 /// Spawn a mock Copilot API that returns a response containing a tool call
-/// embedded in fenced JSON.
+/// embedded in XML format.
 async fn spawn_mock_copilot_with_tool_call() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
 {
     let app =
@@ -128,9 +128,11 @@ async fn mock_chat_with_tool_call_handler(
 
     let content = r#"I'll check the weather for you.
 
-```json
-{"function_call": {"name": "get_weather", "arguments": {"location": "London"}}}
-```
+<function_calls>
+<invoke name="get_weather">
+<parameter name="location">London</parameter>
+</invoke>
+</function_calls>
 
 Let me know if you need anything else."#;
 
@@ -370,8 +372,8 @@ async fn anthropic_tool_use_block_in_response() {
             "Text block should contain surrounding prose"
         );
         assert!(
-            !text_content.contains("```json"),
-            "Tool call JSON should be stripped from text"
+            !text_content.contains("<function_calls>"),
+            "Tool call XML should be stripped from text"
         );
     }
 
@@ -601,7 +603,7 @@ async fn anthropic_no_tool_calls_parsed_without_tools_in_request() {
     // Content should still contain the raw tool call text (not stripped)
     let text = content[0]["text"].as_str().unwrap();
     assert!(
-        text.contains("function_call"),
+        text.contains("<function_calls>"),
         "Content should be left untouched when tools not requested"
     );
 
@@ -618,7 +620,7 @@ async fn anthropic_no_tool_calls_parsed_without_tools_in_request() {
 // ---------------------------------------------------------------------------
 
 /// Spawn a mock Copilot API that returns SSE streaming chunks containing
-/// a tool call embedded in fenced JSON.
+/// a tool call embedded in XML format.
 async fn spawn_mock_streaming_copilot_with_tool_call(
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
@@ -671,7 +673,7 @@ async fn mock_streaming_tool_call_handler(
                 "object": "chat.completion.chunk",
                 "created": 1700000000,
                 "model": model,
-                "choices": [{"index": 0, "delta": {"content": "```json\n{\"function_call\": {\"name\": \"get_weather\", \"arguments\": {\"location\": \"London\"}}}\n```"}, "finish_reason": null}]
+                "choices": [{"index": 0, "delta": {"content": "<function_calls>\n<invoke name=\"get_weather\">\n<parameter name=\"location\">London</parameter>\n</invoke>\n</function_calls>"}, "finish_reason": null}]
             })
         ),
         format!(
@@ -796,7 +798,7 @@ async fn anthropic_streaming_tool_call_detected_and_emitted() {
     let input: serde_json::Value = serde_json::from_str(partial_json).unwrap();
     assert_eq!(input["location"], "London");
 
-    // Text content should not contain the fenced tool call JSON
+    // Text content should not contain the XML tool call markup
     let text_deltas: Vec<_> = events
         .iter()
         .filter(|e| {
@@ -811,12 +813,12 @@ async fn anthropic_streaming_tool_call_detected_and_emitted() {
         .collect();
 
     assert!(
-        !all_text.contains("```json"),
-        "Fenced tool call should be stripped from text deltas"
+        !all_text.contains("<function_calls>"),
+        "XML tool call should be stripped from text deltas"
     );
     assert!(
-        !all_text.contains("function_call"),
-        "Tool call JSON should be stripped from text deltas"
+        !all_text.contains("<invoke"),
+        "Invoke XML should be stripped from text deltas"
     );
     assert!(
         all_text.contains("check the weather"),

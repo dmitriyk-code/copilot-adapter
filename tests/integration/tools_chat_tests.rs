@@ -127,9 +127,11 @@ async fn mock_chat_with_tool_call_handler(
 
     let content = r#"I'll check the weather for you.
 
-```json
-{"function_call": {"name": "get_weather", "arguments": {"location": "London"}}}
-```
+<function_calls>
+<invoke name="get_weather">
+<parameter name="location">London</parameter>
+</invoke>
+</function_calls>
 
 Let me know if you need anything else."#;
 
@@ -361,15 +363,15 @@ async fn tool_call_parsed_from_response_content() {
     let args_value: serde_json::Value = serde_json::from_str(args).unwrap();
     assert_eq!(args_value["location"], "London");
 
-    // The fenced code block should be stripped from content
+    // The XML tool call block should be stripped from content
     let content = resp.choices[0].message.content.as_text();
     assert!(
-        !content.contains("```json"),
-        "Fenced tool call should be stripped from content"
+        !content.contains("<function_calls>"),
+        "Tool call XML should be stripped from content"
     );
     assert!(
-        !content.contains("function_call"),
-        "Tool call JSON should be stripped from content"
+        !content.contains("<invoke"),
+        "Tool call invoke should be stripped from content"
     );
 
     // The surrounding prose should remain
@@ -570,7 +572,7 @@ async fn no_tool_calls_parsed_without_tools_in_request() {
     // Content should still contain the tool call text (not stripped)
     let content = resp.choices[0].message.content.as_text();
     assert!(
-        content.contains("function_call"),
+        content.contains("<function_calls>"),
         "Content should be left untouched when tools not requested"
     );
 }
@@ -643,8 +645,7 @@ async fn mock_streaming_tool_call_handler(
 ) -> Response {
     let model = body["model"].as_str().unwrap_or("gpt-4");
 
-    // Simulate streaming content that includes a tool call in fenced JSON.
-    // The content will be: "I'll check the weather.\n\n```json\n{...}\n```\n\nDone."
+    // Simulate streaming content that includes a tool call in XML format.
     let chunks = vec![
         // First chunk: role
         format!(
@@ -668,7 +669,7 @@ async fn mock_streaming_tool_call_handler(
                 "choices": [{"index": 0, "delta": {"content": "I'll check the weather.\n\n"}, "finish_reason": null}]
             })
         ),
-        // Third chunk: fenced JSON tool call
+        // Third chunk: XML tool call
         format!(
             "data: {}\n\n",
             json!({
@@ -676,7 +677,7 @@ async fn mock_streaming_tool_call_handler(
                 "object": "chat.completion.chunk",
                 "created": 1700000000,
                 "model": model,
-                "choices": [{"index": 0, "delta": {"content": "```json\n{\"function_call\": {\"name\": \"get_weather\", \"arguments\": {\"location\": \"London\"}}}\n```"}, "finish_reason": null}]
+                "choices": [{"index": 0, "delta": {"content": "<function_calls>\n<invoke name=\"get_weather\">\n<parameter name=\"location\">London</parameter>\n</invoke>\n</function_calls>"}, "finish_reason": null}]
             })
         ),
         // Fourth chunk: text after tool call + finish
