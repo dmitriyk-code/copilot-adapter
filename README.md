@@ -485,7 +485,32 @@ The adapter:
 
 ### Prerequisites
 
-- **Rust** 1.75 or later (`rustup` recommended)
+- **Rust** 1.75 or later
+  - Install via rustup (recommended):
+    ```bash
+    # Linux/macOS
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+    # Windows
+    # Download and run: https://rustup.rs/
+    ```
+  - Or install cargo directly:
+    ```bash
+    # Debian/Ubuntu
+    sudo apt install cargo
+
+    # Fedora/RHEL
+    sudo dnf install cargo
+
+    # Arch Linux
+    sudo pacman -S rust
+
+    # macOS (Homebrew)
+    brew install rust
+
+    # Windows (Chocolatey)
+    choco install rust
+    ```
 - **Platform-specific:**
   - **Linux:** `libdbus-1-dev` and `libsecret-1-dev` (for keyring support)
   - **macOS:** Xcode command line tools
