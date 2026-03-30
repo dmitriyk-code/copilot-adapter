@@ -104,9 +104,9 @@ all requests it receives.
 ```
 
 **Acceptance Criteria:**
-- [ ] File created at `docs/known-issues.md`
-- [ ] Explains issue clearly
-- [ ] Provides workaround
+- [x] File created at `docs/known-issues.md`
+- [x] Explains issue clearly
+- [x] Provides workaround
 
 #### Task 1.2: Link from README
 
@@ -121,8 +121,8 @@ See [docs/known-issues.md](./docs/known-issues.md) for information about:
 ```
 
 **Acceptance Criteria:**
-- [ ] README links to known issues
-- [ ] Link is in logical location
+- [x] README links to known issues
+- [x] Link is in logical location
 
 ---
 
@@ -1254,8 +1254,8 @@ All changes are additive then subtractive, making rollback straightforward via g
 ## Checklist Summary
 
 ### Epic 1: Documentation
-- [ ] `docs/known-issues.md` created
-- [ ] README links to known issues
+- [x] `docs/known-issues.md` created
+- [x] README links to known issues
 
 ### Epic 2: XML Injector
 - [ ] `format_tools_as_xml()` implemented
