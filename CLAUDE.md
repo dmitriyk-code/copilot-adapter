@@ -2,13 +2,12 @@
 
 ## Overview
 
-A standalone Rust binary (`copilot-adapter`) that acts as an **OpenAI-compatible proxy** to GitHub Copilot's API. It enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions through the familiar OpenAI API interface.
+A standalone Rust binary (`copilot-adapter`) that acts as an **Anthropic-to-Copilot proxy**. It enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions by translating Anthropic API requests to GitHub Copilot's API format.
 
 ## Key Features
 
 - **GitHub OAuth device flow** authentication
-- **OpenAI-compatible API** endpoints (`POST /v1/chat/completions`, `GET /v1/models`)
-- **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation
+- **Anthropic-compatible API** endpoint (`POST /v1/messages`) with format translation to OpenAI internally
 - **Model name normalization** — automatically translates Claude Code's versioned model names (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's format (e.g., `claude-haiku-4.5`)
 - **SSE streaming** support for real-time responses
 - **Tool/function support** via prompt injection (always enabled)
@@ -42,7 +41,6 @@ src/
 ├── lib.rs               # Library exports
 ├── handlers/
 │   ├── mod.rs
-│   ├── chat.rs          # /v1/chat/completions (OpenAI format)
 │   ├── messages.rs      # /v1/messages (Anthropic format)
 │   ├── models.rs        # /v1/models endpoint (dynamic + fallback)
 │   └── health.rs        # Health check
@@ -120,8 +118,7 @@ cargo test
 ## API Endpoints
 
 - `GET /health` - Health check
-- `POST /v1/chat/completions` - OpenAI-format chat completions
-- `POST /v1/messages` - Anthropic-format messages (translated internally)
+- `POST /v1/messages` - Anthropic-format messages (translated to OpenAI internally)
 - `GET /v1/models` - List available models
 - `GET /v1/models/:model` - Get model details
 
@@ -138,7 +135,7 @@ cargo test
 ## Notes for Development
 
 - **Trace logging**: When `--log-level trace` is enabled, the adapter logs the full request/response JSON at every transformation point: (1) incoming from Claude Code, (2) outgoing to GitHub Copilot API, (3) incoming from GitHub Copilot API, (4) outgoing to Claude Code. For streaming requests, each SSE chunk is logged individually. This is useful for debugging tool calls, model normalization, format translation, and streaming issues. Trace logs include structured fields: `direction` (INCOMING/OUTGOING), `source`/`destination` (Claude Code/GitHub Copilot API), `endpoint`, `format` (OpenAI/Anthropic), `mode` (streaming/non-streaming), and full JSON payloads.
-- **Model name normalization**: The adapter automatically translates Claude Code's versioned model identifiers (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's expected format (e.g., `claude-haiku-4.5`). This normalization happens in `src/model_mapper.rs` and is applied to all incoming requests at both the `/v1/chat/completions` and `/v1/messages` endpoints.
+- **Model name normalization**: The adapter automatically translates Claude Code's versioned model identifiers (e.g., `claude-haiku-4-5-20251001`) to GitHub Copilot's expected format (e.g., `claude-haiku-4.5`). This normalization happens in `src/model_mapper.rs` and is applied to all incoming requests at the `/v1/messages` endpoint.
 - **Dynamic models**: `/v1/models` fetches from Copilot API with in-memory caching (TTL-based via `ModelsCache` in `AppState`). Falls back to a static list on API errors. Controlled by `--models-cache-ttl` (default 300s) and `--static-models` flags.
 - `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration
 - `CopilotClient::fetch_models()` calls `https://api.githubcopilot.com/models` with standard Copilot headers

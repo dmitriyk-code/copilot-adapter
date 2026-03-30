@@ -658,9 +658,21 @@ Check and remove unused imports from:
 - [x] All integration tests pass
 - [x] No tests for removed endpoint
 
+#### Task 4.6: Update Documentation — ✅ DONE
+
+**Files:** `CLAUDE.md`, `README.md`, `docs/design/MODEL-NORMALIZATION.md`, `docs/development/e2e-testing.md`
+
+Remove all user-facing and developer-facing references to `/v1/chat/completions` and reframe the adapter as an 'Anthropic-to-Copilot proxy' rather than 'OpenAI-compatible proxy'.
+
+**Acceptance Criteria:**
+- [x] `CLAUDE.md` updated (Key Features, Project Structure, API Endpoints, model normalization note, overview)
+- [x] `README.md` updated (feature list, architecture description, curl examples, tool calling example, troubleshooting env vars, overview)
+- [x] `docs/design/MODEL-NORMALIZATION.md` updated (normalization scope, removed chat.rs reference)
+- [x] `docs/development/e2e-testing.md` updated (Tests 5–14 use Anthropic format, Tests 16–20 renumbered, checklist updated)
+
 ---
 
-### Epic 5: Update Messages Handler (Day 3-4, 0.5 days)
+### Epic 5: Update Messages Handler(Day 3-4, 0.5 days)
 
 Simplify the `/v1/messages` handler now that it's the only endpoint.
 

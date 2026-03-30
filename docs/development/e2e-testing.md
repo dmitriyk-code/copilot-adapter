@@ -287,18 +287,21 @@ curl http://127.0.0.1:9090/health
 
 ---
 
-## Test 5: Non-Streaming Chat Completion
+## Test 5: Non-Streaming Messages
 
-**Purpose:** Verify chat completions work in non-streaming mode.
+**Purpose:** Verify messages work in non-streaming mode.
 
 ### Steps
 
 1. **Send a simple request:**
    ```bash
-   curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
      -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
      -d '{
-       "model": "gpt-4",
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
        "messages": [{"role": "user", "content": "Say hello in one sentence."}]
      }' | python3 -m json.tool
    ```
@@ -306,44 +309,39 @@ curl http://127.0.0.1:9090/health
 2. **Expected response format:**
    ```json
    {
-     "id": "chatcmpl-...",
-     "object": "chat.completion",
-     "created": 1234567890,
-     "model": "gpt-4",
-     "choices": [
+     "id": "msg_...",
+     "type": "message",
+     "role": "assistant",
+     "content": [
        {
-         "index": 0,
-         "message": {
-           "role": "assistant",
-           "content": "Hello! How can I assist you today?"
-         },
-         "finish_reason": "stop"
+         "type": "text",
+         "text": "Hello! How can I assist you today?"
        }
      ],
-     "usage": {
-       "prompt_tokens": 12,
-       "completion_tokens": 8,
-       "total_tokens": 20
-     }
+     "model": "claude-3-5-sonnet-20241022",
+     "stop_reason": "end_turn"
    }
    ```
 
 3. **Verify:**
    - Response has valid JSON structure
-   - `object` is `"chat.completion"`
-   - `choices` array has at least one entry
-   - `message.role` is `"assistant"`
-   - `message.content` is non-empty
+   - `type` is `"message"`
+   - `content` array has at least one entry
+   - `content[0].type` is `"text"`
+   - `content[0].text` is non-empty
 
 ### With System Message
 
 ```bash
-curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
+curl -s -X POST http://127.0.0.1:6767/v1/messages \
   -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "gpt-4",
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "system": "You are a helpful assistant. Respond in exactly 3 words.",
     "messages": [
-      {"role": "system", "content": "You are a helpful assistant. Respond in exactly 3 words."},
       {"role": "user", "content": "What is Rust?"}
     ]
   }' | python3 -m json.tool
@@ -351,7 +349,7 @@ curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
 
 ---
 
-## Test 6: Streaming Chat Completion
+## Test 6: Streaming Messages
 
 **Purpose:** Verify SSE streaming returns proper Server-Sent Events.
 
@@ -359,10 +357,13 @@ curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
 
 1. **Send a streaming request:**
    ```bash
-   curl -N -X POST http://127.0.0.1:6767/v1/chat/completions \
+   curl -N -X POST http://127.0.0.1:6767/v1/messages \
      -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
      -d '{
-       "model": "gpt-4",
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
        "messages": [{"role": "user", "content": "Count from 1 to 5."}],
        "stream": true
      }'
@@ -370,22 +371,26 @@ curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
 
 2. **Expected output format:**
    ```
-   data: {"id":"chatcmpl-...","object":"chat.completion.chunk","created":...,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
+   event: message_start
+   data: {"type":"message_start","message":{"id":"msg_...","type":"message","role":"assistant",...}}
 
-   data: {"id":"chatcmpl-...","object":"chat.completion.chunk","created":...,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"1"},"finish_reason":null}]}
+   event: content_block_start
+   data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+   event: content_block_delta
+   data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"1"}}
 
    ...
 
-   data: [DONE]
+   event: message_stop
+   data: {"type":"message_stop"}
    ```
 
 3. **Verify:**
-   - Each line starts with `data: `
-   - Frames separated by double newlines (`\n\n`)
-   - Each chunk has `object: "chat.completion.chunk"`
-   - First chunk may carry `delta.role: "assistant"`
-   - Subsequent chunks carry `delta.content` with text fragments
-   - Stream ends with `data: [DONE]`
+   - Each event has `event:` and `data:` lines
+   - Stream starts with `message_start`
+   - Content arrives as `content_block_delta` events
+   - Stream ends with `message_stop`
 
 ---
 
@@ -401,9 +406,11 @@ curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
 
    Terminal 1:
    ```bash
-   curl -N -X POST http://127.0.0.1:6767/v1/chat/completions \
+   curl -N -X POST http://127.0.0.1:6767/v1/messages \
      -H "Content-Type: application/json" \
-     -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Terminal 1"}], "stream": true}'
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{"model": "claude-3-5-sonnet-20241022", "max_tokens": 1024, "messages": [{"role": "user", "content": "Terminal 1"}], "stream": true}'
    ```
 
    Terminal 2–5: Same command with different content.
@@ -418,16 +425,18 @@ curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
 ```bash
 # Launch 10 requests in parallel using background jobs
 for i in $(seq 1 10); do
-  curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
+  curl -s -X POST http://127.0.0.1:6767/v1/messages \
     -H "Content-Type: application/json" \
-    -d "{\"model\": \"gpt-4\", \"messages\": [{\"role\": \"user\", \"content\": \"Request $i\"}]}" \
+    -H "x-api-key: dummy" \
+    -H "anthropic-version: 2023-06-01" \
+    -d "{\"model\": \"claude-3-5-sonnet-20241022\", \"max_tokens\": 1024, \"messages\": [{\"role\": \"user\", \"content\": \"Request $i\"}]}" \
     -o "/tmp/copilot-test-$i.json" &
 done
 wait
 
 # Check all responses
 for i in $(seq 1 10); do
-  echo "Request $i: $(python3 -c "import json; d=json.load(open('/tmp/copilot-test-$i.json')); print(d.get('object', 'ERROR'))")"
+  echo "Request $i: $(python3 -c "import json; d=json.load(open('/tmp/copilot-test-$i.json')); print(d.get('type', 'ERROR'))")"
 done
 ```
 
@@ -440,17 +449,21 @@ done
 ### Empty Messages
 
 ```bash
-curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/messages \
   -H "Content-Type: application/json" \
-  -d '{"model": "gpt-4", "messages": []}'
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "max_tokens": 1024, "messages": []}'
 ```
-Expected: HTTP 400, OpenAI error format with `type: "invalid_request_error"`.
+Expected: HTTP 400, error format with `type: "invalid_request_error"`.
 
 ### Invalid JSON
 
 ```bash
-curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/messages \
   -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
   -d 'not valid json'
 ```
 Expected: HTTP 400 or 422.
@@ -461,9 +474,11 @@ Expected: HTTP 400 or 422.
 copilot-adapter logout
 copilot-adapter start
 # In another terminal:
-curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/chat/completions \
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST http://127.0.0.1:6767/v1/messages \
   -H "Content-Type: application/json" \
-  -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 Expected: HTTP 401, `type: "authentication_error"`.
 
@@ -491,7 +506,7 @@ Expected: HTTP 401, `type: "authentication_error"`.
    - `Request received` with method, path, request_id
    - `Request completed` with status, duration
    - Token refresh messages (if applicable)
-   - `Sending chat completion request to Copilot API`
+   - `Sending request to Copilot API`
 
 ### Environment Variable
 
@@ -514,8 +529,8 @@ RUST_LOG=trace copilot-adapter start
 
 2. **Configure environment:**
    ```bash
-   export OPENAI_API_BASE=http://127.0.0.1:6767/v1
-   export OPENAI_API_KEY=dummy
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+   export ANTHROPIC_API_KEY=dummy
    ```
 
 3. **Start Claude Code** and send a message.
@@ -532,9 +547,9 @@ RUST_LOG=trace copilot-adapter start
 
 ---
 
-## Test 11: Tool Call (Non-Streaming, OpenAI Format)
+## Test 11: Tool Call (Non-Streaming, Anthropic Format)
 
-**Purpose:** Verify tool/function calling works.
+**Purpose:** Verify tool/function calling works via `/v1/messages`.
 
 > **Prerequisites:**
 > - Adapter started
@@ -549,43 +564,42 @@ RUST_LOG=trace copilot-adapter start
 
 2. **Send a request with tool definitions:**
    ```bash
-   curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
      -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
      -d '{
-       "model": "gpt-4",
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
        "messages": [{"role": "user", "content": "What directory am I in?"}],
        "tools": [{
-         "type": "function",
-         "function": {
-           "name": "bash",
-           "description": "Run a bash command",
-           "parameters": {
-             "type": "object",
-             "properties": {
-               "command": {"type": "string", "description": "The command to run"}
-             },
-             "required": ["command"]
-           }
+         "name": "bash",
+         "description": "Run a bash command",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "command": {"type": "string", "description": "The command to run"}
+           },
+           "required": ["command"]
          }
        }]
      }' | python3 -m json.tool
    ```
 
 3. **Expected response:**
-   - `choices[0].message.tool_calls` should be an array with at least one tool call
-   - Each tool call should have `id` (starting with `call_`), `type: "function"`, and `function.name`
-   - `finish_reason` should be `"tool_calls"`
-   - The fenced JSON block should be stripped from `content`
+   - `content` array should contain a `tool_use` block with `name`, `id`, and `input`
+   - `stop_reason` should be `"tool_use"`
+   - Text blocks should not contain fenced JSON
 
 ### Verification
 
-- Response has valid `tool_calls` array
-- Arguments are valid JSON
+- Response has valid `tool_use` content blocks
+- `input` contains valid JSON arguments
 - Content does not contain ````json` blocks
 
 ---
 
-## Test 12: Tool Call (Streaming)
+## Test 12: Tool Call (Streaming, Anthropic Format)
 
 **Purpose:** Verify tool calls are detected in streaming responses.
 
@@ -593,88 +607,15 @@ RUST_LOG=trace copilot-adapter start
 
 1. **Send a streaming request with tools:**
    ```bash
-   curl -N -X POST http://127.0.0.1:6767/v1/chat/completions \
+   curl -N -X POST http://127.0.0.1:6767/v1/messages \
      -H "Content-Type: application/json" \
-     -d '{
-       "model": "gpt-4",
-       "messages": [{"role": "user", "content": "List files in the current directory"}],
-       "stream": true,
-       "tools": [{
-         "type": "function",
-         "function": {
-           "name": "bash",
-           "description": "Run a bash command",
-           "parameters": {
-             "type": "object",
-             "properties": {
-               "command": {"type": "string"}
-             },
-             "required": ["command"]
-           }
-         }
-       }]
-     }'
-   ```
-
-2. **Expected output:**
-   - SSE events with text content chunks (no fenced JSON)
-   - A chunk with `delta.tool_calls` containing the parsed tool call
-   - The tool call chunk should have `finish_reason: "tool_calls"`
-   - Stream ends with `data: [DONE]`
-
----
-
-## Test 13: Multi-Turn Conversation with Tool Results
-
-**Purpose:** Verify the adapter handles tool result messages in follow-up requests.
-
-### Steps
-
-1. **Send a request with a tool result from a previous turn:**
-   ```bash
-   curl -s -X POST http://127.0.0.1:6767/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -d '{
-       "model": "gpt-4",
-       "messages": [
-         {"role": "user", "content": "What directory am I in?"},
-         {"role": "assistant", "content": "Let me check.", "tool_calls": [{"id": "call_123", "type": "function", "function": {"name": "bash", "arguments": "{\"command\":\"pwd\"}"}}]},
-         {"role": "tool", "content": "/home/user/project", "tool_call_id": "call_123"}
-       ],
-       "tools": [{
-         "type": "function",
-         "function": {
-           "name": "bash",
-           "description": "Run a bash command",
-           "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
-         }
-       }]
-     }' | python3 -m json.tool
-   ```
-
-2. **Expected response:**
-   - The model should receive the tool result and generate a follow-up response
-   - The `tool` role message should be translated internally to a `user` role message
-   - Response should be valid JSON
-
----
-
-## Test 14: Tool Call (Anthropic Format)
-
-**Purpose:** Verify tool support via the `/v1/messages` endpoint.
-
-### Steps
-
-1. **Start the adapter** (if not already running).
-
-2. **Send an Anthropic-format request with tools:**
-   ```bash
-   curl -s -X POST http://127.0.0.1:6767/v1/messages \
-     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
      -d '{
        "model": "claude-3-5-sonnet-20241022",
        "max_tokens": 1024,
-       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "messages": [{"role": "user", "content": "List files in the current directory"}],
+       "stream": true,
        "tools": [{
          "name": "bash",
          "description": "Run a bash command",
@@ -686,6 +627,99 @@ RUST_LOG=trace copilot-adapter start
            "required": ["command"]
          }
        }]
+     }'
+   ```
+
+2. **Expected output:**
+   - SSE events with content block deltas
+   - A `content_block_start` event with `type: "tool_use"` containing the parsed tool call
+   - The tool use block should have `name` and `id` fields
+   - Stream ends with `message_stop`
+
+---
+
+## Test 13: Multi-Turn Conversation with Tool Results
+
+**Purpose:** Verify the adapter handles tool result messages in follow-up requests.
+
+### Steps
+
+1. **Send a request with a tool result from a previous turn:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [
+         {"role": "user", "content": "What directory am I in?"},
+         {"role": "assistant", "content": [
+           {"type": "text", "text": "Let me check."},
+           {"type": "tool_use", "id": "toolu_123", "name": "bash", "input": {"command": "pwd"}}
+         ]},
+         {"role": "user", "content": [
+           {"type": "tool_result", "tool_use_id": "toolu_123", "content": "/home/user/project"}
+         ]}
+       ],
+       "tools": [{
+         "name": "bash",
+         "description": "Run a bash command",
+         "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
+       }]
+     }' | python3 -m json.tool
+   ```
+
+2. **Expected response:**
+   - The model should receive the tool result and generate a follow-up response
+   - Response should be valid Anthropic-format JSON
+   - `content` array should have at least one `text` block
+
+---
+
+## Test 14: Tool Call with Multiple Tools
+
+**Purpose:** Verify tool support with multiple tool definitions via the `/v1/messages` endpoint.
+
+### Steps
+
+1. **Start the adapter** (if not already running).
+
+2. **Send an Anthropic-format request with multiple tools:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "tools": [
+         {
+           "name": "bash",
+           "description": "Run a bash command",
+           "input_schema": {
+             "type": "object",
+             "properties": {
+               "command": {"type": "string"}
+             },
+             "required": ["command"]
+           }
+         },
+         {
+           "name": "read_file",
+           "description": "Read a file from disk",
+           "input_schema": {
+             "type": "object",
+             "properties": {
+               "path": {"type": "string"}
+             },
+             "required": ["path"]
+           }
+         }
+       ]
      }' | python3 -m json.tool
    ```
 
@@ -731,7 +765,7 @@ RUST_LOG=trace copilot-adapter start
 
 ---
 
-## Test 17: Image Upload (Anthropic Format — Base64)
+## Test 16: Image Upload (Anthropic Format — Base64)
 
 **Purpose:** Verify that base64 image uploads via `/v1/messages` are translated to OpenAI `image_url` format and forwarded successfully.
 
@@ -807,7 +841,7 @@ Check the adapter logs for:
 
 ---
 
-## Test 18: Image Upload (Anthropic Format — URL)
+## Test 17: Image Upload (Anthropic Format — URL)
 
 **Purpose:** Verify that URL-based image references are passed through correctly.
 
@@ -845,7 +879,7 @@ Check the adapter logs for:
 
 ---
 
-## Test 19: Mixed Content (Text + Image + Document)
+## Test 18: Mixed Content (Text + Image + Document)
 
 **Purpose:** Verify that mixed content messages are handled correctly — images translated, documents skipped with warning.
 
@@ -894,7 +928,7 @@ Check the adapter logs for:
 
 ---
 
-## Test 20: Image Upload with Cache Control
+## Test 19: Image Upload with Cache Control
 
 **Purpose:** Verify that `cache_control` metadata on content blocks is accepted without errors.
 
@@ -938,7 +972,7 @@ Check the adapter logs for:
 
 ---
 
-## Test 21: Claude Code Image Upload (Integration)
+## Test 20: Claude Code Image Upload (Integration)
 
 **Purpose:** Verify that uploading an image through Claude Code works end-to-end.
 
@@ -996,20 +1030,19 @@ Check the adapter logs for:
 | 4c | Request after TTL refetches | | |
 | 4d | Network disconnect fallback | | |
 | 4e | Static models mode | | |
-| 5 | Non-streaming chat | | |
-| 6 | Streaming chat | | |
+| 5 | Non-streaming messages | | |
+| 6 | Streaming messages | | |
 | 7 | Concurrent clients | | |
 | 8 | Error handling | | |
 | 9 | Logging | | |
 | 10 | Claude Code integration | | |
-| 11 | Tool call (non-streaming) | | |
-| 12 | Tool call (streaming) | | |
+| 11 | Tool call (non-streaming, Anthropic) | | |
+| 12 | Tool call (streaming, Anthropic) | | |
 | 13 | Multi-turn with tool results | | |
-| 14 | Tools disabled rejection | | |
-| 15 | Tool call (Anthropic format) | | |
-| 16 | Claude Code with tools | | |
-| 17 | Image upload (base64) | | |
-| 18 | Image upload (URL) | | |
-| 19 | Mixed content (image + doc) | | |
-| 20 | Image with cache control | | |
-| 21 | Claude Code image upload | | |
+| 14 | Tool call with multiple tools | | |
+| 15 | Claude Code with tools | | |
+| 16 | Image upload (base64) | | |
+| 17 | Image upload (URL) | | |
+| 18 | Mixed content (image + doc) | | |
+| 19 | Image with cache control | | |
+| 20 | Claude Code image upload | | |

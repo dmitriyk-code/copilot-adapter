@@ -1,12 +1,12 @@
 # GitHub Copilot API Adapter for Claude Code
 
-A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub Copilot's API. This adapter enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions through the familiar OpenAI API interface.
+A standalone Rust binary that acts as an **Anthropic-to-Copilot proxy**. This adapter enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions by translating Anthropic API requests to GitHub Copilot's API format.
 
 ## Features
 
 - **GitHub OAuth device flow** — authenticate through your browser in seconds
 - **Anthropic-compatible API** — `POST /v1/messages` for native Claude Code integration
-- **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
+- **Model discovery** — `GET /v1/models` with dynamic fetching and caching
 - **SSE streaming** — real-time token-by-token responses
 - **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
 - **Tool/function support** — prompt injection for tool calling (see below)
@@ -126,48 +126,6 @@ Health check endpoint.
 curl http://127.0.0.1:6767/health
 # {"status": "ok"}
 ```
-
-### `POST /v1/chat/completions`
-
-OpenAI-compatible chat completions endpoint. Supports both streaming and non-streaming modes.
-
-**Non-streaming:**
-
-```bash
-curl -X POST http://127.0.0.1:6767/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
-
-**Streaming:**
-
-```bash
-curl -X POST http://127.0.0.1:6767/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": true
-  }'
-```
-
-**Supported request parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `model` | string | Yes | Model identifier (e.g., `gpt-4`, `gpt-4o`) |
-| `messages` | array | Yes | Array of message objects (`role` + `content`) |
-| `stream` | boolean | No | Enable SSE streaming (default: `false`) |
-| `temperature` | number | No | Sampling temperature (0–2) |
-| `max_tokens` | integer | No | Maximum tokens in the response |
-| `top_p` | number | No | Nucleus sampling parameter |
-| `n` | integer | No | Number of completions |
-| `stop` | string/array | No | Stop sequences |
-| `presence_penalty` | number | No | Presence penalty (-2 to 2) |
-| `frequency_penalty` | number | No | Frequency penalty (-2 to 2) |
 
 ### `POST /v1/messages`
 
@@ -344,28 +302,28 @@ export ANTHROPIC_API_KEY=dummy
 claude  # Tools like bash, file read/write will work
 ```
 
-### Usage with OpenAI-compatible Clients
+### Usage with Anthropic-compatible Clients
 
-Send standard OpenAI-format tool definitions in your requests:
+Send standard Anthropic-format tool definitions in your requests:
 
 ```bash
-curl -X POST http://127.0.0.1:6767/v1/chat/completions \
+curl -X POST http://127.0.0.1:6767/v1/messages \
   -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "gpt-4",
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
     "messages": [{"role": "user", "content": "What is the weather in London?"}],
     "tools": [{
-      "type": "function",
-      "function": {
-        "name": "get_weather",
-        "description": "Get the current weather",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "location": {"type": "string"}
-          },
-          "required": ["location"]
-        }
+      "name": "get_weather",
+      "description": "Get the current weather",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {"type": "string"}
+        },
+        "required": ["location"]
       }
     }]
   }'
@@ -475,11 +433,11 @@ Claude Code  ──→  copilot-adapter (localhost:6767)  ──→  GitHub Copi
 ```
 
 The adapter:
-1. Accepts OpenAI-format requests on localhost
+1. Accepts Anthropic-format requests on localhost
 2. Authenticates with GitHub via stored OAuth token
 3. Exchanges the GitHub token for a short-lived Copilot token (auto-refreshed)
-4. Forwards the request to the Copilot API with required headers
-5. Returns the response in OpenAI format
+4. Translates requests to OpenAI format and forwards to the Copilot API with required headers
+5. Translates responses back to Anthropic format and returns them
 
 ## Building from Source
 
@@ -566,7 +524,7 @@ If the process crashed, the stale PID file will be cleaned up automatically on t
 ### Connection refused
 
 1. Verify the adapter is running: `copilot-adapter status`
-2. Check the port matches your `OPENAI_API_BASE` setting
+2. Check the port matches your `ANTHROPIC_BASE_URL` setting
 3. Ensure no firewall is blocking localhost connections
 
 ### Token refresh failures

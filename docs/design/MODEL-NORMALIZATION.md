@@ -24,9 +24,7 @@ Added automatic model name normalization in `src/model_mapper.rs` that:
 2. **Removes context size markers** (e.g., `-1m`)
 3. **Converts dashes to dots** in version numbers (e.g., `4-5` → `4.5`)
 
-The normalization is applied at both endpoints:
-- `/v1/chat/completions` (OpenAI format) in `src/handlers/chat.rs`
-- `/v1/messages` (Anthropic format) in `src/anthropic/types.rs`
+The normalization is applied at the `/v1/messages` endpoint (Anthropic format) in `src/anthropic/types.rs`.
 
 ## Implementation
 
