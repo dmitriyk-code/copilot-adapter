@@ -29,25 +29,71 @@ static COLLAPSE_NEWLINES: Lazy<Regex> = Lazy::new(|| {
 });
 
 // ---------------------------------------------------------------------------
+// XML regex patterns — compiled once
+// ---------------------------------------------------------------------------
+
+/// Matches `<function_calls>...</function_calls>` blocks.
+///
+/// The `(?s)` flag makes `.` match newlines so multi-line XML is captured.
+static XML_FUNCTION_CALLS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?s)<function_calls>(.*?)</function_calls>")
+        .expect("xml function_calls regex should compile")
+});
+
+/// Matches `<invoke name="...">...</invoke>` blocks within a function_calls body.
+///
+/// The name capture uses `[^"]*` (zero-or-more) so that empty names are captured
+/// and rejected by the `try_parse_xml_invoke` guard rather than silently ignored.
+static XML_INVOKE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?s)<invoke\s+name="([^"]*)">(.*?)</invoke>"#)
+        .expect("xml invoke regex should compile")
+});
+
+/// Matches `<parameter name="...">...</parameter>` within an invoke body.
+///
+/// Parameter values cannot contain `<` (no nested XML).
+static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"<parameter\s+name="([^"]+)">([^<]*)</parameter>"#)
+        .expect("xml parameter regex should compile")
+});
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /// Parse tool calls from model-generated text content.
 ///
-/// Looks for JSON blocks matching the injected tool-call format:
-/// ```json
-/// {"function_call": {"name": "func_name", "arguments": {...}}}
-/// ```
+/// Supports two formats:
+/// 1. **JSON** (primary): `{"function_call": {"name": "...", "arguments": {...}}}`
+///    in fenced code blocks or inline.
+/// 2. **XML** (fallback): `<function_calls><invoke name="...">...</invoke></function_calls>`
 ///
-/// The function first tries fenced code blocks (```json ... ```), then falls
-/// back to inline JSON objects containing `"function_call"`.
+/// JSON is tried first. If no JSON tool calls are found, the function falls
+/// back to XML parsing. This ensures backwards compatibility while handling
+/// Claude models that generate their native XML format.
 ///
 /// Each extracted tool call is assigned a unique `call_xxx` ID.
 /// Multiple tool calls are returned in document order.
 ///
-/// Invalid or malformed JSON is silently skipped.
+/// Invalid or malformed content is silently skipped.
 pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
-    parse_json_tool_calls(content)
+    let json_calls = parse_json_tool_calls(content);
+    if !json_calls.is_empty() {
+        tracing::debug!(
+            num_calls = json_calls.len(),
+            "Parsed tool calls from JSON format"
+        );
+        return json_calls;
+    }
+
+    let xml_calls = parse_xml_tool_calls(content);
+    if !xml_calls.is_empty() {
+        tracing::debug!(
+            num_calls = xml_calls.len(),
+            "Parsed tool calls from XML format"
+        );
+    }
+    xml_calls
 }
 
 // ---------------------------------------------------------------------------
@@ -106,21 +152,91 @@ fn parse_json_tool_calls(content: &str) -> Vec<ToolCall> {
     tool_calls
 }
 
+/// Parse XML-format tool calls from model-generated text content.
+///
+/// Looks for `<function_calls>` blocks containing `<invoke>` elements:
+/// ```xml
+/// <function_calls>
+///   <invoke name="ToolName">
+///     <parameter name="param1">value1</parameter>
+///     <parameter name="param2">value2</parameter>
+///   </invoke>
+/// </function_calls>
+/// ```
+///
+/// Claude models sometimes generate this format instead of the JSON format
+/// requested via prompt injection. This parser handles it as a fallback.
+fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
+    let mut tool_calls = Vec::new();
+
+    for fc_cap in XML_FUNCTION_CALLS.captures_iter(content) {
+        let body = fc_cap.get(1).unwrap().as_str();
+
+        for invoke_cap in XML_INVOKE.captures_iter(body) {
+            let name = invoke_cap.get(1).unwrap().as_str();
+            let invoke_body = invoke_cap.get(2).unwrap().as_str();
+
+            if let Some(tc) = try_parse_xml_invoke(name, invoke_body) {
+                tool_calls.push(tc);
+            }
+        }
+    }
+
+    tool_calls
+}
+
+/// Parse a single XML `<invoke>` block into a `ToolCall`.
+///
+/// `name` is the tool name from the `name` attribute.
+/// `invoke_body` is the inner content of the `<invoke>` element (parameters).
+///
+/// Returns `None` if the name is empty.
+fn try_parse_xml_invoke(name: &str, invoke_body: &str) -> Option<ToolCall> {
+    if name.is_empty() {
+        return None;
+    }
+
+    let mut params = serde_json::Map::new();
+
+    for param_cap in XML_PARAMETER.captures_iter(invoke_body) {
+        let param_name = param_cap.get(1).unwrap().as_str();
+        let param_value = param_cap.get(2).unwrap().as_str().trim();
+        params.insert(
+            param_name.to_string(),
+            serde_json::Value::String(param_value.to_string()),
+        );
+    }
+
+    let arguments = if params.is_empty() {
+        Some("{}".to_string())
+    } else {
+        Some(serde_json::Value::Object(params).to_string())
+    };
+
+    Some(ToolCall {
+        id: Some(generate_call_id()),
+        call_type: Some("function".to_string()),
+        function: FunctionCall {
+            name: Some(name.to_string()),
+            arguments,
+        },
+    })
+}
+
 /// Strip tool call text from the content, returning the cleaned text.
 ///
-/// Removes both fenced code blocks and inline JSON tool calls, leaving
-/// surrounding prose intact. Only fenced blocks that parse as valid tool
-/// calls are removed — regular JSON documentation examples are preserved.
-/// Extra blank lines left by removal are collapsed.
+/// Removes JSON tool calls (fenced code blocks + inline) and XML
+/// `<function_calls>` blocks, leaving surrounding prose intact. Only blocks
+/// that parse as valid tool calls are removed — regular code examples are
+/// preserved. Extra blank lines left by removal are collapsed.
 ///
 /// **Note:** The result is always trimmed of leading/trailing whitespace
 /// regardless of whether any tool calls were removed.
 pub fn strip_tool_calls(content: &str) -> String {
     let mut result = content.to_string();
 
-    // Remove fenced code blocks, but only those containing valid tool calls.
-    // We iterate over captures, check each for a valid tool call, and remove
-    // matches in reverse order to preserve byte offsets.
+    // ----- JSON: fenced code blocks -----
+    // Only remove fenced blocks that parse as valid tool calls.
     let fenced_removals: Vec<(usize, usize)> = FENCED_PATTERN
         .captures_iter(&result)
         .filter_map(|cap| {
@@ -139,7 +255,7 @@ pub fn strip_tool_calls(content: &str) -> String {
         result.replace_range(start..end, "");
     }
 
-    // Remove inline JSON tool calls using brace-counting.
+    // ----- JSON: inline objects -----
     // Track a search offset so we skip past non-valid matches instead of
     // stopping at the first failure.
     let mut search_from = 0;
@@ -166,6 +282,31 @@ pub fn strip_tool_calls(content: &str) -> String {
             }
             None => break,
         }
+    }
+
+    // ----- XML: <function_calls> blocks -----
+    // Only remove blocks that contain at least one valid <invoke>.
+    let xml_removals: Vec<(usize, usize)> = XML_FUNCTION_CALLS
+        .captures_iter(&result)
+        .filter_map(|cap| {
+            let full_match = cap.get(0)?;
+            let body = cap.get(1)?.as_str();
+            // Check that at least one invoke parses successfully
+            let has_valid_invoke = XML_INVOKE.captures_iter(body).any(|invoke_cap| {
+                let name = invoke_cap.get(1).unwrap().as_str();
+                let invoke_body = invoke_cap.get(2).unwrap().as_str();
+                try_parse_xml_invoke(name, invoke_body).is_some()
+            });
+            if has_valid_invoke {
+                Some((full_match.start(), full_match.end()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (start, end) in xml_removals.into_iter().rev() {
+        result.replace_range(start..end, "");
     }
 
     // Collapse runs of 3+ newlines down to 2 (one blank line)

@@ -221,30 +221,31 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
 
 ---
 
-### Epic 2: Add XML Parsing
+### Epic 2: Add XML Parsing ✅ DONE
 
 **Goal:** Implement XML tool call parsing
 
 **Tasks:**
 
-1. **E2-T1:** Add XML regex patterns
+1. **E2-T1:** Add XML regex patterns ✅ DONE
    - Define `XML_FUNCTION_CALLS`, `XML_INVOKE`, `XML_PARAMETER` static regexes
-   - Test patterns in isolation (inline tests)
+   - `XML_INVOKE` uses `[^"]*` (zero-or-more) so empty names are captured and rejected
 
-2. **E2-T2:** Implement `parse_xml_tool_calls()`
+2. **E2-T2:** Implement `parse_xml_tool_calls()` ✅ DONE
    - Find `<function_calls>` blocks with `XML_FUNCTION_CALLS`
    - Extract `<invoke>` blocks with `XML_INVOKE`
    - For each invoke: extract parameters with `XML_PARAMETER`
-   - Build arguments JSON object from parameters
+   - Build arguments JSON object from parameters (values `.trim()`'d)
    - Create `ToolCall` with `generate_call_id()`
    - Return `Vec<ToolCall>`
 
-3. **E2-T3:** Implement `try_parse_xml_invoke()`
+3. **E2-T3:** Implement `try_parse_xml_invoke()` ✅ DONE
    - Helper function to parse a single `<invoke>` block
    - Returns `Option<ToolCall>`
-   - Handles missing name gracefully (returns `None`)
+   - Handles missing/empty name gracefully (returns `None`)
+   - Parameter values are `.trim()`'d before insertion into JSON map
 
-4. **E2-T4:** Update `parse_tool_calls()` to try XML
+4. **E2-T4:** Update `parse_tool_calls()` to try XML ✅ DONE
    ```rust
    pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
        let json_calls = parse_json_tool_calls(content);
@@ -268,48 +269,34 @@ static XML_PARAMETER: Lazy<Regex> = Lazy::new(|| {
    ```
 
 **Acceptance Criteria:**
-- XML tool calls correctly parsed
-- JSON parsing still works (tested)
-- Logs indicate which format was used
-- Returns empty vec on malformed XML
+- XML tool calls correctly parsed ✅
+- JSON parsing still works (tested) ✅
+- Logs indicate which format was used ✅
+- Returns empty vec on malformed XML ✅
 
 ---
 
-### Epic 3: Add XML Stripping
+### Epic 3: Add XML Stripping ✅ DONE
 
 **Goal:** Remove XML tool calls from content
 
 **Tasks:**
 
-1. **E3-T1:** Implement `strip_xml_tool_calls()`
-   - Find `<function_calls>` blocks
-   - Verify they contain valid tool calls (use `parse_xml_tool_calls()`)
-   - Remove entire `<function_calls>...</function_calls>` block
-   - Return cleaned string
+1. **E3-T1:** Implement XML stripping in `strip_tool_calls()` ✅ DONE
+   - After JSON removal pass, removes `<function_calls>` blocks that contain at least one valid `<invoke>`
+   - Uses `XML_INVOKE` regex to verify blocks contain parseable tool calls before removing
+   - Collapses extra blank lines after removal
+   - Updated `strip_tool_calls` doc comment to reflect XML support
 
-2. **E3-T2:** Update `strip_tool_calls()` to strip XML
-   ```rust
-   pub fn strip_tool_calls(content: &str) -> String {
-       let mut result = content.to_string();
-
-       // Strip JSON (existing logic)
-       // ... fenced blocks ...
-       // ... inline JSON ...
-
-       // Strip XML
-       result = strip_xml_tool_calls(&result);
-
-       // Collapse newlines and trim
-       result = COLLAPSE_NEWLINES.replace_all(&result, "\n\n").to_string();
-       result.trim().to_string()
-   }
-   ```
+2. **E3-T2:** Update `strip_tool_calls()` to strip XML ✅ DONE
+   - XML stripping pass added after existing JSON removal logic
+   - Blank lines collapsed properly via existing `COLLAPSE_NEWLINES` regex
 
 **Acceptance Criteria:**
-- XML tool calls removed from content
-- Surrounding text preserved
-- Newlines collapsed properly
-- JSON stripping still works
+- XML tool calls removed from content ✅
+- Surrounding text preserved ✅
+- Newlines collapsed properly ✅
+- JSON stripping still works ✅
 
 ---
 

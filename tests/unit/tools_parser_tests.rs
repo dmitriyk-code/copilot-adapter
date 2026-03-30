@@ -487,3 +487,382 @@ fn arguments_preserved_as_raw_json_string() {
     assert_eq!(parsed["active"], true);
     assert_eq!(parsed["name"], "hello");
 }
+
+// ---------------------------------------------------------------------------
+// XML parsing tests — Epic 2
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_single_xml_tool_call() {
+    let content = r#"<function_calls>
+<invoke name="Bash">
+<parameter name="command">ls -la</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 1);
+    let tc = &tool_calls[0];
+    assert!(tc.id.as_ref().unwrap().starts_with("call_"));
+    assert_eq!(tc.call_type, Some("function".to_string()));
+    assert_eq!(tc.function.name, Some("Bash".to_string()));
+
+    let args: serde_json::Value =
+        serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["command"], "ls -la");
+}
+
+#[test]
+fn parse_xml_with_multiple_parameters() {
+    let content = r#"<function_calls>
+<invoke name="Bash">
+<parameter name="command">git mv MISSING-FEATURES.md docs/</parameter>
+<parameter name="description">Move file</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["command"], "git mv MISSING-FEATURES.md docs/");
+    assert_eq!(args["description"], "Move file");
+}
+
+#[test]
+fn parse_multiple_xml_invokes() {
+    let content = r#"<function_calls>
+<invoke name="Bash">
+<parameter name="command">ls</parameter>
+</invoke>
+<invoke name="Grep">
+<parameter name="pattern">test</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 2);
+    assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
+    assert_eq!(tool_calls[1].function.name, Some("Grep".to_string()));
+
+    // Each has a unique ID
+    assert_ne!(tool_calls[0].id, tool_calls[1].id);
+}
+
+#[test]
+fn parse_xml_with_surrounding_text() {
+    let content = r#"Let me check that for you.
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">ls -la</parameter>
+</invoke>
+</function_calls>
+
+I'll run that now."#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
+}
+
+#[test]
+fn parse_xml_no_parameters() {
+    let content = r#"<function_calls><invoke name="NoOp"></invoke></function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].function.name, Some("NoOp".to_string()));
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert!(args.as_object().unwrap().is_empty());
+}
+
+#[test]
+fn parse_xml_malformed_missing_name_attribute() {
+    let content =
+        r#"<function_calls><invoke><parameter name="x">y</parameter></invoke></function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert!(tool_calls.is_empty());
+}
+
+#[test]
+fn parse_xml_empty_function_calls() {
+    let content = "<function_calls></function_calls>";
+
+    let tool_calls = parse_tool_calls(content);
+    assert!(tool_calls.is_empty());
+}
+
+#[test]
+fn parse_xml_empty_name_returns_empty() {
+    let content = r#"<function_calls><invoke name=""><parameter name="x">y</parameter></invoke></function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert!(tool_calls.is_empty());
+}
+
+#[test]
+fn parse_mixed_json_and_xml_prefers_json() {
+    let content = r#"
+```json
+{"function_call": {"name": "JsonTool", "arguments": {}}}
+```
+
+<function_calls>
+<invoke name="XmlTool"><parameter name="x">y</parameter></invoke>
+</function_calls>
+"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    // JSON takes priority over XML
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].function.name, Some("JsonTool".to_string()));
+}
+
+#[test]
+fn parse_xml_with_whitespace_in_tags() {
+    let content = r#"<function_calls>
+  <invoke name="Bash">
+    <parameter name="command">echo hello</parameter>
+  </invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["command"], "echo hello");
+}
+
+#[test]
+fn parse_xml_multiple_function_calls_blocks() {
+    let content = r#"First block:
+<function_calls>
+<invoke name="Tool1"><parameter name="a">1</parameter></invoke>
+</function_calls>
+
+Second block:
+<function_calls>
+<invoke name="Tool2"><parameter name="b">2</parameter></invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 2);
+    assert_eq!(tool_calls[0].function.name, Some("Tool1".to_string()));
+    assert_eq!(tool_calls[1].function.name, Some("Tool2".to_string()));
+}
+
+#[test]
+fn parse_xml_no_function_calls_wrapper_returns_empty() {
+    // Bare invoke without function_calls wrapper should not match
+    let content = r#"<invoke name="Bash"><parameter name="command">ls</parameter></invoke>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert!(tool_calls.is_empty());
+}
+
+#[test]
+fn xml_tool_call_ids_are_unique() {
+    let content = r#"<function_calls>
+<invoke name="A"><parameter name="x">1</parameter></invoke>
+<invoke name="B"><parameter name="y">2</parameter></invoke>
+<invoke name="C"><parameter name="z">3</parameter></invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+
+    assert_eq!(tool_calls.len(), 3);
+    let ids: Vec<&str> = tool_calls
+        .iter()
+        .map(|tc| tc.id.as_ref().unwrap().as_str())
+        .collect();
+
+    let mut unique_ids = ids.clone();
+    unique_ids.sort();
+    unique_ids.dedup();
+    assert_eq!(ids.len(), unique_ids.len());
+}
+
+#[test]
+fn parse_xml_parameters_are_all_strings() {
+    // XML parameters are always extracted as strings
+    let content = r#"<function_calls>
+<invoke name="Test">
+<parameter name="count">42</parameter>
+<parameter name="active">true</parameter>
+<parameter name="name">hello</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert_eq!(tool_calls.len(), 1);
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    // All values are strings in XML parsing
+    assert_eq!(args["count"], "42");
+    assert_eq!(args["active"], "true");
+    assert_eq!(args["name"], "hello");
+}
+
+#[test]
+fn no_content_returns_empty_for_both_formats() {
+    assert!(parse_tool_calls("").is_empty());
+    assert!(parse_tool_calls("just plain text").is_empty());
+    assert!(parse_tool_calls("<not_function_calls></not_function_calls>").is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// XML stripping tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn strip_xml_tool_call() {
+    let content = r#"Let me check that.
+
+<function_calls>
+<invoke name="Bash">
+<parameter name="command">ls -la</parameter>
+</invoke>
+</function_calls>
+
+Done."#;
+
+    let stripped = strip_tool_calls(content);
+    assert_eq!(stripped, "Let me check that.\n\nDone.");
+    assert!(!stripped.contains("<function_calls>"));
+    assert!(!stripped.contains("<invoke"));
+}
+
+#[test]
+fn strip_xml_multiple_blocks() {
+    let content = r#"First:
+
+<function_calls>
+<invoke name="Tool1"><parameter name="a">1</parameter></invoke>
+</function_calls>
+
+Second:
+
+<function_calls>
+<invoke name="Tool2"><parameter name="b">2</parameter></invoke>
+</function_calls>
+
+End."#;
+
+    let stripped = strip_tool_calls(content);
+    assert!(!stripped.contains("<function_calls>"));
+    assert!(stripped.contains("First:"));
+    assert!(stripped.contains("Second:"));
+    assert!(stripped.contains("End."));
+}
+
+#[test]
+fn strip_xml_preserves_surrounding_text() {
+    let content = r#"Before text.
+
+<function_calls>
+<invoke name="Bash"><parameter name="command">echo hi</parameter></invoke>
+</function_calls>
+
+After text."#;
+
+    let stripped = strip_tool_calls(content);
+    assert!(stripped.starts_with("Before text."));
+    assert!(stripped.ends_with("After text."));
+    assert!(!stripped.contains("<function_calls>"));
+}
+
+#[test]
+fn strip_xml_invalid_block_preserved() {
+    // A <function_calls> block with no valid invokes should be preserved
+    let content = "Some text.\n\n<function_calls></function_calls>\n\nMore text.";
+
+    let stripped = strip_tool_calls(content);
+    assert!(stripped.contains("<function_calls>"));
+}
+
+#[test]
+fn strip_xml_empty_name_block_preserved() {
+    // invoke with empty name is invalid — block should be preserved
+    let content = r#"Text.
+
+<function_calls>
+<invoke name="">
+<parameter name="x">y</parameter>
+</invoke>
+</function_calls>
+
+More."#;
+
+    let stripped = strip_tool_calls(content);
+    assert!(stripped.contains("<function_calls>"));
+}
+
+// ---------------------------------------------------------------------------
+// XML parameter trimming tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_xml_trims_parameter_whitespace() {
+    let content = r#"<function_calls>
+<invoke name="Bash">
+<parameter name="command">
+  echo hello world
+</parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert_eq!(tool_calls.len(), 1);
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["command"], "echo hello world");
+}
+
+#[test]
+fn parse_xml_trims_multiline_parameter_value() {
+    let content = r#"<function_calls>
+<invoke name="WriteFile">
+<parameter name="path">  /tmp/test.txt  </parameter>
+<parameter name="content">   some content   </parameter>
+</invoke>
+</function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert_eq!(tool_calls.len(), 1);
+
+    let args: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args["path"], "/tmp/test.txt");
+    assert_eq!(args["content"], "some content");
+}
+
+// ---------------------------------------------------------------------------
+// XML empty name guard test (exercises the guard, not just the regex)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_xml_empty_name_hits_guard() {
+    // With [^"]* regex, empty name is captured and rejected by the guard
+    let content = r#"<function_calls><invoke name=""><parameter name="x">y</parameter></invoke></function_calls>"#;
+
+    let tool_calls = parse_tool_calls(content);
+    assert!(tool_calls.is_empty());
+}
