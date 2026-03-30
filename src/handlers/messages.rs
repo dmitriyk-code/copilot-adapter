@@ -96,6 +96,9 @@ pub async fn messages(
 
     // Apply tool injection.
     // Convert Anthropic tool definitions to internal format and inject.
+    // IMPORTANT: Only inject if tools are explicitly provided in this request.
+    // Claude Code is responsible for re-sending tool definitions on every turn
+    // when tool calling is active (including turns with tool_result blocks).
     if let Some(ref tools) = request.tools {
         if !tools.is_empty() {
             tracing::debug!(
@@ -110,6 +113,16 @@ pub async fn messages(
                 &internal_tools,
             );
         }
+    } else if has_tool_results_in_messages {
+        // Tool results are present but no tool definitions were provided.
+        // This is likely a bug in the client (Claude Code should re-send tool
+        // definitions on every turn). Log a warning to help debug.
+        tracing::warn!(
+            "Request contains tool_result blocks but no tool definitions. \
+             The model may generate malformed tool calls without schema context. \
+             Claude Code should re-send tool definitions on every turn when tool \
+             calling is active."
+        );
     }
 
     // Translate tool-role messages (from tool_result blocks) into user messages.

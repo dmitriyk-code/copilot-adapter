@@ -47,6 +47,9 @@ pub async fn chat_completions(
         .as_ref()
         .map_or(false, |t| !t.is_empty());
 
+    // Check if any messages have the "tool" role (indicating tool results).
+    let has_tool_role = request.messages.iter().any(|m| m.role == "tool");
+
     // Build the request to send upstream, applying tool injection if needed.
     let mut upstream_request = request.clone();
 
@@ -62,6 +65,9 @@ pub async fn chat_completions(
     }
 
     // Inject tool definitions into the system prompt.
+    // IMPORTANT: Only inject if tools are explicitly provided in this request.
+    // Claude Code is responsible for re-sending tool definitions on every turn
+    // when tool calling is active (including turns with tool-role messages).
     if let Some(ref tools) = request.tools {
         if !tools.is_empty() {
             tracing::debug!(
@@ -71,6 +77,16 @@ pub async fn chat_completions(
             );
             injector::inject_tools_into_messages(&mut upstream_request.messages, tools);
         }
+    } else if has_tool_role {
+        // Tool-role messages are present but no tool definitions were provided.
+        // This is likely a bug in the client (Claude Code should re-send tool
+        // definitions on every turn). Log a warning to help debug.
+        tracing::warn!(
+            "Request contains tool-role messages but no tool definitions. \
+             The model may generate malformed tool calls without schema context. \
+             Claude Code should re-send tool definitions on every turn when tool \
+             calling is active."
+        );
     }
 
     // Translate tool-role messages into user messages.
