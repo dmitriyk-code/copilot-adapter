@@ -672,11 +672,11 @@ Remove all user-facing and developer-facing references to `/v1/chat/completions`
 
 ---
 
-### Epic 5: Update Messages Handler(Day 3-4, 0.5 days)
+### Epic 5: Update Messages Handler (Day 3-4, 0.5 days) ✅ DONE
 
 Simplify the `/v1/messages` handler now that it's the only endpoint.
 
-#### Task 5.1: Review and Simplify
+#### Task 5.1: Review and Simplify ✅ DONE
 
 **File:** `src/handlers/messages.rs`
 
@@ -692,11 +692,11 @@ Review the handler for any code that was only needed to support the OpenAI endpo
 No major changes expected, but review for clarity.
 
 **Acceptance Criteria:**
-- [ ] Handler reviewed
-- [ ] Any unnecessary code removed
-- [ ] Comments updated
+- [x] Handler reviewed
+- [x] Any unnecessary code removed
+- [x] Comments updated
 
-#### Task 5.2: Update TRACE Logging
+#### Task 5.2: Update TRACE Logging ✅ DONE
 
 **File:** `src/handlers/messages.rs`
 
@@ -709,8 +709,8 @@ Update trace logging messages to reflect that this is now the only endpoint:
 ```
 
 **Acceptance Criteria:**
-- [ ] Log messages are clear
-- [ ] Format mentions updated
+- [x] Log messages are clear
+- [x] Format mentions updated
 
 ---
 
@@ -1306,7 +1306,10 @@ All changes are additive then subtractive, making rollback straightforward via g
 - [x] Dead `http_client` field removed from `AppState`
 
 ### Epic 5: Messages Handler
-- [ ] Handler reviewed and simplified
+- [x] Handler reviewed and simplified
+- [x] Doc comments updated to reflect sole-endpoint status
+- [x] Trace log messages clarified (removed redundant format labels and "Anthropic endpoint" tags)
+- [x] Removed duplicate TRACE-level full-response dump (already logged above)
 
 ### Epic 6: Documentation
 - [ ] CLAUDE.md updated

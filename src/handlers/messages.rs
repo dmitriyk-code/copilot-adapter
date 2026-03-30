@@ -19,15 +19,16 @@ use crate::server::AppState;
 use crate::tools::injector;
 use crate::tools::parser;
 
-/// Handler for `POST /v1/messages`.
+/// Handler for `POST /v1/messages` — the sole Claude Code entrypoint.
 ///
-/// Accepts Anthropic Messages API requests, translates them to OpenAI format,
-/// forwards to the Copilot API, and translates the response back to Anthropic
-/// format. Supports both streaming and non-streaming modes.
+/// Accepts Anthropic Messages API requests from Claude Code, translates them
+/// to the Copilot API format (OpenAI-compatible), forwards them to the GitHub
+/// Copilot API, and translates the response back to Anthropic format.
+/// Supports both streaming and non-streaming modes.
 ///
-/// When the request contains Anthropic `tools`, they are translated to the
-/// internal format, injected into the system prompt, and tool calls are parsed
-/// from the model's text response.
+/// When the request contains tool definitions, they are converted to internal
+/// XML format and injected into the system prompt. Tool calls are parsed from
+/// the model's text response using XML extraction.
 pub async fn messages(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AnthropicRequest>,
@@ -48,7 +49,7 @@ pub async fn messages(
                 source = "Claude Code",
                 endpoint = "/v1/messages",
                 request_json = %json,
-                "Full request received from Claude Code (Anthropic format)"
+                "Full incoming request from Claude Code"
             );
         }
     }
@@ -95,7 +96,7 @@ pub async fn messages(
         .as_ref()
         .map_or(false, |t| !t.is_empty());
 
-    // Translate Anthropic request to OpenAI format
+    // Translate to Copilot API format (OpenAI-compatible)
     let mut openai_request = request.to_chat_completion_request();
 
     // Log model normalization if it happened
@@ -145,16 +146,16 @@ pub async fn messages(
     openai_request.tools = None;
     openai_request.tool_choice = None;
 
-    // TRACE: Log the full request being sent to GitHub Copilot API (translated to OpenAI format)
+    // TRACE: Log the translated request being sent to GitHub Copilot API
     if tracing::enabled!(tracing::Level::TRACE) {
         if let Ok(json) = serde_json::to_string_pretty(&openai_request) {
             tracing::trace!(
                 direction = "OUTGOING",
                 destination = "GitHub Copilot API",
                 endpoint = "/chat/completions",
-                format = "OpenAI (translated from Anthropic)",
+                format = "OpenAI-compatible",
                 request_json = %json,
-                "Full request being sent to GitHub Copilot API (Anthropic endpoint)"
+                "Translated request being sent to GitHub Copilot API"
             );
         }
     }
@@ -179,10 +180,10 @@ pub async fn messages(
                 direction = "OUTGOING",
                 destination = "GitHub Copilot API",
                 endpoint = "/chat/completions",
-                format = "OpenAI (translated from Anthropic)",
+                format = "OpenAI-compatible",
                 mode = "streaming",
                 parse_tools = parse_tools,
-                "Initiating streaming request to GitHub Copilot API (Anthropic endpoint)"
+                "Initiating streaming request to GitHub Copilot API"
             );
         }
 
@@ -202,25 +203,17 @@ pub async fn messages(
                 direction = "INCOMING",
                 source = "GitHub Copilot API",
                 endpoint = "/chat/completions",
-                format = "OpenAI (will be translated to Anthropic)",
+                format = "OpenAI-compatible",
                 response_json = %json,
-                "Full response received from GitHub Copilot API (Anthropic endpoint)"
+                "Response received from GitHub Copilot API"
             );
         }
     }
 
-    // Log the raw response for debugging tool call issues
     tracing::debug!(
         actual_model = %response.model,
-        "Actual model used by Copilot (from non-streaming response)"
+        "Actual model used by Copilot (non-streaming)"
     );
-
-    // TRACE level: dump full response JSON to see exact structure
-    if tracing::enabled!(tracing::Level::TRACE) {
-        if let Ok(json) = serde_json::to_string_pretty(&response) {
-            tracing::trace!(response_json = %json, "Full response JSON from Copilot");
-        }
-    }
 
     for (idx, choice) in response.choices.iter().enumerate() {
         let content_text = choice.message.content.as_text();
@@ -230,7 +223,7 @@ pub async fn messages(
             content_preview = %content_text.chars().take(200).collect::<String>(),
             finish_reason = ?choice.finish_reason,
             existing_tool_calls = ?choice.message.tool_calls,
-            "Raw response from Copilot (Anthropic endpoint)"
+            "Copilot response content"
         );
 
         // If content is not too long, log it fully at trace level
@@ -253,7 +246,7 @@ pub async fn messages(
                 tracing::debug!(
                     num_tool_calls = tool_calls.len(),
                     tool_call_names = ?tool_calls.iter().map(|tc| &tc.function.name).collect::<Vec<_>>(),
-                    "Parsed tool calls from Anthropic response"
+                    "Parsed tool calls from Copilot response"
                 );
                 let stripped = parser::strip_tool_calls(&content_text);
                 choice.message.content = if stripped.is_empty() {
@@ -269,7 +262,7 @@ pub async fn messages(
 
     let anthropic_response = response.to_anthropic_response();
 
-    // TRACE: Log the final response being sent back to Claude Code (translated to Anthropic format)
+    // TRACE: Log the final response being sent back to Claude Code
     if tracing::enabled!(tracing::Level::TRACE) {
         if let Ok(json) = serde_json::to_string_pretty(&anthropic_response) {
             tracing::trace!(
@@ -278,7 +271,7 @@ pub async fn messages(
                 endpoint = "/v1/messages",
                 format = "Anthropic",
                 response_json = %json,
-                "Final response being sent to Claude Code (Anthropic format)"
+                "Final response sent to Claude Code"
             );
         }
     }
@@ -330,10 +323,10 @@ async fn handle_streaming(
                             tracing::trace!(
                                 direction = "INCOMING",
                                 source = "GitHub Copilot API",
-                                format = "OpenAI",
+                                format = "OpenAI-compatible",
                                 mode = "streaming",
                                 chunk_json = %json,
-                                "Received SSE chunk from GitHub Copilot API (will translate to Anthropic)"
+                                "Received SSE chunk from GitHub Copilot API"
                             );
                         }
                     }
@@ -497,10 +490,10 @@ async fn handle_streaming_with_tools(
                             tracing::trace!(
                                 direction = "INCOMING",
                                 source = "GitHub Copilot API",
-                                format = "OpenAI",
+                                format = "OpenAI-compatible",
                                 mode = "streaming_with_tools",
                                 chunk_json = %json,
-                                "Received SSE chunk from GitHub Copilot API (buffering for tool parsing and Anthropic translation)"
+                                "Received SSE chunk from GitHub Copilot API (buffering for tool parsing)"
                             );
                         }
                     }
