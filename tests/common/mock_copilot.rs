@@ -676,10 +676,6 @@ pub fn build_native_tool_call_response(
     let call_id = call_id.unwrap_or("call_native_mock_001");
     let args_str = serde_json::to_string(&arguments).unwrap_or_default();
 
-    // NOTE: Using empty string for content instead of null because the current
-    // MessageContent type (untagged: String | Vec) cannot deserialize null.
-    // This is a known issue documented in Epic 0 findings. When MessageContent
-    // is updated to handle null, this should be changed to serde_json::Value::Null.
     json!({
         "id": "chatcmpl-native-toolmock",
         "object": "chat.completion",
@@ -689,7 +685,7 @@ pub fn build_native_tool_call_response(
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": "",
+                "content": serde_json::Value::Null,
                 "tool_calls": [{
                     "id": call_id,
                     "type": "function",
@@ -739,7 +735,7 @@ pub fn build_native_multi_tool_call_response(
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": "",
+                "content": serde_json::Value::Null,
                 "tool_calls": calls
             },
             "finish_reason": "tool_calls"

@@ -1,6 +1,6 @@
 # Native Tools Streaming — Implementation Plan
 
-**Status:** In Progress (Epic 0 Complete)
+**Status:** In Progress (Epic 2 Complete)
 **Date:** 2026-03-31
 **Based on:** [NATIVE-TOOLS-STREAMING.design.md](./NATIVE-TOOLS-STREAMING.design.md), [BUG-ANALYSIS-TOOL-PARAMS-TYPING.md](../../BUG-ANALYSIS-TOOL-PARAMS-TYPING.md)
 **Related:** `TOOLS-SUPPORT.plan.md` (deprecated), `DUAL-RESPONSES.plan.md`
@@ -350,7 +350,7 @@ pub fn restore_tool_name(name: &str, mapping: &HashMap<String, String>) -> Strin
 
 **Goal:** Add native tools support to Copilot API client.
 
-**Status:** Pending
+**Status:** COMPLETE
 
 **Prerequisite:** Epic 1
 
@@ -358,12 +358,12 @@ pub fn restore_tool_name(name: &str, mapping: &HashMap<String, String>) -> Strin
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add `tools` field to `ChatCompletionRequest` | `src/copilot/types.rs` | Pending |
-| E2-T2 | IMPL | Add `tool_choice` field to `ChatCompletionRequest` | `src/copilot/types.rs` | Pending |
-| E2-T3 | IMPL | Update streaming chunk types for tool_calls | `src/copilot/types.rs` | Pending |
-| E2-T4 | IMPL | Add `tool_calls` to streaming delta | `src/copilot/types.rs` | Pending |
-| E2-T5 | TEST | Unit test: request serialization with tools | `tests/unit/copilot_types_tests.rs` | Pending |
-| E2-T6 | TEST | Unit test: response deserialization with tool_calls | `tests/unit/copilot_types_tests.rs` | Pending |
+| E2-T1 | IMPL | Add `tools` field to `ChatCompletionRequest` | `src/copilot/types.rs` | Done |
+| E2-T2 | IMPL | Add `tool_choice` field to `ChatCompletionRequest` | `src/copilot/types.rs` | Done |
+| E2-T3 | IMPL | Update streaming chunk types for tool_calls | `src/copilot/types.rs` | Done |
+| E2-T4 | IMPL | Add `tool_calls` to streaming delta | `src/copilot/types.rs` | Done |
+| E2-T5 | TEST | Unit test: request serialization with tools | `tests/unit/copilot_types_tests.rs` | Done |
+| E2-T6 | TEST | Unit test: response deserialization with tool_calls | `tests/unit/copilot_types_tests.rs` | Done |
 
 **Type Updates:**
 
@@ -423,10 +423,10 @@ pub struct StreamingDelta {
 ```
 
 **Acceptance Criteria:**
-- [ ] Request includes tools when provided
-- [ ] Streaming chunks with tool_calls parse correctly
-- [ ] Non-streaming responses with tool_calls parse correctly
-- [ ] All unit tests pass
+- [x] Request includes tools when provided
+- [x] Streaming chunks with tool_calls parse correctly
+- [x] Non-streaming responses with tool_calls parse correctly
+- [x] All unit tests pass
 
 ---
 
@@ -1348,9 +1348,10 @@ All changes are additive with feature flags, making rollback straightforward.
 - [x] Unit tests pass
 
 ### Epic 2: Copilot Client
-- [ ] Request types updated
-- [ ] Streaming types updated
-- [ ] Unit tests pass
+- [x] Request types updated
+- [x] Streaming types updated
+- [x] MessageContent null handling fixed
+- [x] Unit tests pass
 
 ### Epic 3: Streaming State Machine
 - [ ] `StreamingState` implemented

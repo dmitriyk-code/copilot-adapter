@@ -104,9 +104,9 @@ async fn copilot_client_receives_native_tool_call_non_streaming() {
         stop: None,
         presence_penalty: None,
         frequency_penalty: None,
-        tools: Some(vec![copilot_adapter::tools::types::Tool {
+        tools: Some(vec![copilot_adapter::copilot::types::OpenAITool {
             tool_type: "function".to_string(),
-            function: copilot_adapter::tools::types::Function {
+            function: copilot_adapter::copilot::types::OpenAIToolFunction {
                 name: "get_weather".to_string(),
                 description: Some("Get weather for a location".to_string()),
                 parameters: Some(json!({
@@ -152,6 +152,14 @@ async fn copilot_client_receives_native_tool_call_non_streaming() {
 async fn copilot_client_receives_multiple_native_tool_calls() {
     let (url, _handle) = spawn_mock_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
+            // Verify tools were forwarded in the request
+            assert!(
+                body.get("tools").is_some(),
+                "Request should include tools field"
+            );
+            let tools = body["tools"].as_array().unwrap();
+            assert_eq!(tools.len(), 2, "Expected both tool definitions to be forwarded");
+
             let model = body["model"].as_str().unwrap_or("gpt-4o");
             Json(build_native_multi_tool_call_response(
                 model,
@@ -186,8 +194,37 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
         stop: None,
         presence_penalty: None,
         frequency_penalty: None,
-        tools: None,
-        tool_choice: None,
+        tools: Some(vec![
+            copilot_adapter::copilot::types::OpenAITool {
+                tool_type: "function".to_string(),
+                function: copilot_adapter::copilot::types::OpenAIToolFunction {
+                    name: "get_weather".to_string(),
+                    description: Some("Get weather for a location".to_string()),
+                    parameters: Some(json!({
+                        "type": "object",
+                        "properties": {
+                            "location": {"type": "string"}
+                        },
+                        "required": ["location"]
+                    })),
+                },
+            },
+            copilot_adapter::copilot::types::OpenAITool {
+                tool_type: "function".to_string(),
+                function: copilot_adapter::copilot::types::OpenAIToolFunction {
+                    name: "read_file".to_string(),
+                    description: Some("Read a file from disk".to_string()),
+                    parameters: Some(json!({
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"}
+                        },
+                        "required": ["path"]
+                    })),
+                },
+            },
+        ]),
+        tool_choice: Some(json!("auto")),
     };
 
     let response = client
@@ -195,14 +232,31 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
         .await
         .unwrap();
 
-    let tool_calls = response.choices[0]
+    let choice = &response.choices[0];
+    assert_eq!(choice.finish_reason, Some("tool_calls".to_string()));
+
+    let tool_calls = choice
         .message
         .tool_calls
         .as_ref()
         .unwrap();
     assert_eq!(tool_calls.len(), 2);
+
+    // First tool call: get_weather
     assert_eq!(tool_calls[0].function.name, Some("get_weather".to_string()));
+    assert!(tool_calls[0].id.is_some(), "First tool call should have an ID");
+    assert_eq!(tool_calls[0].call_type, Some("function".to_string()));
+    let args0: serde_json::Value =
+        serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args0["location"], "London");
+
+    // Second tool call: read_file
     assert_eq!(tool_calls[1].function.name, Some("read_file".to_string()));
+    assert!(tool_calls[1].id.is_some(), "Second tool call should have an ID");
+    assert_eq!(tool_calls[1].call_type, Some("function".to_string()));
+    let args1: serde_json::Value =
+        serde_json::from_str(tool_calls[1].function.arguments.as_ref().unwrap()).unwrap();
+    assert_eq!(args1["path"], "/tmp/test.txt");
 }
 
 // ===========================================================================
@@ -284,11 +338,13 @@ async fn copilot_client_streams_native_tool_call() {
                 if let Some(id) = &tc.id {
                     call_id = id.clone();
                 }
-                if let Some(name) = &tc.function.name {
-                    call_name = name.clone();
-                }
-                if let Some(args) = &tc.function.arguments {
-                    call_args.push_str(args);
+                if let Some(func) = &tc.function {
+                    if let Some(name) = &func.name {
+                        call_name = name.clone();
+                    }
+                    if let Some(args) = &func.arguments {
+                        call_args.push_str(args);
+                    }
                 }
             }
         }
@@ -444,9 +500,9 @@ async fn copilot_client_forwards_tools_in_request_body() {
         stop: None,
         presence_penalty: None,
         frequency_penalty: None,
-        tools: Some(vec![copilot_adapter::tools::types::Tool {
+        tools: Some(vec![copilot_adapter::copilot::types::OpenAITool {
             tool_type: "function".to_string(),
-            function: copilot_adapter::tools::types::Function {
+            function: copilot_adapter::copilot::types::OpenAIToolFunction {
                 name: "get_weather".to_string(),
                 description: Some("Get weather".to_string()),
                 parameters: Some(json!({

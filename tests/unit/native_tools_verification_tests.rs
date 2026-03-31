@@ -6,10 +6,9 @@
 //! and edge cases for the `tool_calls` format that the Copilot API returns
 //! when native tools are passed in the request.
 //!
-//! KEY FINDING: The current `MessageContent` enum (untagged: String | Vec)
-//! cannot deserialize `null` content. Native tool call responses from OpenAI
-//! typically use `"content": null`. This must be fixed before native tools
-//! can work. See `null_content_deserialization_fails` test below.
+//! Epic 2 update: `MessageContent` now handles `null` content by treating it
+//! as empty text. `ChunkDelta.tool_calls` now uses `StreamingToolCall` with
+//! an `index` field. `ChatCompletionRequest.tools` now uses `OpenAITool`.
 
 use copilot_adapter::copilot::types::*;
 use copilot_adapter::tools::types::*;
@@ -72,10 +71,10 @@ fn native_tool_call_response_with_empty_string_content_deserializes() {
 }
 
 #[test]
-fn null_content_deserialization_fails() {
-    // KEY FINDING: The current MessageContent type cannot handle null content.
-    // Native tool call responses from OpenAI use `"content": null`, which
-    // causes deserialization to fail. This must be fixed in Epic 1/2.
+fn null_content_deserialization_succeeds() {
+    // Fixed in Epic 2: MessageContent now handles null content by treating
+    // it as empty text. Native tool call responses from OpenAI use
+    // `"content": null`, which previously failed to deserialize.
     let json = serde_json::json!({
         "id": "chatcmpl-null",
         "object": "chat.completion",
@@ -99,15 +98,16 @@ fn null_content_deserialization_fails() {
         }]
     });
 
-    // This SHOULD succeed but currently fails — documenting as a known issue
-    // that must be fixed before native tools can work.
-    let result = serde_json::from_value::<ChatCompletionResponse>(json);
-    assert!(
-        result.is_err(),
-        "EXPECTED: null content deserialization currently fails. \
-         When this test starts passing, MessageContent has been updated \
-         to handle null — remove this test and uncomment the success tests."
-    );
+    let resp: ChatCompletionResponse = serde_json::from_value(json).unwrap();
+    assert_eq!(resp.id, "chatcmpl-null");
+
+    let choice = &resp.choices[0];
+    // null content deserializes as empty text
+    assert_eq!(choice.message.content.as_text(), "");
+
+    let tool_calls = choice.message.tool_calls.as_ref().unwrap();
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].function.name, Some("bash".to_string()));
 }
 
 #[test]
@@ -234,10 +234,12 @@ fn streaming_chunk_with_tool_calls_delta_deserializes() {
     assert_eq!(tool_calls.len(), 1);
 
     let tc = &tool_calls[0];
+    assert_eq!(tc.index, 0);
     assert_eq!(tc.id, Some("call_stream_001".to_string()));
     assert_eq!(tc.call_type, Some("function".to_string()));
-    assert_eq!(tc.function.name, Some("get_weather".to_string()));
-    assert_eq!(tc.function.arguments, Some("".to_string()));
+    let func = tc.function.as_ref().unwrap();
+    assert_eq!(func.name, Some("get_weather".to_string()));
+    assert_eq!(func.arguments, Some("".to_string()));
 }
 
 #[test]
@@ -268,8 +270,9 @@ fn streaming_chunk_with_partial_arguments_deserializes() {
     // Only partial data — id and name are absent
     assert!(tc.id.is_none());
     assert!(tc.call_type.is_none());
-    assert!(tc.function.name.is_none());
-    assert_eq!(tc.function.arguments, Some("{\"location\":".to_string()));
+    let func = tc.function.as_ref().unwrap();
+    assert!(func.name.is_none());
+    assert_eq!(func.arguments, Some("{\"location\":".to_string()));
 }
 
 #[test]
@@ -370,11 +373,13 @@ fn streaming_chunks_can_reconstruct_full_tool_call() {
                 if let Some(id) = &tc.id {
                     call_id = id.clone();
                 }
-                if let Some(name) = &tc.function.name {
-                    call_name = name.clone();
-                }
-                if let Some(args) = &tc.function.arguments {
-                    call_args.push_str(args);
+                if let Some(ref func) = tc.function {
+                    if let Some(name) = &func.name {
+                        call_name = name.clone();
+                    }
+                    if let Some(args) = &func.arguments {
+                        call_args.push_str(args);
+                    }
                 }
             }
         }
@@ -414,9 +419,9 @@ fn request_with_native_tools_serializes_correctly() {
         stop: None,
         presence_penalty: None,
         frequency_penalty: None,
-        tools: Some(vec![Tool {
+        tools: Some(vec![OpenAITool {
             tool_type: "function".to_string(),
-            function: Function {
+            function: OpenAIToolFunction {
                 name: "get_weather".to_string(),
                 description: Some("Get weather for a location".to_string()),
                 parameters: Some(serde_json::json!({
