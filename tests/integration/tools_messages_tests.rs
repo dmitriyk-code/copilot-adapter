@@ -103,8 +103,7 @@ async fn mock_chat_handler(
 /// embedded in XML format.
 async fn spawn_mock_copilot_with_tool_call() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
 {
-    let app =
-        Router::new().route("/chat/completions", post(mock_chat_with_tool_call_handler));
+    let app = Router::new().route("/chat/completions", post(mock_chat_with_tool_call_handler));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -310,14 +309,8 @@ async fn anthropic_tool_use_block_in_response() {
     let content = resp_json["content"].as_array().unwrap();
 
     // Should have at least one text block (remaining prose) and one tool_use block
-    let text_blocks: Vec<_> = content
-        .iter()
-        .filter(|b| b["type"] == "text")
-        .collect();
-    let tool_use_blocks: Vec<_> = content
-        .iter()
-        .filter(|b| b["type"] == "tool_use")
-        .collect();
+    let text_blocks: Vec<_> = content.iter().filter(|b| b["type"] == "text").collect();
+    let tool_use_blocks: Vec<_> = content.iter().filter(|b| b["type"] == "tool_use").collect();
 
     assert!(
         !tool_use_blocks.is_empty(),
@@ -567,7 +560,10 @@ async fn anthropic_no_tool_calls_parsed_without_tools_in_request() {
     let content = resp_json["content"].as_array().unwrap();
 
     assert_eq!(content.len(), 1, "Should have exactly one content block");
-    assert_eq!(content[0]["type"], "text", "Content block should be text type");
+    assert_eq!(
+        content[0]["type"], "text",
+        "Content block should be text type"
+    );
 
     // Content should still contain the raw tool call text (not stripped)
     let text = content[0]["text"].as_str().unwrap();
@@ -592,10 +588,7 @@ async fn anthropic_no_tool_calls_parsed_without_tools_in_request() {
 /// a tool call embedded in XML format.
 async fn spawn_mock_streaming_copilot_with_tool_call(
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let app = Router::new().route(
-        "/chat/completions",
-        post(mock_streaming_tool_call_handler),
-    );
+    let app = Router::new().route("/chat/completions", post(mock_streaming_tool_call_handler));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -733,10 +726,7 @@ async fn anthropic_streaming_tool_call_detected_and_emitted() {
     // Should have at least one content_block_start with type "tool_use"
     let tool_use_starts: Vec<_> = events
         .iter()
-        .filter(|e| {
-            e["type"] == "content_block_start"
-                && e["content_block"]["type"] == "tool_use"
-        })
+        .filter(|e| e["type"] == "content_block_start" && e["content_block"]["type"] == "tool_use")
         .collect();
     assert!(
         !tool_use_starts.is_empty(),
@@ -753,10 +743,7 @@ async fn anthropic_streaming_tool_call_detected_and_emitted() {
     // Should have an input_json_delta event with the tool arguments
     let input_deltas: Vec<_> = events
         .iter()
-        .filter(|e| {
-            e["type"] == "content_block_delta"
-                && e["delta"]["type"] == "input_json_delta"
-        })
+        .filter(|e| e["type"] == "content_block_delta" && e["delta"]["type"] == "input_json_delta")
         .collect();
     assert!(
         !input_deltas.is_empty(),
@@ -775,10 +762,7 @@ async fn anthropic_streaming_tool_call_detected_and_emitted() {
     // Text content should not contain the XML tool call markup
     let text_deltas: Vec<_> = events
         .iter()
-        .filter(|e| {
-            e["type"] == "content_block_delta"
-                && e["delta"]["type"] == "text_delta"
-        })
+        .filter(|e| e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta")
         .collect();
 
     let all_text: String = text_deltas
@@ -844,10 +828,7 @@ fn parse_anthropic_sse_events(body_text: &str) -> Vec<serde_json::Value> {
 /// malformed data to trigger a parse error in the stream.
 async fn spawn_mock_streaming_copilot_with_error(
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let app = Router::new().route(
-        "/chat/completions",
-        post(mock_streaming_error_handler),
-    );
+    let app = Router::new().route("/chat/completions", post(mock_streaming_error_handler));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -951,10 +932,7 @@ async fn anthropic_streaming_with_tools_emits_error_on_upstream_failure() {
 
     // The error event should be structured as Anthropic expects
     let events = parse_anthropic_sse_events(&body_text);
-    let error_events: Vec<_> = events
-        .iter()
-        .filter(|e| e["type"] == "error")
-        .collect();
+    let error_events: Vec<_> = events.iter().filter(|e| e["type"] == "error").collect();
     assert!(
         !error_events.is_empty(),
         "Expected at least one error event in the stream"
@@ -967,10 +945,7 @@ async fn anthropic_streaming_with_tools_emits_error_on_upstream_failure() {
     // No tool_use blocks should be emitted after the error
     let tool_use_blocks: Vec<_> = events
         .iter()
-        .filter(|e| {
-            e["type"] == "content_block_start"
-                && e["content_block"]["type"] == "tool_use"
-        })
+        .filter(|e| e["type"] == "content_block_start" && e["content_block"]["type"] == "tool_use")
         .collect();
     assert!(
         tool_use_blocks.is_empty(),
@@ -1029,10 +1004,7 @@ async fn anthropic_streaming_normal_emits_error_on_upstream_failure() {
 
     // The error event should be properly structured
     let events = parse_anthropic_sse_events(&body_text);
-    let error_events: Vec<_> = events
-        .iter()
-        .filter(|e| e["type"] == "error")
-        .collect();
+    let error_events: Vec<_> = events.iter().filter(|e| e["type"] == "error").collect();
     assert!(
         !error_events.is_empty(),
         "Expected at least one error event in the stream"
@@ -1040,10 +1012,7 @@ async fn anthropic_streaming_normal_emits_error_on_upstream_failure() {
 
     // No message_delta or message_stop should follow the error
     // (the stream should terminate after the error event)
-    let error_idx = events
-        .iter()
-        .position(|e| e["type"] == "error")
-        .unwrap();
+    let error_idx = events.iter().position(|e| e["type"] == "error").unwrap();
     let after_error: Vec<_> = events[error_idx + 1..].to_vec();
     assert!(
         after_error.is_empty(),

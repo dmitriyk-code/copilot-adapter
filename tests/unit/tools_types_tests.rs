@@ -240,7 +240,9 @@ fn anthropic_tool_use_block_deserializes() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::ToolUse { id, name, input, .. } => {
+        ContentBlock::ToolUse {
+            id, name, input, ..
+        } => {
             assert_eq!(id, "toolu_xyz");
             assert_eq!(name, "bash");
             assert_eq!(input["command"], "pwd");
@@ -340,7 +342,10 @@ fn anthropic_tool_definition_serializes() {
     assert_eq!(json["name"], "bash");
     assert_eq!(json["description"], "Execute a command");
     assert_eq!(json["input_schema"]["type"], "object");
-    assert_eq!(json["input_schema"]["properties"]["command"]["type"], "string");
+    assert_eq!(
+        json["input_schema"]["properties"]["command"]["type"],
+        "string"
+    );
     assert_eq!(json["input_schema"]["required"][0], "command");
 }
 

@@ -18,7 +18,10 @@ async fn not_authenticated_returns_401_with_correct_format() {
     assert_eq!(status, 401);
     assert_eq!(json["error"]["type"], "authentication_error");
     assert_eq!(json["error"]["code"], "not_authenticated");
-    assert!(json["error"]["message"].as_str().unwrap().contains("Authentication required"));
+    assert!(json["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Authentication required"));
 }
 
 #[tokio::test]
@@ -27,7 +30,10 @@ async fn token_expired_returns_401_with_correct_format() {
     assert_eq!(status, 401);
     assert_eq!(json["error"]["type"], "authentication_error");
     assert_eq!(json["error"]["code"], "token_expired");
-    assert!(json["error"]["message"].as_str().unwrap().contains("Token expired"));
+    assert!(json["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Token expired"));
 }
 
 #[tokio::test]
@@ -100,8 +106,7 @@ async fn model_not_found_returns_404_with_correct_format() {
 
 #[tokio::test]
 async fn internal_error_returns_500_with_correct_format() {
-    let (status, json) =
-        error_to_parts(AppError::Internal("something broke".to_string())).await;
+    let (status, json) = error_to_parts(AppError::Internal("something broke".to_string())).await;
     assert_eq!(status, 500);
     assert_eq!(json["error"]["type"], "internal_error");
     assert_eq!(json["error"]["code"], "internal_error");
@@ -123,7 +128,10 @@ async fn anyhow_error_converts_to_internal() {
 
 #[test]
 fn error_type_returns_correct_strings() {
-    assert_eq!(AppError::NotAuthenticated.error_type(), "authentication_error");
+    assert_eq!(
+        AppError::NotAuthenticated.error_type(),
+        "authentication_error"
+    );
     assert_eq!(AppError::TokenExpired.error_type(), "authentication_error");
     assert_eq!(
         AppError::GitHubError("x".into()).error_type(),
@@ -138,8 +146,14 @@ fn error_type_returns_correct_strings() {
         AppError::InvalidRequest("x".into()).error_type(),
         "invalid_request_error"
     );
-    assert_eq!(AppError::ModelNotFound("x".into()).error_type(), "not_found_error");
-    assert_eq!(AppError::Internal("x".into()).error_type(), "internal_error");
+    assert_eq!(
+        AppError::ModelNotFound("x".into()).error_type(),
+        "not_found_error"
+    );
+    assert_eq!(
+        AppError::Internal("x".into()).error_type(),
+        "internal_error"
+    );
 }
 
 #[tokio::test]

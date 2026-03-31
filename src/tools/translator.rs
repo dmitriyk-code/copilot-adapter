@@ -55,10 +55,12 @@ pub fn translate_anthropic_tools_to_openai(tools: &[ToolDefinition]) -> ToolTran
 ///
 /// If the name exceeds the limit, it is truncated to 55 characters and
 /// suffixed with `_` plus an 8-character hash of the full name.
+/// UTF-8 safety: the prefix is sliced at a character boundary to avoid
+/// panics on multi-byte tool names.
 ///
 /// Returns `(truncated_name, was_truncated)`.
 fn truncate_tool_name(name: &str) -> (String, bool) {
-    if name.len() <= OPENAI_MAX_TOOL_NAME_LENGTH {
+    if name.chars().count() <= OPENAI_MAX_TOOL_NAME_LENGTH {
         return (name.to_string(), false);
     }
 
@@ -68,7 +70,15 @@ fn truncate_tool_name(name: &str) -> (String, bool) {
     let hash_hex = hex::encode(&hash[..4]); // 8 hex chars from 4 bytes
 
     let prefix_len = OPENAI_MAX_TOOL_NAME_LENGTH - 1 - TOOL_NAME_HASH_LENGTH;
-    let truncated = format!("{}_{}", &name[..prefix_len], hash_hex);
+    // Take exactly `prefix_len` characters (by character count, not bytes)
+    // to respect the OpenAI character limit. Use `char_indices` to find
+    // the byte offset after the last included character for safe slicing.
+    let safe_byte_end = name
+        .char_indices()
+        .nth(prefix_len)
+        .map(|(i, _)| i)
+        .unwrap_or(name.len());
+    let truncated = format!("{}_{}", &name[..safe_byte_end], hash_hex);
 
     (truncated, true)
 }

@@ -37,7 +37,9 @@ fn main() {
     println!("        public string UserName;");
     println!("    }}");
     println!("");
-    println!("    [DllImport(\\\"advapi32.dll\\\", CharSet = CharSet.Unicode, SetLastError = true)]");
+    println!(
+        "    [DllImport(\\\"advapi32.dll\\\", CharSet = CharSet.Unicode, SetLastError = true)]"
+    );
     println!("    public static extern bool CredRead(string target, int type, int flags, out IntPtr credential);");
     println!("");
     println!("    [DllImport(\\\"advapi32.dll\\\")]");

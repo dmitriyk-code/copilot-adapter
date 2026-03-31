@@ -65,10 +65,7 @@ pub struct AppState {
 }
 
 /// Request tracing middleware that logs method, path, status, duration, and request ID.
-async fn request_tracing(
-    req: Request<Body>,
-    next: middleware::Next,
-) -> Response {
+async fn request_tracing(req: Request<Body>, next: middleware::Next) -> Response {
     let request_id = uuid::Uuid::new_v4().to_string();
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -149,7 +146,10 @@ pub async fn run(
             max_size = config.conversation_log_max_size,
             "Conversation logging enabled"
         );
-        Some(ConversationLogger::new(path, config.conversation_log_max_size))
+        Some(ConversationLogger::new(
+            path,
+            config.conversation_log_max_size,
+        ))
     } else {
         None
     };
@@ -198,8 +198,7 @@ async fn shutdown_signal() {
 
         let mut sigterm =
             signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
-        let mut sigint =
-            signal(SignalKind::interrupt()).expect("failed to install SIGINT handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("failed to install SIGINT handler");
 
         tokio::select! {
             _ = sigterm.recv() => {

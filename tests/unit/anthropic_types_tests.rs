@@ -41,7 +41,10 @@ fn anthropic_request_full_deserializes() {
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.model, "claude-sonnet-4-20250514");
     assert_eq!(req.max_tokens, 4096);
-    assert_eq!(req.system.as_ref().map(|s| s.to_text()), Some("You are a helpful assistant.".to_string()));
+    assert_eq!(
+        req.system.as_ref().map(|s| s.to_text()),
+        Some("You are a helpful assistant.".to_string())
+    );
     assert_eq!(req.messages.len(), 3);
     assert_eq!(req.stream, Some(true));
     assert_eq!(req.temperature, Some(0.7));
@@ -111,7 +114,10 @@ fn anthropic_request_roundtrip() {
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.model, "claude-sonnet-4-20250514");
-    assert_eq!(deserialized.system.as_ref().map(|s| s.to_text()), Some("Be helpful".to_string()));
+    assert_eq!(
+        deserialized.system.as_ref().map(|s| s.to_text()),
+        Some("Be helpful".to_string())
+    );
 }
 
 #[test]
@@ -220,7 +226,9 @@ fn request_translation_with_system_prepends_system_message() {
             role: "user".to_string(),
             content: ContentBlockInput::Text("Hello".to_string()),
         }],
-        system: Some(SystemInput::Text("You are a helpful assistant.".to_string())),
+        system: Some(SystemInput::Text(
+            "You are a helpful assistant.".to_string(),
+        )),
         stream: None,
         temperature: None,
         top_p: None,
@@ -232,7 +240,10 @@ fn request_translation_with_system_prepends_system_message() {
     let openai = req.to_chat_completion_request();
     assert_eq!(openai.messages.len(), 2);
     assert_eq!(openai.messages[0].role, "system");
-    assert_eq!(openai.messages[0].content.as_text(), "You are a helpful assistant.");
+    assert_eq!(
+        openai.messages[0].content.as_text(),
+        "You are a helpful assistant."
+    );
     assert_eq!(openai.messages[1].role, "user");
     assert_eq!(openai.messages[1].content.as_text(), "Hello");
 }
@@ -315,10 +326,7 @@ fn request_translation_maps_fields() {
     assert_eq!(openai.stream, Some(true));
     assert_eq!(openai.temperature, Some(0.7));
     assert_eq!(openai.top_p, Some(0.9));
-    assert_eq!(
-        openai.stop,
-        Some(serde_json::json!(["END"]))
-    );
+    assert_eq!(openai.stop, Some(serde_json::json!(["END"])));
 }
 
 #[test]

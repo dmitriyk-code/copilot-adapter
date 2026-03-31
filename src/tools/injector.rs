@@ -65,7 +65,10 @@ fn format_parameter_xml(name: &str, schema: &serde_json::Value, is_required: boo
     xml.push_str("<parameter>\n");
     xml.push_str(&format!("<name>{}</name>\n", xml_escape(name)));
     xml.push_str(&format!("<type>{}</type>\n", xml_escape(param_type)));
-    xml.push_str(&format!("<description>{}</description>\n", xml_escape(description)));
+    xml.push_str(&format!(
+        "<description>{}</description>\n",
+        xml_escape(description)
+    ));
     xml.push_str(&format!("<required>{}</required>\n", is_required));
     xml.push_str("</parameter>");
     xml
@@ -224,7 +227,7 @@ fn build_tool_prompt(tools: &[Tool]) -> String {
 /// call it belongs to.
 ///
 /// Messages with other roles are passed through unchanged.
-pub fn translate_tool_messages(messages: &mut Vec<Message>) {
+pub fn translate_tool_messages(messages: &mut [Message]) {
     for msg in messages.iter_mut() {
         if msg.role == "tool" {
             let tool_call_id = msg.tool_call_id.take().unwrap_or_default();
@@ -329,9 +332,9 @@ mod tests {
         )];
         let output = format_tools_as_xml(&tools);
         assert!(output.contains("<description>Check if a &lt; b &amp; c &gt; d</description>"));
-        assert!(output.contains(
-            "<description>Expression like &lt;a&gt; &amp; &lt;b&gt;</description>"
-        ));
+        assert!(
+            output.contains("<description>Expression like &lt;a&gt; &amp; &lt;b&gt;</description>")
+        );
         assert!(output.contains("<tool_name>compare</tool_name>"));
     }
 

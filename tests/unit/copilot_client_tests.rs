@@ -11,10 +11,7 @@ use copilot_adapter::copilot::client::CopilotClient;
 
 /// Spawn a mock models endpoint that returns the given status and body.
 /// Returns the full URL to the mock models endpoint.
-async fn spawn_mock_models(
-    status: StatusCode,
-    body: serde_json::Value,
-) -> (String, SocketAddr) {
+async fn spawn_mock_models(status: StatusCode, body: serde_json::Value) -> (String, SocketAddr) {
     let app = Router::new().route(
         "/models",
         get(move || {
@@ -176,11 +173,8 @@ async fn fetch_models_sends_correct_headers() {
 
 #[tokio::test]
 async fn fetch_models_404_returns_copilot_error() {
-    let (url, _addr) = spawn_mock_models(
-        StatusCode::NOT_FOUND,
-        json!({"error": "not found"}),
-    )
-    .await;
+    let (url, _addr) =
+        spawn_mock_models(StatusCode::NOT_FOUND, json!({"error": "not found"})).await;
 
     let client = CopilotClient::new(reqwest::Client::new()).with_models_url(url);
 
@@ -201,11 +195,8 @@ async fn fetch_models_404_returns_copilot_error() {
 
 #[tokio::test]
 async fn fetch_models_401_returns_copilot_error() {
-    let (url, _addr) = spawn_mock_models(
-        StatusCode::UNAUTHORIZED,
-        json!({"error": "unauthorized"}),
-    )
-    .await;
+    let (url, _addr) =
+        spawn_mock_models(StatusCode::UNAUTHORIZED, json!({"error": "unauthorized"})).await;
 
     let client = CopilotClient::new(reqwest::Client::new()).with_models_url(url);
 
@@ -303,10 +294,9 @@ async fn fetch_models_429_returns_rate_limited() {
                 Json(json!({"error": "rate limited"})),
             )
                 .into_response();
-            response.headers_mut().insert(
-                "Retry-After",
-                axum::http::HeaderValue::from_static("30"),
-            );
+            response
+                .headers_mut()
+                .insert("Retry-After", axum::http::HeaderValue::from_static("30"));
             response
         }),
     );

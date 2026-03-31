@@ -34,9 +34,7 @@ async fn spawn_mock_copilot_api() -> (std::net::SocketAddr, tokio::task::JoinHan
 }
 
 /// Mock chat completions endpoint supporting both streaming and non-streaming.
-async fn mock_chat_completions(
-    axum::Json(body): axum::Json<serde_json::Value>,
-) -> Response {
+async fn mock_chat_completions(axum::Json(body): axum::Json<serde_json::Value>) -> Response {
     let model = body["model"].as_str().unwrap_or("gpt-4");
     let stream = body["stream"].as_bool().unwrap_or(false);
 
@@ -393,7 +391,10 @@ async fn messages_response_has_correct_json_structure() {
     assert!(json.get("id").is_some(), "response must have 'id'");
     assert_eq!(json["type"], "message");
     assert_eq!(json["role"], "assistant");
-    assert!(json.get("content").is_some(), "response must have 'content'");
+    assert!(
+        json.get("content").is_some(),
+        "response must have 'content'"
+    );
     assert!(json["content"].is_array());
     assert_eq!(json["content"][0]["type"], "text");
     assert!(json.get("usage").is_some(), "response must have 'usage'");
@@ -583,7 +584,10 @@ async fn messages_streaming_content_deltas_contain_text() {
         .map(|(_, v)| v)
         .collect();
 
-    assert!(!deltas.is_empty(), "Should have at least one content_block_delta");
+    assert!(
+        !deltas.is_empty(),
+        "Should have at least one content_block_delta"
+    );
 
     // Each delta should have text_delta type
     for delta in &deltas {

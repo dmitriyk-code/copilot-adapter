@@ -61,6 +61,12 @@ pub struct DeviceFlowAuth {
     copilot_token_url: String,
 }
 
+impl Default for DeviceFlowAuth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeviceFlowAuth {
     pub fn new() -> Self {
         Self {
@@ -133,10 +139,7 @@ impl DeviceFlowAuth {
                 .form(&[
                     ("client_id", CLIENT_ID),
                     ("device_code", device_code),
-                    (
-                        "grant_type",
-                        "urn:ietf:params:oauth:grant-type:device_code",
-                    ),
+                    ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ])
                 .send()
                 .await?;
@@ -149,10 +152,7 @@ impl DeviceFlowAuth {
             }
 
             // Check error field
-            let error = body
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let error = body.get("error").and_then(|v| v.as_str()).unwrap_or("");
 
             match error {
                 "authorization_pending" => continue,
@@ -162,7 +162,9 @@ impl DeviceFlowAuth {
                     continue;
                 }
                 "expired_token" => {
-                    return Err(anyhow!("Device code expired — please restart authentication"));
+                    return Err(anyhow!(
+                        "Device code expired — please restart authentication"
+                    ));
                 }
                 "access_denied" => {
                     return Err(anyhow!("Authorization was denied by the user"));

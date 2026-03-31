@@ -53,10 +53,7 @@ impl ConversationLogger {
 
     /// Return the next monotonically-increasing request number.
     pub fn next_request_number(&self) -> u64 {
-        self.inner
-            .request_counter
-            .fetch_add(1, Ordering::Relaxed)
-            + 1
+        self.inner.request_counter.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     /// Log a complete request/response cycle.
@@ -195,10 +192,7 @@ impl ConversationCycle {
         out.push_str(&format!("Messages: {}\n", self.incoming_messages.len()));
 
         if let Some(ref sys) = self.incoming_system {
-            out.push_str(&format!(
-                "System prompt: {} chars\n",
-                sys.len()
-            ));
+            out.push_str(&format!("System prompt: {} chars\n", sys.len()));
         }
 
         if !self.incoming_tools.is_empty() {
@@ -446,7 +440,7 @@ impl ConversationCycleBuilder {
                 .message
                 .tool_calls
                 .as_ref()
-                .map_or(false, |tc| !tc.is_empty());
+                .is_some_and(|tc| !tc.is_empty());
         }
     }
 
@@ -482,12 +476,12 @@ impl ConversationCycleBuilder {
                         preview: truncate(text, PREVIEW_LENGTH),
                     }
                 }
-                crate::anthropic::types::ResponseContentBlock::ToolUse {
-                    name, id, ..
-                } => ContentBlockSummary {
-                    block_type: "tool_use".to_string(),
-                    preview: format!("{name} (id={id})"),
-                },
+                crate::anthropic::types::ResponseContentBlock::ToolUse { name, id, .. } => {
+                    ContentBlockSummary {
+                        block_type: "tool_use".to_string(),
+                        preview: format!("{name} (id={id})"),
+                    }
+                }
             })
             .collect();
 
@@ -695,10 +689,8 @@ mod tests {
 
     #[tokio::test]
     async fn log_rotation_works() {
-        let dir = std::env::temp_dir().join(format!(
-            "conversation_log_test_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("conversation_log_test_{}", std::process::id()));
         let _ = tokio::fs::create_dir_all(&dir).await;
         let log_path = dir.join("test.log");
         let backup_path = dir.join("test.log.1");

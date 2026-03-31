@@ -17,8 +17,7 @@ use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 use super::test_helpers::InMemoryStorage;
 
 /// Spawn a mock GitHub server that returns Copilot tokens.
-async fn spawn_mock_github(
-) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+async fn spawn_mock_github() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/copilot_internal/v2/token",
         axum::routing::get(|headers: axum::http::HeaderMap| async move {

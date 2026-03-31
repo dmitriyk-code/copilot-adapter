@@ -9,7 +9,9 @@ mod windows_credential_tests {
 
         // Verify keyring is available
         assert!(
-            storage.verify_available().expect("Failed to verify keyring"),
+            storage
+                .verify_available()
+                .expect("Failed to verify keyring"),
             "Keyring should be available on Windows"
         );
 

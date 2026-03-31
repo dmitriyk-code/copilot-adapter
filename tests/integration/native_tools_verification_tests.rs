@@ -28,21 +28,17 @@ use crate::common::mock_copilot::{
 // Helper: spawn a mock Copilot server with a custom POST handler
 // ---------------------------------------------------------------------------
 
-async fn spawn_mock_with_handler<F, Fut>(
-    handler: F,
-) -> (String, tokio::task::JoinHandle<()>)
+async fn spawn_mock_with_handler<F, Fut>(handler: F) -> (String, tokio::task::JoinHandle<()>)
 where
     F: Fn(HeaderMap, Json<serde_json::Value>) -> Fut + Clone + Send + Sync + 'static,
     Fut: std::future::Future<Output = axum::response::Response> + Send,
 {
     let app = Router::new().route(
         "/chat/completions",
-        post(
-            move |headers: HeaderMap, body: Json<serde_json::Value>| {
-                let h = handler.clone();
-                async move { h(headers, body).await }
-            },
-        ),
+        post(move |headers: HeaderMap, body: Json<serde_json::Value>| {
+            let h = handler.clone();
+            async move { h(headers, body).await }
+        }),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -60,8 +56,8 @@ where
 
 #[tokio::test]
 async fn copilot_client_receives_native_tool_call_non_streaming() {
-    let (url, _handle) = spawn_mock_with_handler(
-        |_headers, Json(body): Json<serde_json::Value>| async move {
+    let (url, _handle) =
+        spawn_mock_with_handler(|_headers, Json(body): Json<serde_json::Value>| async move {
             let model = body["model"].as_str().unwrap_or("gpt-4o");
 
             // Verify that tools were forwarded in the request
@@ -79,9 +75,8 @@ async fn copilot_client_receives_native_tool_call_non_streaming() {
                 None,
             ))
             .into_response()
-        },
-    )
-    .await;
+        })
+        .await;
 
     let client = CopilotClient::with_api_url(reqwest::Client::new(), url);
 
@@ -150,15 +145,19 @@ async fn copilot_client_receives_native_tool_call_non_streaming() {
 
 #[tokio::test]
 async fn copilot_client_receives_multiple_native_tool_calls() {
-    let (url, _handle) = spawn_mock_with_handler(
-        |_headers, Json(body): Json<serde_json::Value>| async move {
+    let (url, _handle) =
+        spawn_mock_with_handler(|_headers, Json(body): Json<serde_json::Value>| async move {
             // Verify tools were forwarded in the request
             assert!(
                 body.get("tools").is_some(),
                 "Request should include tools field"
             );
             let tools = body["tools"].as_array().unwrap();
-            assert_eq!(tools.len(), 2, "Expected both tool definitions to be forwarded");
+            assert_eq!(
+                tools.len(),
+                2,
+                "Expected both tool definitions to be forwarded"
+            );
 
             let model = body["model"].as_str().unwrap_or("gpt-4o");
             Json(build_native_multi_tool_call_response(
@@ -169,9 +168,8 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
                 ],
             ))
             .into_response()
-        },
-    )
-    .await;
+        })
+        .await;
 
     let client = CopilotClient::with_api_url(reqwest::Client::new(), url);
 
@@ -235,16 +233,15 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
     let choice = &response.choices[0];
     assert_eq!(choice.finish_reason, Some("tool_calls".to_string()));
 
-    let tool_calls = choice
-        .message
-        .tool_calls
-        .as_ref()
-        .unwrap();
+    let tool_calls = choice.message.tool_calls.as_ref().unwrap();
     assert_eq!(tool_calls.len(), 2);
 
     // First tool call: get_weather
     assert_eq!(tool_calls[0].function.name, Some("get_weather".to_string()));
-    assert!(tool_calls[0].id.is_some(), "First tool call should have an ID");
+    assert!(
+        tool_calls[0].id.is_some(),
+        "First tool call should have an ID"
+    );
     assert_eq!(tool_calls[0].call_type, Some("function".to_string()));
     let args0: serde_json::Value =
         serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
@@ -252,7 +249,10 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
 
     // Second tool call: read_file
     assert_eq!(tool_calls[1].function.name, Some("read_file".to_string()));
-    assert!(tool_calls[1].id.is_some(), "Second tool call should have an ID");
+    assert!(
+        tool_calls[1].id.is_some(),
+        "Second tool call should have an ID"
+    );
     assert_eq!(tool_calls[1].call_type, Some("function".to_string()));
     let args1: serde_json::Value =
         serde_json::from_str(tool_calls[1].function.arguments.as_ref().unwrap()).unwrap();
@@ -265,8 +265,8 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
 
 #[tokio::test]
 async fn copilot_client_streams_native_tool_call() {
-    let (url, _handle) = spawn_mock_with_handler(
-        |_headers, Json(body): Json<serde_json::Value>| async move {
+    let (url, _handle) =
+        spawn_mock_with_handler(|_headers, Json(body): Json<serde_json::Value>| async move {
             let model = body["model"].as_str().unwrap_or("gpt-4o");
             let sse_body = build_native_streaming_tool_call_chunks(
                 model,
@@ -280,9 +280,8 @@ async fn copilot_client_streams_native_tool_call() {
                 .body(Body::from(sse_body))
                 .unwrap()
                 .into_response()
-        },
-    )
-    .await;
+        })
+        .await;
 
     let client = CopilotClient::with_api_url(reqwest::Client::new(), url);
 
@@ -322,7 +321,11 @@ async fn copilot_client_streams_native_tool_call() {
         .collect();
 
     // Should have multiple chunks
-    assert!(chunks.len() >= 3, "Expected at least 3 chunks, got {}", chunks.len());
+    assert!(
+        chunks.len() >= 3,
+        "Expected at least 3 chunks, got {}",
+        chunks.len()
+    );
 
     // Reconstruct the tool call from streaming deltas
     let mut call_id = String::new();
@@ -356,7 +359,10 @@ async fn copilot_client_streams_native_tool_call() {
 
     assert_eq!(call_name, "get_weather");
     assert!(!call_id.is_empty(), "Tool call ID should be present");
-    assert!(saw_tool_calls_finish, "Should see finish_reason 'tool_calls'");
+    assert!(
+        saw_tool_calls_finish,
+        "Should see finish_reason 'tool_calls'"
+    );
 
     // Verify the accumulated arguments are valid JSON
     let parsed_args: serde_json::Value = serde_json::from_str(&call_args).unwrap();
@@ -369,8 +375,8 @@ async fn copilot_client_streams_native_tool_call() {
 
 #[tokio::test]
 async fn copilot_client_streams_text_then_native_tool_call() {
-    let (url, _handle) = spawn_mock_with_handler(
-        |_headers, Json(body): Json<serde_json::Value>| async move {
+    let (url, _handle) =
+        spawn_mock_with_handler(|_headers, Json(body): Json<serde_json::Value>| async move {
             let model = body["model"].as_str().unwrap_or("gpt-4o");
             let sse_body = build_native_streaming_text_then_tool_chunks(
                 model,
@@ -385,9 +391,8 @@ async fn copilot_client_streams_text_then_native_tool_call() {
                 .body(Body::from(sse_body))
                 .unwrap()
                 .into_response()
-        },
-    )
-    .await;
+        })
+        .await;
 
     let client = CopilotClient::with_api_url(reqwest::Client::new(), url);
 
@@ -461,8 +466,8 @@ async fn copilot_client_forwards_tools_in_request_body() {
     let received_body = Arc::new(tokio::sync::Mutex::new(None::<serde_json::Value>));
     let received_body_clone = received_body.clone();
 
-    let (url, _handle) = spawn_mock_with_handler(
-        move |_headers, Json(body): Json<serde_json::Value>| {
+    let (url, _handle) =
+        spawn_mock_with_handler(move |_headers, Json(body): Json<serde_json::Value>| {
             let rb = received_body_clone.clone();
             async move {
                 *rb.lock().await = Some(body.clone());
@@ -475,9 +480,8 @@ async fn copilot_client_forwards_tools_in_request_body() {
                 ))
                 .into_response()
             }
-        },
-    )
-    .await;
+        })
+        .await;
 
     let client = CopilotClient::with_api_url(reqwest::Client::new(), url);
 

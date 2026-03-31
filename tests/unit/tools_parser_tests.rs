@@ -356,7 +356,11 @@ fn parse_standalone_invoke_prefers_function_calls_wrapper() {
 
 #[test]
 fn no_tool_calls_returns_empty() {
-    let tool_calls = parse_tool_calls("Just a regular message with no tool calls at all.", None, false);
+    let tool_calls = parse_tool_calls(
+        "Just a regular message with no tool calls at all.",
+        None,
+        false,
+    );
     assert!(tool_calls.is_empty());
 }
 
@@ -746,8 +750,5 @@ fn parse_attr_parameter_with_comparison_operator() {
 
     let args: serde_json::Value =
         serde_json::from_str(tool_calls[0].function.arguments.as_ref().unwrap()).unwrap();
-    assert_eq!(
-        args["command"],
-        "if x < 10 && y > 5; then echo ok; fi"
-    );
+    assert_eq!(args["command"], "if x < 10 && y > 5; then echo ok; fi");
 }

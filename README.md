@@ -9,7 +9,7 @@ A standalone Rust binary that acts as an **Anthropic-to-Copilot proxy**. This ad
 - **Model discovery** — `GET /v1/models` with dynamic fetching and caching
 - **SSE streaming** — real-time token-by-token responses
 - **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
-- **Tool/function support** — prompt injection for tool calling (see below)
+- **Tool/function support** — prompt injection for tool calling, with native OpenAI tools mode (experimental)
 - **Dynamic model discovery** — fetches available models from Copilot API with caching and fallback
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
 - **Secure credential storage** — OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service) with encrypted file fallback
@@ -118,6 +118,8 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 | `copilot-adapter start --log-file /tmp/adapter.log` | Log to a file |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds, default: 300) |
 | `copilot-adapter start --static-models` | Use static model list (skip API fetch) |
+| `copilot-adapter start --native-tools` | Enable native OpenAI tools (progressive streaming, experimental) |
+| `copilot-adapter start --xml-tools` | Force XML-based tool injection (default behavior) |
 | `copilot-adapter status` | Check if the adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -291,12 +293,55 @@ curl -s -X POST http://127.0.0.1:6767/v1/messages \
 
 ## Tool/Function Support
 
-The adapter supports **tool/function calling** via prompt injection. Since GitHub Copilot's upstream API does not natively support the Anthropic `tools` parameter, the adapter works around this by:
+The adapter supports **tool/function calling** via two modes:
+
+### Mode 1: XML Prompt Injection (default)
+
+Since GitHub Copilot's upstream API does not natively support the Anthropic `tools` parameter in all configurations, the adapter works around this by:
 
 1. **Injecting** tool definitions into the system prompt as XML (following the Anthropic Cookbook format)
 2. **Instructing** the model to respond with structured XML when it wants to call a tool
 3. **Parsing** tool calls from `<function_calls>` XML blocks in the model's text response
 4. **Returning** them as `tool_use` content blocks (Anthropic format)
+
+This mode buffers the entire response before emitting SSE events.
+
+### Mode 2: Native OpenAI Tools (experimental)
+
+When started with `--native-tools`, the adapter passes tool definitions natively to the Copilot API in OpenAI function calling format:
+
+```bash
+copilot-adapter start --native-tools
+```
+
+Benefits:
+- **Progressive streaming** — text and tool calls appear as they are generated
+- **Type preservation** — parameter types (number, boolean, etc.) are preserved from schemas
+- **Better UX** — matches native Anthropic API behavior with incremental output
+
+The adapter automatically falls back to XML injection if the upstream API does not support native tools.
+
+Use `--xml-tools` to explicitly force XML mode:
+
+```bash
+copilot-adapter start --xml-tools
+```
+
+| Flag | Description |
+|------|-------------|
+| `--native-tools` | Enable native OpenAI function calling (experimental) |
+| `--xml-tools` | Force XML-based tool injection |
+| *(neither)* | Default: XML injection |
+
+> **Note:** `--native-tools` and `--xml-tools` are mutually exclusive.
+
+### Tool Name Truncation
+
+OpenAI has a 64-character limit for function names. Long tool names (common with MCP tools like `mcp__codemogger__codemogger_search`) are automatically truncated with a deterministic hash suffix and restored in responses. This is transparent to clients.
+
+### Schema-Aware Parameter Typing
+
+In XML mode, the adapter coerces parameter values to their schema-defined types (number, boolean, object, array) using tool schemas from the request. This prevents MCP validation errors where typed parameters were incorrectly passed as strings.
 
 ### Usage with Claude Code
 
@@ -335,7 +380,7 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
   }'
 ```
 
-### Limitations
+### Limitations (XML Mode)
 
 - **Best-effort parsing:** Tool call parsing is based on XML extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
 - **`tool_choice` limited:** Only `"auto"` behavior is supported. The `tool_choice` field is accepted but not enforced.
@@ -343,19 +388,25 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
 - **Increased token usage:** Tool definitions are injected into the system prompt, increasing the token count.
 - **Streaming support:** Tool calls in streaming responses are detected via buffering — the adapter buffers the full response, parses tool calls, then replays modified chunks.
 
+### Limitations (Native Tools Mode)
+
+- **Experimental:** Native tools mode is experimental and may not work with all Copilot API configurations.
+- **`tool_choice` limited:** Only `"auto"` behavior is supported.
+- **No `parallel_tool_calls`:** Not explicitly supported.
+
 ### Debugging Tool Issues
 
 If web search, web fetch, or other tools aren't working as expected, see the comprehensive debugging guide:
 
-**→ [docs/debugging-tool-calls.md](docs/debugging-tool-calls.md)**
+**→ [docs/development/debugging-tool-calls.md](docs/development/debugging-tool-calls.md)**
 
 Quick start:
 ```bash
 # Linux/macOS
-./debug-responses.sh
+./scripts/debug-responses.sh
 
 # Windows
-debug-responses.bat
+scripts\debug-responses.bat
 ```
 
 This will run the adapter with trace-level logging to capture:

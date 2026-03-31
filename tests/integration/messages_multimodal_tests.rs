@@ -128,10 +128,7 @@ async fn create_test_state(
 }
 
 /// Send a POST /v1/messages request and return the response.
-async fn send_messages_request(
-    app: Router,
-    body: serde_json::Value,
-) -> Response {
+async fn send_messages_request(app: Router, body: serde_json::Value) -> Response {
     app.oneshot(
         Request::builder()
             .method("POST")
@@ -195,13 +192,17 @@ async fn image_upload_base64() {
 
     // Verify the mock Copilot received the correct OpenAI multimodal format
     let captured_body = captured.lock().await;
-    let body = captured_body.as_ref().expect("mock should have captured a request");
+    let body = captured_body
+        .as_ref()
+        .expect("mock should have captured a request");
     let messages = body["messages"].as_array().unwrap();
     let user_msg = &messages[0];
     assert_eq!(user_msg["role"], "user");
 
     // Content should be an array of content blocks (multimodal)
-    let content = user_msg["content"].as_array().expect("content should be an array");
+    let content = user_msg["content"]
+        .as_array()
+        .expect("content should be an array");
     assert_eq!(content.len(), 2);
 
     // First block: text
@@ -263,7 +264,9 @@ async fn image_upload_url() {
 
     // Verify URL passthrough in OpenAI format
     let captured_body = captured.lock().await;
-    let body = captured_body.as_ref().expect("mock should have captured a request");
+    let body = captured_body
+        .as_ref()
+        .expect("mock should have captured a request");
     let content = body["messages"][0]["content"]
         .as_array()
         .expect("content should be an array");
@@ -721,7 +724,10 @@ async fn image_url_with_media_type_passthrough() {
     let captured_body = captured.lock().await;
     let body = captured_body.as_ref().unwrap();
     let content = body["messages"][0]["content"].as_array().unwrap();
-    assert_eq!(content[1]["image_url"]["url"], "https://cdn.example.com/photo.jpg");
+    assert_eq!(
+        content[1]["image_url"]["url"],
+        "https://cdn.example.com/photo.jpg"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -775,7 +781,11 @@ async fn mixed_image_and_document_keeps_image_skips_document() {
     let captured_body = captured.lock().await;
     let body = captured_body.as_ref().unwrap();
     let content = body["messages"][0]["content"].as_array().unwrap();
-    assert_eq!(content.len(), 2, "document block should be skipped, 2 blocks remain");
+    assert_eq!(
+        content.len(),
+        2,
+        "document block should be skipped, 2 blocks remain"
+    );
 
     assert_eq!(content[0]["type"], "text");
     assert_eq!(content[1]["type"], "image_url");

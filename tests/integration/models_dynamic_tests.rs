@@ -93,12 +93,8 @@ async fn cache_hit_returns_cached_data() {
     let github = MockGitHub::spawn_copilot_token_only().await;
     let mock_models = MockCopilotModels::spawn().await;
 
-    let state = create_dynamic_state(
-        mock_models.models_url(),
-        &github,
-        Duration::from_secs(300),
-    )
-    .await;
+    let state =
+        create_dynamic_state(mock_models.models_url(), &github, Duration::from_secs(300)).await;
 
     // Pre-populate cache with custom data.
     let cached_list = ModelList {
@@ -140,12 +136,8 @@ async fn cache_miss_fetches_from_api() {
     let github = MockGitHub::spawn_copilot_token_only().await;
     let mock_models = MockCopilotModels::spawn().await;
 
-    let state = create_dynamic_state(
-        mock_models.models_url(),
-        &github,
-        Duration::from_secs(300),
-    )
-    .await;
+    let state =
+        create_dynamic_state(mock_models.models_url(), &github, Duration::from_secs(300)).await;
 
     let app = build_router(state);
     let response = app
@@ -167,9 +159,15 @@ async fn cache_miss_fetches_from_api() {
 
     // Should contain the dynamic models from the reusable MockCopilotModels.
     let ids: Vec<&str> = list.data.iter().map(|m| m.id.as_str()).collect();
-    assert!(ids.contains(&"gpt-4o"), "Should contain gpt-4o from mock API");
+    assert!(
+        ids.contains(&"gpt-4o"),
+        "Should contain gpt-4o from mock API"
+    );
     assert!(ids.contains(&"gpt-4"), "Should contain gpt-4 from mock API");
-    assert!(ids.contains(&"claude-sonnet-4"), "Should contain claude-sonnet-4 from mock API");
+    assert!(
+        ids.contains(&"claude-sonnet-4"),
+        "Should contain claude-sonnet-4 from mock API"
+    );
     assert_eq!(list.data.len(), 3, "Mock API returns exactly 3 models");
 }
 
@@ -179,12 +177,8 @@ async fn api_error_triggers_fallback() {
     let github = MockGitHub::spawn_copilot_token_only().await;
     let mock_models = MockCopilotModels::spawn_failing().await;
 
-    let state = create_dynamic_state(
-        mock_models.models_url(),
-        &github,
-        Duration::from_secs(300),
-    )
-    .await;
+    let state =
+        create_dynamic_state(mock_models.models_url(), &github, Duration::from_secs(300)).await;
 
     let app = build_router(state);
     let response = app
@@ -207,8 +201,14 @@ async fn api_error_triggers_fallback() {
     let ids: Vec<&str> = list.data.iter().map(|m| m.id.as_str()).collect();
     assert!(ids.contains(&"gpt-4o"), "Fallback should contain gpt-4o");
     assert!(ids.contains(&"gpt-4"), "Fallback should contain gpt-4");
-    assert!(ids.contains(&"gpt-3.5-turbo"), "Fallback should contain gpt-3.5-turbo");
-    assert!(!ids.contains(&"claude-3.5-sonnet"), "Fallback should not contain retired claude-3.5-sonnet");
+    assert!(
+        ids.contains(&"gpt-3.5-turbo"),
+        "Fallback should contain gpt-3.5-turbo"
+    );
+    assert!(
+        !ids.contains(&"claude-3.5-sonnet"),
+        "Fallback should not contain retired claude-3.5-sonnet"
+    );
 }
 
 /// Static models mode always uses fallback without API calls.
@@ -238,8 +238,15 @@ async fn static_mode_uses_fallback() {
     assert!(ids.contains(&"gpt-4o"), "Should contain gpt-4o");
     assert!(ids.contains(&"gpt-4"), "Should contain gpt-4");
     assert!(ids.contains(&"gpt-4-turbo"), "Should contain gpt-4-turbo");
-    assert!(ids.contains(&"gpt-3.5-turbo"), "Should contain gpt-3.5-turbo");
-    assert_eq!(list.data.len(), 4, "Fallback list should have exactly 4 models");
+    assert!(
+        ids.contains(&"gpt-3.5-turbo"),
+        "Should contain gpt-3.5-turbo"
+    );
+    assert_eq!(
+        list.data.len(),
+        4,
+        "Fallback list should have exactly 4 models"
+    );
 }
 
 /// get_model with a valid model ID succeeds.
@@ -248,12 +255,8 @@ async fn get_model_valid_id_succeeds() {
     let github = MockGitHub::spawn_copilot_token_only().await;
     let mock_models = MockCopilotModels::spawn().await;
 
-    let state = create_dynamic_state(
-        mock_models.models_url(),
-        &github,
-        Duration::from_secs(300),
-    )
-    .await;
+    let state =
+        create_dynamic_state(mock_models.models_url(), &github, Duration::from_secs(300)).await;
 
     let app = build_router(state);
     let response = app
@@ -282,12 +285,8 @@ async fn get_model_invalid_id_returns_404() {
     let github = MockGitHub::spawn_copilot_token_only().await;
     let mock_models = MockCopilotModels::spawn().await;
 
-    let state = create_dynamic_state(
-        mock_models.models_url(),
-        &github,
-        Duration::from_secs(300),
-    )
-    .await;
+    let state =
+        create_dynamic_state(mock_models.models_url(), &github, Duration::from_secs(300)).await;
 
     let app = build_router(state);
     let response = app
@@ -321,12 +320,8 @@ async fn cache_prevents_duplicate_api_calls() {
     let github = MockGitHub::spawn_copilot_token_only().await;
     let (mock_models, counter) = MockCopilotModels::spawn_with_counter().await;
 
-    let state = create_dynamic_state(
-        mock_models.models_url(),
-        &github,
-        Duration::from_secs(300),
-    )
-    .await;
+    let state =
+        create_dynamic_state(mock_models.models_url(), &github, Duration::from_secs(300)).await;
 
     // First request: cache miss -> API call.
     let app = build_router(state.clone());
@@ -340,7 +335,11 @@ async fn cache_prevents_duplicate_api_calls() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "First request should call API");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "First request should call API"
+    );
 
     // Second request: cache hit -> no API call.
     let app = build_router(state.clone());
@@ -354,7 +353,11 @@ async fn cache_prevents_duplicate_api_calls() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "Second request should use cache");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "Second request should use cache"
+    );
 
     // Third request: still cached.
     let app = build_router(state);
@@ -368,7 +371,11 @@ async fn cache_prevents_duplicate_api_calls() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "Third request should still use cache");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "Third request should still use cache"
+    );
 }
 
 /// TTL expiry causes a re-fetch from the API.
@@ -397,7 +404,11 @@ async fn ttl_expiry_causes_refetch() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "First request should call API");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "First request should call API"
+    );
 
     // Wait for TTL to expire.
     tokio::time::sleep(Duration::from_millis(150)).await;
@@ -414,5 +425,9 @@ async fn ttl_expiry_causes_refetch() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(counter.load(Ordering::SeqCst), 2, "After TTL expiry, should call API again");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        2,
+        "After TTL expiry, should call API again"
+    );
 }

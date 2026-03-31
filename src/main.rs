@@ -66,8 +66,7 @@ async fn main() -> anyhow::Result<()> {
                     // dropped. This is intentional — we need to validate credentials
                     // before setting up the server (and thus before configuring logging).
                     let auth_client = DeviceFlowAuth::new();
-                    let manager =
-                        std::sync::Arc::new(TokenManager::new(store, auth_client).await?);
+                    let manager = std::sync::Arc::new(TokenManager::new(store, auth_client).await?);
 
                     match manager.get_valid_token().await {
                         Ok(_) => Some(manager),
@@ -191,7 +190,9 @@ async fn main() -> anyhow::Result<()> {
             }
 
             if native_tools {
-                tracing::info!("Native tools mode is ENABLED (OpenAI function calling, XML fallback)");
+                tracing::info!(
+                    "Native tools mode is ENABLED (OpenAI function calling, XML fallback)"
+                );
             }
 
             if xml_tools {
@@ -209,28 +210,24 @@ async fn main() -> anyhow::Result<()> {
             // also true in foreground mode for consistency with status command.
             server::run(&host, port, manager, true, config).await?;
         }
-        Command::Stop => {
-            match daemon::stop_daemon() {
-                Ok(pid) => println!("Adapter stopped (was PID {pid})."),
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
+        Command::Stop => match daemon::stop_daemon() {
+            Ok(pid) => println!("Adapter stopped (was PID {pid})."),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
             }
-        }
-        Command::Status => {
-            match daemon::is_running() {
-                Some(pid) => {
-                    let port_info = daemon::read_port()
-                        .map(|p| format!(", port {p}"))
-                        .unwrap_or_default();
-                    println!("Adapter running on PID {pid}{port_info}");
-                }
-                None => {
-                    println!("Adapter is not running.");
-                }
+        },
+        Command::Status => match daemon::is_running() {
+            Some(pid) => {
+                let port_info = daemon::read_port()
+                    .map(|p| format!(", port {p}"))
+                    .unwrap_or_default();
+                println!("Adapter running on PID {pid}{port_info}");
             }
-        }
+            None => {
+                println!("Adapter is not running.");
+            }
+        },
         Command::Auth { force } => {
             init_tracing("info");
             run_auth(force).await?;

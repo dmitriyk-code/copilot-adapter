@@ -10,7 +10,10 @@ fn image_url_block_serializes_to_openai_format() {
     };
     let json = serde_json::to_value(&block).unwrap();
     assert_eq!(json["type"], "image_url");
-    assert_eq!(json["image_url"]["url"], "data:image/jpeg;base64,/9j/4AAQ...");
+    assert_eq!(
+        json["image_url"]["url"],
+        "data:image/jpeg;base64,/9j/4AAQ..."
+    );
     assert!(json["image_url"].get("detail").is_none());
 }
 
@@ -191,8 +194,14 @@ fn request_without_tools_omits_tools_fields() {
     };
 
     let json = serde_json::to_value(&req).unwrap();
-    assert!(json.get("tools").is_none(), "tools should be omitted when None");
-    assert!(json.get("tool_choice").is_none(), "tool_choice should be omitted when None");
+    assert!(
+        json.get("tools").is_none(),
+        "tools should be omitted when None"
+    );
+    assert!(
+        json.get("tool_choice").is_none(),
+        "tool_choice should be omitted when None"
+    );
 }
 
 #[test]
@@ -274,7 +283,10 @@ fn response_with_null_content_and_tool_calls_deserializes() {
     assert_eq!(tc.id, Some("call_001".to_string()));
     assert_eq!(tc.call_type, Some("function".to_string()));
     assert_eq!(tc.function.name, Some("bash".to_string()));
-    assert_eq!(tc.function.arguments, Some("{\"command\":\"ls -la\"}".to_string()));
+    assert_eq!(
+        tc.function.arguments,
+        Some("{\"command\":\"ls -la\"}".to_string())
+    );
 }
 
 #[test]
@@ -422,10 +434,16 @@ fn streaming_chunk_parallel_tool_calls_deserializes() {
     assert_eq!(tool_calls.len(), 2);
     assert_eq!(tool_calls[0].index, 0);
     assert_eq!(tool_calls[0].id, Some("call_p1".to_string()));
-    assert_eq!(tool_calls[0].function.as_ref().unwrap().name, Some("bash".to_string()));
+    assert_eq!(
+        tool_calls[0].function.as_ref().unwrap().name,
+        Some("bash".to_string())
+    );
     assert_eq!(tool_calls[1].index, 1);
     assert_eq!(tool_calls[1].id, Some("call_p2".to_string()));
-    assert_eq!(tool_calls[1].function.as_ref().unwrap().name, Some("read_file".to_string()));
+    assert_eq!(
+        tool_calls[1].function.as_ref().unwrap().name,
+        Some("read_file".to_string())
+    );
 }
 
 #[test]

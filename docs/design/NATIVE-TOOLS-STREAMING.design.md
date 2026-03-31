@@ -1,6 +1,6 @@
 # Native Tools Streaming — Design Document
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-03-31
 **Severity:** Medium (UX improvement)
 **Related:** `TOOLS-SUPPORT.design.md`, `DUAL-RESPONSES.design.md`

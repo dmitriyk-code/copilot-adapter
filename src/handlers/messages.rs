@@ -31,9 +31,10 @@ use crate::tools::translator;
 /// Copilot API, and translates the response back to Anthropic format.
 /// Supports both streaming and non-streaming modes.
 ///
-/// When the request contains tool definitions, they are converted to internal
-/// XML format and injected into the system prompt. Tool calls are parsed from
-/// the model's text response using XML extraction.
+/// When the request contains tool definitions, they are either passed natively
+/// to the Copilot API (--native-tools mode) or injected into the system prompt
+/// as XML (default). Tool calls in XML mode are parsed from `<function_calls>`
+/// blocks in the text response.
 pub async fn messages(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AnthropicRequest>,
@@ -79,7 +80,12 @@ pub async fn messages(
         for (idx, msg) in request.messages.iter().enumerate() {
             if let ContentBlockInput::Blocks(blocks) = &msg.content {
                 for block in blocks {
-                    if let ContentBlock::ToolResult { tool_use_id, content, .. } = block {
+                    if let ContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                        ..
+                    } = block
+                    {
                         let result_text = match content {
                             ToolResultContent::Text(s) => s.clone(),
                             ToolResultContent::Blocks(b) => format!("[{} blocks]", b.len()),
@@ -106,10 +112,7 @@ pub async fn messages(
         builder
     });
 
-    let has_tools = request
-        .tools
-        .as_ref()
-        .map_or(false, |t| !t.is_empty());
+    let has_tools = request.tools.as_ref().is_some_and(|t| !t.is_empty());
 
     // --- Native tools path ---
     // When native_tools is enabled and the request has tools, try the native
@@ -173,8 +176,7 @@ pub async fn messages(
                 tool_names = ?tools.iter().map(|t| &t.name).collect::<Vec<_>>(),
                 "Injecting Anthropic tools into prompt"
             );
-            let internal_tools: Vec<_> =
-                tools.iter().map(|t| t.to_internal_tool()).collect();
+            let internal_tools: Vec<_> = tools.iter().map(|t| t.to_internal_tool()).collect();
             xml_injection_size = injector::inject_tools_into_messages(
                 &mut openai_request.messages,
                 &internal_tools,
@@ -218,14 +220,10 @@ pub async fn messages(
     }
 
     // Get a valid Copilot token
-    let copilot_token = state
-        .token_manager
-        .get_valid_token()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "Authentication failed");
-            AppError::NotAuthenticated
-        })?;
+    let copilot_token = state.token_manager.get_valid_token().await.map_err(|e| {
+        tracing::warn!(error = %e, "Authentication failed");
+        AppError::NotAuthenticated
+    })?;
 
     // Branch on stream field
     if request.stream.unwrap_or(false) {
@@ -305,7 +303,11 @@ pub async fn messages(
     if has_tools {
         for choice in &mut response.choices {
             let content_text = choice.message.content.as_text();
-            let tool_calls = parser::parse_tool_calls(&content_text, tool_registry.as_ref(), state.config.debug_tools);
+            let tool_calls = parser::parse_tool_calls(
+                &content_text,
+                tool_registry.as_ref(),
+                state.config.debug_tools,
+            );
 
             if !tool_calls.is_empty() {
                 tracing::debug!(
@@ -594,9 +596,7 @@ async fn handle_streaming(
         }
     };
 
-    let sse = Sse::new(event_stream).keep_alive(
-        KeepAlive::new().interval(Duration::from_secs(15)),
-    );
+    let sse = Sse::new(event_stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)));
 
     Ok(sse.into_response())
 }
@@ -607,9 +607,8 @@ async fn handle_streaming(
 /// stream end, and emits proper Anthropic `tool_use` content blocks alongside
 /// the stripped text content.
 async fn handle_streaming_with_tools(
-    chunk_stream: impl futures::Stream<
-            Item = Result<crate::copilot::types::ChatCompletionChunk, AppError>,
-        > + Send
+    chunk_stream: impl futures::Stream<Item = Result<crate::copilot::types::ChatCompletionChunk, AppError>>
+        + Send
         + 'static,
     model: String,
     debug_tools: bool,
@@ -887,9 +886,7 @@ async fn handle_streaming_with_tools(
         }
     };
 
-    let sse = Sse::new(event_stream).keep_alive(
-        KeepAlive::new().interval(Duration::from_secs(15)),
-    );
+    let sse = Sse::new(event_stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)));
 
     Ok(sse.into_response())
 }
@@ -1053,7 +1050,7 @@ async fn handle_native_tools_non_streaming(
         num_choices = response.choices.len(),
         has_tool_calls = response.choices.first()
             .and_then(|c| c.message.tool_calls.as_ref())
-            .map_or(false, |tc| !tc.is_empty()),
+            .is_some_and(|tc| !tc.is_empty()),
         "Native tools non-streaming response processed"
     );
 
@@ -1320,9 +1317,7 @@ async fn handle_native_tools_streaming(
         }
     };
 
-    let sse = Sse::new(event_stream).keep_alive(
-        KeepAlive::new().interval(Duration::from_secs(15)),
-    );
+    let sse = Sse::new(event_stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)));
 
     Ok(sse.into_response())
 }

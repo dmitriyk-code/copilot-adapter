@@ -55,8 +55,14 @@ async fn parse_multiple_chunks_in_single_bytes() {
         .unwrap();
 
     assert_eq!(parsed.len(), 3);
-    assert_eq!(parsed[0].choices[0].delta.content, Some("Hello".to_string()));
-    assert_eq!(parsed[1].choices[0].delta.content, Some(" world".to_string()));
+    assert_eq!(
+        parsed[0].choices[0].delta.content,
+        Some("Hello".to_string())
+    );
+    assert_eq!(
+        parsed[1].choices[0].delta.content,
+        Some(" world".to_string())
+    );
     assert_eq!(parsed[2].choices[0].delta.content, Some("!".to_string()));
     assert_eq!(parsed[2].choices[0].finish_reason, Some("stop".to_string()));
 }
@@ -105,7 +111,10 @@ async fn parse_partial_buffers_across_byte_boundaries() {
 
     assert_eq!(parsed.len(), 1);
     assert_eq!(parsed[0].id, "c1");
-    assert_eq!(parsed[0].choices[0].delta.content, Some("split".to_string()));
+    assert_eq!(
+        parsed[0].choices[0].delta.content,
+        Some("split".to_string())
+    );
 }
 
 #[tokio::test]
@@ -129,12 +138,9 @@ async fn parse_ignores_sse_comments() {
 
 #[tokio::test]
 async fn parse_handles_empty_stream() {
-    let byte_stream =
-        stream::iter(Vec::<Result<Bytes, reqwest::Error>>::new());
+    let byte_stream = stream::iter(Vec::<Result<Bytes, reqwest::Error>>::new());
 
-    let parsed: Vec<_> = parse_sse_stream(byte_stream)
-        .collect::<Vec<_>>()
-        .await;
+    let parsed: Vec<_> = parse_sse_stream(byte_stream).collect::<Vec<_>>().await;
 
     assert!(parsed.is_empty());
 }
@@ -144,9 +150,7 @@ async fn parse_handles_done_only() {
     let sse_data = "data: [DONE]\n\n".to_string();
 
     let byte_stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from(sse_data))]);
-    let parsed: Vec<_> = parse_sse_stream(byte_stream)
-        .collect::<Vec<_>>()
-        .await;
+    let parsed: Vec<_> = parse_sse_stream(byte_stream).collect::<Vec<_>>().await;
 
     assert!(parsed.is_empty());
 }
@@ -201,8 +205,14 @@ async fn chunk_types_serialize_roundtrip() {
     let deserialized: ChatCompletionChunk = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.id, "chatcmpl-test");
     assert_eq!(deserialized.object, "chat.completion.chunk");
-    assert_eq!(deserialized.choices[0].delta.role, Some("assistant".to_string()));
-    assert_eq!(deserialized.choices[0].delta.content, Some("Hello".to_string()));
+    assert_eq!(
+        deserialized.choices[0].delta.role,
+        Some("assistant".to_string())
+    );
+    assert_eq!(
+        deserialized.choices[0].delta.content,
+        Some("Hello".to_string())
+    );
     assert!(deserialized.choices[0].finish_reason.is_none());
 }
 

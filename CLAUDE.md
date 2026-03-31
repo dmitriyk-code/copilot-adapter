@@ -60,7 +60,12 @@ src/
 │   ├── mod.rs           # Tools module exports
 │   ├── types.rs         # Tool/ToolCall type definitions
 │   ├── injector.rs      # Prompt injection logic
-│   └── parser.rs        # Tool call parsing from text responses
+│   ├── parser.rs        # Tool call parsing from text responses
+│   ├── translator.rs    # Anthropic → OpenAI tool definition translation
+│   └── registry.rs      # Tool schema registry for parameter type coercion
+├── streaming/
+│   ├── mod.rs           # Streaming module exports
+│   └── state.rs         # Streaming state machine (OpenAI → Anthropic SSE)
 ├── storage/
 │   ├── mod.rs
 │   ├── keyring.rs       # OS keyring storage
@@ -84,6 +89,8 @@ src/
 | `copilot-adapter start --log-level trace` | Enable trace logging (very verbose, logs full request/response JSON) |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds) |
 | `copilot-adapter start --static-models` | Use static model list (skip API) |
+| `copilot-adapter start --native-tools` | Enable native OpenAI tools (progressive streaming) |
+| `copilot-adapter start --xml-tools` | Force XML-based tool injection |
 | `copilot-adapter status` | Check if adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -132,6 +139,8 @@ cargo test
 - `TOOLS-SUPPORT.plan.md` - **Deprecated** — original tools plan. See `DUAL-RESPONSES.plan.md`
 - `DUAL-RESPONSES.design.md` - Design document for XML tool format migration and endpoint cleanup
 - `DUAL-RESPONSES.plan.md` - Implementation plan for XML tool format migration
+- `NATIVE-TOOLS-STREAMING.design.md` - Design document for native OpenAI tools and progressive streaming
+- `NATIVE-TOOLS-STREAMING.plan.md` - Implementation plan for native tools and schema-aware parsing
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
 - `docs/known-issues.md` - Known issues and workarounds
 
@@ -143,10 +152,14 @@ cargo test
 - `ModelsCache` uses `tokio::sync::RwLock<Option<CacheEntry>>` with `Instant`-based TTL expiration
 - `CopilotClient::fetch_models()` calls `https://api.githubcopilot.com/models` with standard Copilot headers
 - `resolve_models()` in `src/handlers/models.rs` orchestrates cache → API fetch → fallback flow
-- **Tools/functions support** is always enabled — tool definitions are injected into the system prompt using XML format (following the Anthropic Cookbook); tool calls are parsed from `<function_calls>` XML blocks in model responses
-- The tools implementation lives in `src/tools/` (types, injector, parser)
+- **Tools/functions support** is always enabled — tool definitions are injected into the system prompt using XML format (following the Anthropic Cookbook); tool calls are parsed from `<function_calls>` XML blocks in model responses. Alternatively, use `--native-tools` to pass tool definitions natively to the Copilot API in OpenAI format for progressive streaming (see below).
+- The tools implementation lives in `src/tools/` (types, injector, parser, translator, registry)
 - Tool call parsing is best-effort; malformed XML is silently skipped (graceful degradation)
 - `tool_choice` only supports `"auto"` behavior; `parallel_tool_calls` is not supported
 - Copilot tokens expire in ~30 min; the adapter refreshes them proactively
 - Required Copilot headers: `Copilot-Integration-Id`, `Editor-Version`, `Editor-Plugin-Version`
 - All errors return structured JSON format
+- **Native tools** (experimental): When `--native-tools` is enabled, tool definitions are passed to the Copilot API in OpenAI format and responses stream progressively. Falls back to XML injection if not supported. Use `--xml-tools` to force XML mode.
+- **Tool name truncation**: OpenAI has a 64-character limit for function names. Long names (common with MCP tools like `mcp__codemogger__codemogger_search`) are truncated with a hash suffix and restored in responses. Implementation in `src/tools/translator.rs`.
+- **Parameter types**: Native tools preserve parameter types from schemas. XML fallback path coerces string values to their schema-defined types (number, boolean, etc.) via `ToolRegistry` in `src/tools/registry.rs`.
+- **Streaming state machine**: The `StreamingState` in `src/streaming/state.rs` incrementally translates OpenAI streaming chunks to Anthropic SSE events, handling content block transitions, tool call deltas, and tool name restoration.

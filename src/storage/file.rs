@@ -48,6 +48,12 @@ pub struct FileStorage {
     path: PathBuf,
 }
 
+impl Default for FileStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileStorage {
     pub fn new() -> Self {
         let config_dir = dirs_config_dir().join(CONFIG_DIR);
@@ -66,16 +72,17 @@ impl FileStorage {
             return Ok(Credentials::default());
         }
 
-        let raw = fs::read(&self.path)
-            .map_err(|e| anyhow!("Failed to read credentials file: {e}"))?;
+        let raw =
+            fs::read(&self.path).map_err(|e| anyhow!("Failed to read credentials file: {e}"))?;
         let key = obfuscation_key();
         let decrypted = xor_transform(&raw, &key);
-        let creds: Credentials = serde_json::from_slice(&decrypted)
-            .map_err(|_| anyhow!(
+        let creds: Credentials = serde_json::from_slice(&decrypted).map_err(|_| {
+            anyhow!(
                 "Failed to parse credentials file. This can happen if your OS username \
                  changed since credentials were stored. Please run `copilot-adapter auth` \
                  to re-authenticate."
-            ))?;
+            )
+        })?;
         Ok(creds)
     }
 
@@ -178,10 +185,7 @@ mod tests {
 
     #[test]
     fn file_storage_round_trip() {
-        let dir = std::env::temp_dir().join(format!(
-            "copilot-adapter-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("copilot-adapter-test-{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("test_credentials.json");
 

@@ -14,10 +14,7 @@ use crate::tools::types::{Function, Tool, ToolCall};
 #[serde(tag = "type")]
 pub enum ImageSource {
     #[serde(rename = "base64")]
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
     #[serde(rename = "url")]
     Url {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,15 +28,9 @@ pub enum ImageSource {
 #[serde(tag = "type")]
 pub enum DocumentSource {
     #[serde(rename = "base64")]
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
     #[serde(rename = "text")]
-    Text {
-        media_type: String,
-        data: String,
-    },
+    Text { media_type: String, data: String },
     #[serde(rename = "url")]
     Url {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -231,8 +222,8 @@ impl ToolDefinition {
 /// **Note on `tool_choice`:** The Anthropic API supports a `tool_choice` field
 /// that controls whether/how tools are used (e.g., `"auto"`, `"required"`,
 /// `{"type": "tool", "name": "..."}`). This field is accepted but **ignored**
-/// because the adapter uses prompt injection for tool support — the upstream
-/// Copilot API has no native tool calling, so tool choice cannot be enforced.
+/// — tool_choice enforcement is not supported in either XML injection mode or
+/// native tools mode.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicRequest {
     pub model: String,
@@ -248,7 +239,9 @@ pub struct AnthropicRequest {
     pub top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
-    /// Tool definitions (not forwarded to Copilot API; used for prompt injection).
+    /// Tool definitions. In XML mode, tools are injected into the system prompt.
+    /// In native tools mode (`--native-tools`), they are forwarded to the Copilot
+    /// API in OpenAI format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
     /// Tool choice preference. Accepted for API compatibility but **not enforced**
@@ -308,11 +301,7 @@ impl ResponseContentBlock {
                 .id
                 .clone()
                 .unwrap_or_else(|| "call_unknown".to_string()),
-            name: tool_call
-                .function
-                .name
-                .clone()
-                .unwrap_or_default(),
+            name: tool_call.function.name.clone().unwrap_or_default(),
             input,
         }
     }
@@ -478,9 +467,12 @@ fn extract_text(content: &ContentBlockInput) -> String {
 fn has_multimodal_blocks(content: &ContentBlockInput) -> bool {
     match content {
         ContentBlockInput::Text(_) => false,
-        ContentBlockInput::Blocks(blocks) => blocks
-            .iter()
-            .any(|b| matches!(b, ContentBlock::Image { .. } | ContentBlock::Document { .. })),
+        ContentBlockInput::Blocks(blocks) => blocks.iter().any(|b| {
+            matches!(
+                b,
+                ContentBlock::Image { .. } | ContentBlock::Document { .. }
+            )
+        }),
     }
 }
 
@@ -488,14 +480,10 @@ fn has_multimodal_blocks(content: &ContentBlockInput) -> bool {
 ///
 /// Returns `None` for blocks that cannot be represented in OpenAI format
 /// (e.g., documents), which should be skipped via `filter_map`.
-fn translate_content_block(
-    block: &ContentBlock,
-) -> Option<crate::copilot::types::ContentBlock> {
+fn translate_content_block(block: &ContentBlock) -> Option<crate::copilot::types::ContentBlock> {
     use crate::copilot::types;
     match block {
-        ContentBlock::Text { text, .. } => {
-            Some(types::ContentBlock::Text { text: text.clone() })
-        }
+        ContentBlock::Text { text, .. } => Some(types::ContentBlock::Text { text: text.clone() }),
         ContentBlock::Image { source, .. } => {
             let url = match source {
                 ImageSource::Base64 { media_type, data } => {
@@ -504,10 +492,7 @@ fn translate_content_block(
                 ImageSource::Url { url, .. } => url.clone(),
             };
             Some(types::ContentBlock::ImageUrl {
-                image_url: types::ImageUrl {
-                    url,
-                    detail: None,
-                },
+                image_url: types::ImageUrl { url, detail: None },
             })
         }
         ContentBlock::Document { title, .. } => {
@@ -620,10 +605,8 @@ impl AnthropicRequest {
                 // Message contains image or document blocks — build multimodal
                 // content with OpenAI-format content blocks.
                 if let ContentBlockInput::Blocks(blocks) = &msg.content {
-                    let translated: Vec<crate::copilot::types::ContentBlock> = blocks
-                        .iter()
-                        .filter_map(|b| translate_content_block(b))
-                        .collect();
+                    let translated: Vec<crate::copilot::types::ContentBlock> =
+                        blocks.iter().filter_map(translate_content_block).collect();
                     if !translated.is_empty() {
                         messages.push(Message {
                             role: msg.role.clone(),
@@ -706,7 +689,7 @@ impl ChatCompletionResponse {
 
         let has_tool_calls = first_choice
             .and_then(|c| c.message.tool_calls.as_ref())
-            .map_or(false, |tc| !tc.is_empty());
+            .is_some_and(|tc| !tc.is_empty());
 
         let stop_reason = if has_tool_calls {
             Some("tool_use".to_string())
@@ -714,13 +697,17 @@ impl ChatCompletionResponse {
             first_choice.and_then(|c| map_stop_reason(c.finish_reason.as_deref()))
         };
 
-        let usage = self.usage.as_ref().map(|u| AnthropicUsage {
-            input_tokens: u.prompt_tokens,
-            output_tokens: u.completion_tokens,
-        }).unwrap_or(AnthropicUsage {
-            input_tokens: 0,
-            output_tokens: 0,
-        });
+        let usage = self
+            .usage
+            .as_ref()
+            .map(|u| AnthropicUsage {
+                input_tokens: u.prompt_tokens,
+                output_tokens: u.completion_tokens,
+            })
+            .unwrap_or(AnthropicUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+            });
 
         // Build content blocks
         let content = if self.choices.is_empty() {
@@ -795,8 +782,14 @@ mod tests {
     #[test]
     fn extract_text_from_blocks() {
         let input = ContentBlockInput::Blocks(vec![
-            ContentBlock::Text { text: "Hello ".into(), cache_control: None },
-            ContentBlock::Text { text: "world".into(), cache_control: None },
+            ContentBlock::Text {
+                text: "Hello ".into(),
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "world".into(),
+                cache_control: None,
+            },
         ]);
         assert_eq!(extract_text(&input), "Hello world");
     }
@@ -810,8 +803,14 @@ mod tests {
     #[test]
     fn system_input_from_blocks() {
         let input = SystemInput::Blocks(vec![
-            ContentBlock::Text { text: "You are ".into(), cache_control: None },
-            ContentBlock::Text { text: "helpful".into(), cache_control: None },
+            ContentBlock::Text {
+                text: "You are ".into(),
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "helpful".into(),
+                cache_control: None,
+            },
         ]);
         assert_eq!(input.to_text(), "You are helpful");
     }

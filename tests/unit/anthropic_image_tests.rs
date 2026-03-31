@@ -17,7 +17,10 @@ fn deserialize_image_block_base64() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::Image { source, cache_control } => {
+        ContentBlock::Image {
+            source,
+            cache_control,
+        } => {
             assert!(cache_control.is_none());
             match source {
                 ImageSource::Base64 { media_type, data } => {
@@ -47,7 +50,10 @@ fn deserialize_image_block_url() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::Image { source, cache_control } => {
+        ContentBlock::Image {
+            source,
+            cache_control,
+        } => {
             assert!(cache_control.is_none());
             match source {
                 ImageSource::Url { media_type, url } => {
@@ -78,7 +84,11 @@ fn deserialize_document_block_base64() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::Document { source, title, cache_control } => {
+        ContentBlock::Document {
+            source,
+            title,
+            cache_control,
+        } => {
             assert_eq!(title, Some("My Document".to_string()));
             assert!(cache_control.is_none());
             match source {
@@ -161,7 +171,10 @@ fn deserialize_cache_control_on_text_block() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::Text { text, cache_control } => {
+        ContentBlock::Text {
+            text,
+            cache_control,
+        } => {
             assert_eq!(text, "cached content");
             let cc = cache_control.expect("cache_control should be present");
             assert_eq!(cc.cache_type, "ephemeral");
@@ -200,7 +213,10 @@ fn deserialize_text_block_without_cache_control() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::Text { text, cache_control } => {
+        ContentBlock::Text {
+            text,
+            cache_control,
+        } => {
             assert_eq!(text, "plain text");
             assert!(cache_control.is_none());
         }
@@ -251,7 +267,10 @@ fn extract_text_with_image_block() {
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
     let openai = req.to_chat_completion_request();
     // Multimodal messages are now translated to Blocks; as_text() returns only text blocks
-    assert_eq!(openai.messages[0].content.as_text(), "What is in this image? ");
+    assert_eq!(
+        openai.messages[0].content.as_text(),
+        "What is in this image? "
+    );
     // Verify it's actually a Blocks variant with an ImageUrl block
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -331,7 +350,11 @@ fn document_block_roundtrip() {
     let json_str = serde_json::to_string(&block).unwrap();
     let deserialized: ContentBlock = serde_json::from_str(&json_str).unwrap();
     match deserialized {
-        ContentBlock::Document { source, title, cache_control } => {
+        ContentBlock::Document {
+            source,
+            title,
+            cache_control,
+        } => {
             assert_eq!(title, Some("My Doc".to_string()));
             assert!(cache_control.is_some());
             match source {
@@ -374,9 +397,13 @@ fn mixed_content_blocks_in_message_deserialize() {
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
             assert_eq!(blocks.len(), 3);
-            assert!(matches!(&blocks[0], openai::ContentBlock::Text { text } if text == "Look at this: "));
+            assert!(
+                matches!(&blocks[0], openai::ContentBlock::Text { text } if text == "Look at this: ")
+            );
             assert!(matches!(&blocks[1], openai::ContentBlock::ImageUrl { .. }));
-            assert!(matches!(&blocks[2], openai::ContentBlock::Text { text } if text == " and this doc: "));
+            assert!(
+                matches!(&blocks[2], openai::ContentBlock::Text { text } if text == " and this doc: ")
+            );
         }
         _ => panic!("Expected Blocks content for multimodal message"),
     }
@@ -399,7 +426,12 @@ fn deserialize_cache_control_on_tool_use_block() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::ToolUse { id, name, input, cache_control } => {
+        ContentBlock::ToolUse {
+            id,
+            name,
+            input,
+            cache_control,
+        } => {
             assert_eq!(id, "toolu_01A");
             assert_eq!(name, "get_weather");
             assert_eq!(input["location"], "London");
@@ -424,7 +456,11 @@ fn deserialize_cache_control_on_tool_result_block() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::ToolResult { tool_use_id, content, cache_control } => {
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            cache_control,
+        } => {
             assert_eq!(tool_use_id, "toolu_01A");
             match content {
                 ToolResultContent::Text(t) => assert_eq!(t, "Sunny, 22°C"),
@@ -453,15 +489,13 @@ fn deserialize_image_url_without_media_type() {
     });
     let block: ContentBlock = serde_json::from_value(json).unwrap();
     match block {
-        ContentBlock::Image { source, .. } => {
-            match source {
-                ImageSource::Url { media_type, url } => {
-                    assert!(media_type.is_none());
-                    assert_eq!(url, "https://example.com/photo.jpg");
-                }
-                _ => panic!("Expected Url variant"),
+        ContentBlock::Image { source, .. } => match source {
+            ImageSource::Url { media_type, url } => {
+                assert!(media_type.is_none());
+                assert_eq!(url, "https://example.com/photo.jpg");
             }
-        }
+            _ => panic!("Expected Url variant"),
+        },
         _ => panic!("Expected Image variant"),
     }
 }
@@ -777,7 +811,9 @@ fn translate_mixed_text_and_images() {
         openai::MessageContent::Blocks(blocks) => {
             assert_eq!(blocks.len(), 4);
             // Block 0: text
-            assert!(matches!(&blocks[0], openai::ContentBlock::Text { text } if text == "Compare these two images:"));
+            assert!(
+                matches!(&blocks[0], openai::ContentBlock::Text { text } if text == "Compare these two images:")
+            );
             // Block 1: base64 image → data URI
             match &blocks[1] {
                 openai::ContentBlock::ImageUrl { image_url } => {
@@ -836,7 +872,9 @@ fn translate_mixed_text_image_document() {
         openai::MessageContent::Blocks(blocks) => {
             // Document skipped → 2 blocks remain
             assert_eq!(blocks.len(), 2);
-            assert!(matches!(&blocks[0], openai::ContentBlock::Text { text } if text == "See attached:"));
+            assert!(
+                matches!(&blocks[0], openai::ContentBlock::Text { text } if text == "See attached:")
+            );
             match &blocks[1] {
                 openai::ContentBlock::ImageUrl { image_url } => {
                     assert_eq!(image_url.url, "data:image/webp;base64,UklGR...");

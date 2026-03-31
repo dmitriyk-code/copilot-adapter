@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use copilot_adapter::anthropic::types::{InputSchema, ToolDefinition};
-use copilot_adapter::tools::translator::{
-    restore_tool_name, translate_anthropic_tools_to_openai,
-};
+use copilot_adapter::tools::translator::{restore_tool_name, translate_anthropic_tools_to_openai};
 
 // ---------------------------------------------------------------------------
 // Basic tool translation
@@ -182,7 +180,8 @@ fn truncated_name_is_deterministic() {
 
 #[test]
 fn truncated_name_has_hash_suffix() {
-    let name = "a_very_long_tool_name_that_definitely_exceeds_sixty_four_characters_in_total_length";
+    let name =
+        "a_very_long_tool_name_that_definitely_exceeds_sixty_four_characters_in_total_length";
     let tools = vec![ToolDefinition {
         name: name.to_string(),
         description: None,
@@ -216,7 +215,10 @@ fn unicode_name_truncation_respects_char_count() {
     // Each CJK char is 3 bytes in UTF-8, so 65 CJK chars = 195 bytes but only 65 chars.
     let name: String = std::iter::repeat('天').take(65).collect();
     assert_eq!(name.chars().count(), 65);
-    assert!(name.len() > 65, "Name should be >65 bytes (multi-byte chars)");
+    assert!(
+        name.len() > 65,
+        "Name should be >65 bytes (multi-byte chars)"
+    );
 
     let tools = vec![ToolDefinition {
         name: name.clone(),

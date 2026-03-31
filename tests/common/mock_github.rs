@@ -43,10 +43,7 @@ impl MockGitHub {
     /// Spawn a mock GitHub server that only serves the Copilot token endpoint.
     /// Useful for tests that only need token exchange (e.g., chat tests).
     pub async fn spawn_copilot_token_only() -> Self {
-        let app = Router::new().route(
-            "/copilot_internal/v2/token",
-            get(mock_copilot_token),
-        );
+        let app = Router::new().route("/copilot_internal/v2/token", get(mock_copilot_token));
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -143,9 +140,7 @@ async fn mock_access_token(
     }
 }
 
-async fn mock_copilot_token(
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn mock_copilot_token(headers: HeaderMap) -> Result<Json<serde_json::Value>, StatusCode> {
     Ok(copilot_token_response(&headers))
 }
 
@@ -155,9 +150,7 @@ fn copilot_token_response(headers: &HeaderMap) -> Json<serde_json::Value> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    if auth == format!("token {MOCK_GITHUB_TOKEN}")
-        || auth == "token test_github_token"
-    {
+    if auth == format!("token {MOCK_GITHUB_TOKEN}") || auth == "token test_github_token" {
         let expires_at = chrono::Utc::now().timestamp() + 1800;
         Json(json!({
             "token": MOCK_COPILOT_TOKEN,

@@ -67,62 +67,77 @@ async fn spawn_mock_copilot_native_tool_call(
 
     let app = Router::new().route(
         "/chat/completions",
-        post(move |headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| {
-            let tn = tool_name.clone();
-            let a = args_str.clone();
-            async move {
-                // Validate required headers
-                let auth = headers
-                    .get("Authorization")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                if !auth.starts_with("Bearer ") {
-                    return (StatusCode::UNAUTHORIZED, Json(json!({"error": "unauthorized"}))).into_response();
-                }
-
-                let model = body["model"].as_str().unwrap_or("gpt-4o");
-
-                // Verify tools were forwarded in the request
-                if body.get("tools").is_none() {
-                    return (StatusCode::BAD_REQUEST, Json(json!({
-                        "error": "Request should include tools field"
-                    }))).into_response();
-                }
-                if body.get("tool_choice").is_none() {
-                    return (StatusCode::BAD_REQUEST, Json(json!({
-                        "error": "Request should include tool_choice"
-                    }))).into_response();
-                }
-
-                Json(json!({
-                    "id": "chatcmpl-native-e4",
-                    "object": "chat.completion",
-                    "created": 1700000000,
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": serde_json::Value::Null,
-                            "tool_calls": [{
-                                "id": "call_e4_001",
-                                "type": "function",
-                                "function": {
-                                    "name": tn,
-                                    "arguments": a
-                                }
-                            }]
-                        },
-                        "finish_reason": "tool_calls"
-                    }],
-                    "usage": {
-                        "prompt_tokens": 20,
-                        "completion_tokens": 10,
-                        "total_tokens": 30
+        post(
+            move |headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| {
+                let tn = tool_name.clone();
+                let a = args_str.clone();
+                async move {
+                    // Validate required headers
+                    let auth = headers
+                        .get("Authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    if !auth.starts_with("Bearer ") {
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            Json(json!({"error": "unauthorized"})),
+                        )
+                            .into_response();
                     }
-                })).into_response()
-            }
-        }),
+
+                    let model = body["model"].as_str().unwrap_or("gpt-4o");
+
+                    // Verify tools were forwarded in the request
+                    if body.get("tools").is_none() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({
+                                "error": "Request should include tools field"
+                            })),
+                        )
+                            .into_response();
+                    }
+                    if body.get("tool_choice").is_none() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({
+                                "error": "Request should include tool_choice"
+                            })),
+                        )
+                            .into_response();
+                    }
+
+                    Json(json!({
+                        "id": "chatcmpl-native-e4",
+                        "object": "chat.completion",
+                        "created": 1700000000,
+                        "model": model,
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": serde_json::Value::Null,
+                                "tool_calls": [{
+                                    "id": "call_e4_001",
+                                    "type": "function",
+                                    "function": {
+                                        "name": tn,
+                                        "arguments": a
+                                    }
+                                }]
+                            },
+                            "finish_reason": "tool_calls"
+                        }],
+                        "usage": {
+                            "prompt_tokens": 20,
+                            "completion_tokens": 10,
+                            "total_tokens": 30
+                        }
+                    }))
+                    .into_response()
+                }
+            },
+        ),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -250,48 +265,51 @@ async fn spawn_mock_copilot_native_streaming_tool(
 
 /// Spawn a mock Copilot API that rejects tools with an error (simulates
 /// "tools not supported" for fallback testing).
-async fn spawn_mock_copilot_tools_not_supported() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+async fn spawn_mock_copilot_tools_not_supported(
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/chat/completions",
-        post(|_headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| async move {
-            // If tools are present, reject with a 400 error
-            if body.get("tools").is_some() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "error": {
-                            "message": "The 'tools' parameter is not supported for this model.",
-                            "type": "invalid_request_error",
-                            "code": "unsupported_parameter"
-                        }
-                    })),
-                )
-                    .into_response();
-            }
-
-            // No tools → respond with normal text (XML injection path)
-            let model = body["model"].as_str().unwrap_or("gpt-4");
-            Json(json!({
-                "id": "chatcmpl-fallback",
-                "object": "chat.completion",
-                "created": 1700000000,
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Hello from fallback path!"
-                    },
-                    "finish_reason": "stop"
-                }],
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15
+        post(
+            |_headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                // If tools are present, reject with a 400 error
+                if body.get("tools").is_some() {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": {
+                                "message": "The 'tools' parameter is not supported for this model.",
+                                "type": "invalid_request_error",
+                                "code": "unsupported_parameter"
+                            }
+                        })),
+                    )
+                        .into_response();
                 }
-            }))
-            .into_response()
-        }),
+
+                // No tools → respond with normal text (XML injection path)
+                let model = body["model"].as_str().unwrap_or("gpt-4");
+                Json(json!({
+                    "id": "chatcmpl-fallback",
+                    "object": "chat.completion",
+                    "created": 1700000000,
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Hello from fallback path!"
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15
+                    }
+                }))
+                .into_response()
+            },
+        ),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -403,10 +421,17 @@ async fn native_tools_non_streaming_request_response() {
         .iter()
         .filter(|b| b.block_type() == "tool_use")
         .collect();
-    assert_eq!(tool_use_blocks.len(), 1, "Expected exactly one tool_use block");
+    assert_eq!(
+        tool_use_blocks.len(),
+        1,
+        "Expected exactly one tool_use block"
+    );
 
     if let copilot_adapter::anthropic::types::ResponseContentBlock::ToolUse {
-        id, name, input, ..
+        id,
+        name,
+        input,
+        ..
     } = &tool_use_blocks[0]
     {
         assert_eq!(name, "get_weather");
@@ -495,11 +520,17 @@ async fn native_tools_streaming_request_response() {
     );
 
     // Validate ordering: message_start must come first
-    let msg_start_pos = event_types.iter().position(|&t| t == "message_start").unwrap();
+    let msg_start_pos = event_types
+        .iter()
+        .position(|&t| t == "message_start")
+        .unwrap();
     assert_eq!(msg_start_pos, 0, "message_start must be the first event");
 
     // Validate ordering: message_stop must come last
-    let msg_stop_pos = event_types.iter().rposition(|&t| t == "message_stop").unwrap();
+    let msg_stop_pos = event_types
+        .iter()
+        .rposition(|&t| t == "message_stop")
+        .unwrap();
     assert_eq!(
         msg_stop_pos,
         event_types.len() - 1,
@@ -508,7 +539,10 @@ async fn native_tools_streaming_request_response() {
 
     // Validate ordering: message_delta must come after all content_block_stop events
     // and before message_stop
-    let msg_delta_pos = event_types.iter().position(|&t| t == "message_delta").unwrap();
+    let msg_delta_pos = event_types
+        .iter()
+        .position(|&t| t == "message_delta")
+        .unwrap();
     let last_block_stop_pos = event_types
         .iter()
         .rposition(|&t| t == "content_block_stop")
@@ -524,9 +558,18 @@ async fn native_tools_streaming_request_response() {
 
     // Validate ordering: content_block_start must come before its corresponding
     // content_block_delta and content_block_stop
-    let first_block_start_pos = event_types.iter().position(|&t| t == "content_block_start").unwrap();
-    let first_block_delta_pos = event_types.iter().position(|&t| t == "content_block_delta").unwrap();
-    let first_block_stop_pos = event_types.iter().position(|&t| t == "content_block_stop").unwrap();
+    let first_block_start_pos = event_types
+        .iter()
+        .position(|&t| t == "content_block_start")
+        .unwrap();
+    let first_block_delta_pos = event_types
+        .iter()
+        .position(|&t| t == "content_block_delta")
+        .unwrap();
+    let first_block_stop_pos = event_types
+        .iter()
+        .position(|&t| t == "content_block_stop")
+        .unwrap();
     assert!(
         first_block_start_pos < first_block_delta_pos,
         "content_block_start must come before content_block_delta"
@@ -541,11 +584,19 @@ async fn native_tools_streaming_request_response() {
         *event_type == "content_block_start" && {
             serde_json::from_str::<serde_json::Value>(data)
                 .ok()
-                .and_then(|v| v.get("content_block")?.get("type")?.as_str().map(|s| s == "tool_use"))
+                .and_then(|v| {
+                    v.get("content_block")?
+                        .get("type")?
+                        .as_str()
+                        .map(|s| s == "tool_use")
+                })
                 .unwrap_or(false)
         }
     });
-    assert!(tool_use_start.is_some(), "Should contain tool_use content_block_start");
+    assert!(
+        tool_use_start.is_some(),
+        "Should contain tool_use content_block_start"
+    );
 
     // Verify the tool name in the tool_use block
     let (_, tool_start_data) = tool_use_start.unwrap();
@@ -560,15 +611,25 @@ async fn native_tools_streaming_request_response() {
         *event_type == "content_block_delta" && {
             serde_json::from_str::<serde_json::Value>(data)
                 .ok()
-                .and_then(|v| v.get("delta")?.get("type")?.as_str().map(|s| s == "input_json_delta"))
+                .and_then(|v| {
+                    v.get("delta")?
+                        .get("type")?
+                        .as_str()
+                        .map(|s| s == "input_json_delta")
+                })
                 .unwrap_or(false)
         }
     });
     assert!(has_input_json_delta, "Should contain input_json_delta");
 
     // The stop_reason in message_delta should be tool_use
-    let message_delta_event = events.iter().find(|(event_type, _)| *event_type == "message_delta");
-    assert!(message_delta_event.is_some(), "Should have a message_delta event");
+    let message_delta_event = events
+        .iter()
+        .find(|(event_type, _)| *event_type == "message_delta");
+    assert!(
+        message_delta_event.is_some(),
+        "Should have a message_delta event"
+    );
     let (_, delta_data) = message_delta_event.unwrap();
     let delta_json: serde_json::Value = serde_json::from_str(delta_data).unwrap();
     assert_eq!(
@@ -644,12 +705,14 @@ async fn native_tools_fallback_to_xml_on_unsupported() {
 /// `"code": "unsupported_parameter"`, which matched via the broader
 /// `contains("unsupported_parameter")` branch, silently bypassing the
 /// double-quoted detection logic.
-async fn spawn_mock_copilot_tools_not_supported_double_quoted() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+async fn spawn_mock_copilot_tools_not_supported_double_quoted(
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/chat/completions",
-        post(|_headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| async move {
-            if body.get("tools").is_some() {
-                return (
+        post(
+            |_headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                if body.get("tools").is_some() {
+                    return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
                         "error": {
@@ -659,30 +722,31 @@ async fn spawn_mock_copilot_tools_not_supported_double_quoted() -> (std::net::So
                     })),
                 )
                     .into_response();
-            }
-
-            let model = body["model"].as_str().unwrap_or("gpt-4");
-            Json(json!({
-                "id": "chatcmpl-fallback-dq",
-                "object": "chat.completion",
-                "created": 1700000000,
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Hello from double-quoted fallback!"
-                    },
-                    "finish_reason": "stop"
-                }],
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15
                 }
-            }))
-            .into_response()
-        }),
+
+                let model = body["model"].as_str().unwrap_or("gpt-4");
+                Json(json!({
+                    "id": "chatcmpl-fallback-dq",
+                    "object": "chat.completion",
+                    "created": 1700000000,
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Hello from double-quoted fallback!"
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15
+                    }
+                }))
+                .into_response()
+            },
+        ),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -801,7 +865,8 @@ async fn without_native_tools_flag_uses_xml_injection() {
 #[tokio::test]
 async fn native_tools_name_truncation_roundtrip() {
     // Create a tool name longer than 64 characters
-    let long_tool_name = "this_is_a_very_long_tool_name_that_exceeds_the_sixty_four_character_limit_for_openai";
+    let long_tool_name =
+        "this_is_a_very_long_tool_name_that_exceeds_the_sixty_four_character_limit_for_openai";
     assert!(
         long_tool_name.len() > 64,
         "Test tool name must exceed 64 chars"
@@ -926,9 +991,8 @@ async fn native_tools_name_truncation_roundtrip() {
         .collect();
     assert_eq!(tool_use_blocks.len(), 1);
 
-    if let copilot_adapter::anthropic::types::ResponseContentBlock::ToolUse {
-        name, ..
-    } = &tool_use_blocks[0]
+    if let copilot_adapter::anthropic::types::ResponseContentBlock::ToolUse { name, .. } =
+        &tool_use_blocks[0]
     {
         assert_eq!(
             name, long_tool_name,
@@ -1051,8 +1115,15 @@ async fn native_tools_streaming_text_then_tool_call() {
     let event_types: Vec<&str> = events.iter().map(|(t, _)| *t).collect();
 
     // Validate ordering: message_start must be first, message_stop must be last
-    assert_eq!(event_types[0], "message_start", "message_start must be first");
-    assert_eq!(event_types[event_types.len() - 1], "message_stop", "message_stop must be last");
+    assert_eq!(
+        event_types[0], "message_start",
+        "message_start must be first"
+    );
+    assert_eq!(
+        event_types[event_types.len() - 1],
+        "message_stop",
+        "message_stop must be last"
+    );
 
     // Validate text content block appears before tool_use content block.
     // Find the content_block_start events and check their types.
@@ -1060,7 +1131,12 @@ async fn native_tools_streaming_text_then_tool_call() {
         .iter()
         .enumerate()
         .filter(|(_, (t, _))| *t == "content_block_start")
-        .map(|(pos, (_, data))| (pos, serde_json::from_str::<serde_json::Value>(data).unwrap()))
+        .map(|(pos, (_, data))| {
+            (
+                pos,
+                serde_json::from_str::<serde_json::Value>(data).unwrap(),
+            )
+        })
         .collect();
 
     assert!(
@@ -1105,12 +1181,20 @@ async fn native_tools_streaming_text_then_tool_call() {
         })
         .collect();
     assert!(!text_deltas.is_empty(), "Should have text_delta events");
-    let has_weather_text = text_deltas.iter().any(|d| d.contains("Let me check the weather"));
-    assert!(has_weather_text, "Text deltas should contain 'Let me check the weather'");
+    let has_weather_text = text_deltas
+        .iter()
+        .any(|d| d.contains("Let me check the weather"));
+    assert!(
+        has_weather_text,
+        "Text deltas should contain 'Let me check the weather'"
+    );
 
     // The stop_reason in message_delta should be tool_use
     let message_delta_event = events.iter().find(|(t, _)| *t == "message_delta");
-    assert!(message_delta_event.is_some(), "Should have a message_delta event");
+    assert!(
+        message_delta_event.is_some(),
+        "Should have a message_delta event"
+    );
     let (_, delta_data) = message_delta_event.unwrap();
     let delta_json: serde_json::Value = serde_json::from_str(delta_data).unwrap();
     assert_eq!(

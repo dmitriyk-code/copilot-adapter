@@ -12,9 +12,9 @@ use std::iter::once;
 use std::mem::MaybeUninit;
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND, FILETIME};
 use windows_sys::Win32::Security::Credentials::{
-    CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW,
-    CRED_FLAGS, CRED_MAX_CREDENTIAL_BLOB_SIZE, CRED_MAX_GENERIC_TARGET_NAME_LENGTH,
-    CRED_MAX_USERNAME_LENGTH, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+    CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_FLAGS,
+    CRED_MAX_CREDENTIAL_BLOB_SIZE, CRED_MAX_GENERIC_TARGET_NAME_LENGTH, CRED_MAX_USERNAME_LENGTH,
+    CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
 };
 
 /// Windows Generic credential with LOCAL_MACHINE persistence scope.

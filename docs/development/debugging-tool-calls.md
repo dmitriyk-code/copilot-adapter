@@ -11,13 +11,13 @@ The debug scripts will automatically:
 
 ### Linux/macOS:
 ```bash
-chmod +x debug-responses.sh
-./debug-responses.sh
+chmod +x scripts/debug-responses.sh
+./scripts/debug-responses.sh
 ```
 
 ### Windows:
 ```cmd
-debug-responses.bat
+scripts\debug-responses.bat
 ```
 
 This will start the adapter with **trace-level logging** and capture everything to a timestamped log file.

@@ -31,7 +31,10 @@ fn daemon_pid_lifecycle() {
     // Initially not running (clean state)
     daemon::remove_pid_file();
     daemon::remove_port_file();
-    assert!(daemon::is_running().is_none(), "should not be running initially");
+    assert!(
+        daemon::is_running().is_none(),
+        "should not be running initially"
+    );
 
     // Write PID file for current process — simulates daemon start
     daemon::write_pid_file().unwrap();
@@ -50,8 +53,14 @@ fn daemon_pid_lifecycle() {
     daemon::remove_port_file();
 
     // After removal, should report not running
-    assert!(daemon::is_running().is_none(), "should not be running after cleanup");
-    assert!(daemon::read_port().is_none(), "port should be gone after cleanup");
+    assert!(
+        daemon::is_running().is_none(),
+        "should not be running after cleanup"
+    );
+    assert!(
+        daemon::read_port().is_none(),
+        "port should be gone after cleanup"
+    );
 }
 
 #[test]
@@ -66,7 +75,10 @@ fn stale_pid_file_is_cleaned_up() {
     std::fs::write(&pid_path, "99999999").unwrap();
 
     // is_running should detect the stale PID and clean up
-    assert!(daemon::is_running().is_none(), "stale PID should not be reported as running");
+    assert!(
+        daemon::is_running().is_none(),
+        "stale PID should not be reported as running"
+    );
     assert!(!pid_path.exists(), "stale PID file should be removed");
 }
 

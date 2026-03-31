@@ -64,11 +64,7 @@ async fn spawn_mock_copilot_with_handler<F, Fut>(
     handler: F,
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
 where
-    F: Fn(axum::http::HeaderMap, Json<serde_json::Value>) -> Fut
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    F: Fn(axum::http::HeaderMap, Json<serde_json::Value>) -> Fut + Clone + Send + Sync + 'static,
     Fut: std::future::Future<Output = Response> + Send,
 {
     let app = Router::new().route(
@@ -218,7 +214,9 @@ async fn xml_tool_injection_produces_valid_xml_in_system_prompt() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let captured_body = captured.lock().await;
-    let body = captured_body.as_ref().expect("mock should have captured body");
+    let body = captured_body
+        .as_ref()
+        .expect("mock should have captured body");
     let messages = body["messages"].as_array().unwrap();
 
     // First message should be system with injected tools
@@ -355,7 +353,11 @@ async fn xml_attribute_based_tool_call_parsed_correctly() {
     let content = resp_json["content"].as_array().unwrap();
 
     let tool_use_blocks: Vec<_> = content.iter().filter(|b| b["type"] == "tool_use").collect();
-    assert_eq!(tool_use_blocks.len(), 1, "Should have exactly one tool_use block");
+    assert_eq!(
+        tool_use_blocks.len(),
+        1,
+        "Should have exactly one tool_use block"
+    );
 
     let tool_use = &tool_use_blocks[0];
     assert_eq!(tool_use["name"], "get_weather");
@@ -464,7 +466,11 @@ async fn xml_tag_based_tool_call_parsed_correctly() {
     let content = resp_json["content"].as_array().unwrap();
 
     let tool_use_blocks: Vec<_> = content.iter().filter(|b| b["type"] == "tool_use").collect();
-    assert_eq!(tool_use_blocks.len(), 1, "Should have exactly one tool_use block");
+    assert_eq!(
+        tool_use_blocks.len(),
+        1,
+        "Should have exactly one tool_use block"
+    );
 
     let tool_use = &tool_use_blocks[0];
     assert_eq!(tool_use["name"], "read_file");
@@ -648,9 +654,7 @@ async fn xml_streaming_tool_call_detected() {
     // Should have tool_use content block
     let tool_use_starts: Vec<_> = events
         .iter()
-        .filter(|e| {
-            e["type"] == "content_block_start" && e["content_block"]["type"] == "tool_use"
-        })
+        .filter(|e| e["type"] == "content_block_start" && e["content_block"]["type"] == "tool_use")
         .collect();
     assert!(
         !tool_use_starts.is_empty(),
@@ -664,14 +668,9 @@ async fn xml_streaming_tool_call_detected() {
     // Should have input_json_delta with the arguments
     let input_deltas: Vec<_> = events
         .iter()
-        .filter(|e| {
-            e["type"] == "content_block_delta" && e["delta"]["type"] == "input_json_delta"
-        })
+        .filter(|e| e["type"] == "content_block_delta" && e["delta"]["type"] == "input_json_delta")
         .collect();
-    assert!(
-        !input_deltas.is_empty(),
-        "Expected input_json_delta event"
-    );
+    assert!(!input_deltas.is_empty(), "Expected input_json_delta event");
 
     // Collect and concatenate all partial_json slices — the Anthropic SSE spec
     // allows `partial_json` to be fragmented across multiple delta events.
@@ -948,9 +947,7 @@ async fn xml_tool_injection_prepends_to_existing_system_prompt() {
 
     // Tools should come before the original content
     let tools_pos = system_content.find("<tools>").unwrap();
-    let original_pos = system_content
-        .find("You are a coding assistant")
-        .unwrap();
+    let original_pos = system_content.find("You are a coding assistant").unwrap();
     assert!(
         tools_pos < original_pos,
         "Tools should be prepended before original system content"
@@ -1189,7 +1186,11 @@ async fn xml_special_characters_in_parameter_values() {
     let content = resp_json["content"].as_array().unwrap();
 
     let tool_use_blocks: Vec<_> = content.iter().filter(|b| b["type"] == "tool_use").collect();
-    assert_eq!(tool_use_blocks.len(), 1, "Should have exactly one tool_use block");
+    assert_eq!(
+        tool_use_blocks.len(),
+        1,
+        "Should have exactly one tool_use block"
+    );
 
     let tool_use = &tool_use_blocks[0];
     assert_eq!(tool_use["name"], "bash");

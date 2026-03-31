@@ -521,7 +521,7 @@ fn mixed_types_all_coerced_correctly() {
 <parameters>
 <name>test</name>
 <count>5</count>
-<ratio>3.14</ratio>
+<ratio>1.5</ratio>
 <enabled>true</enabled>
 <config>{"key": "val"}</config>
 <tags>["a", "b"]</tags>
@@ -535,7 +535,7 @@ fn mixed_types_all_coerced_correctly() {
 
     assert_eq!(args["name"], serde_json::json!("test"));
     assert_eq!(args["count"], serde_json::json!(5));
-    assert_eq!(args["ratio"], serde_json::json!(3.14));
+    assert_eq!(args["ratio"], serde_json::json!(1.5));
     assert_eq!(args["enabled"], serde_json::json!(true));
     assert_eq!(args["config"], serde_json::json!({"key": "val"}));
     assert_eq!(args["tags"], serde_json::json!(["a", "b"]));

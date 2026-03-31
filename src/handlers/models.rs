@@ -105,9 +105,7 @@ async fn resolve_models(state: &AppState) -> ModelList {
 /// Attempts to return dynamically fetched models from the Copilot API (with
 /// caching). Falls back to a static list on error or when `--static-models`
 /// is enabled.
-pub async fn list_models(
-    State(state): State<Arc<AppState>>,
-) -> Json<ModelList> {
+pub async fn list_models(State(state): State<Arc<AppState>>) -> Json<ModelList> {
     Json(resolve_models(&state).await)
 }
 
@@ -123,7 +121,5 @@ pub async fn get_model(
         .into_iter()
         .find(|m| m.id == model_id)
         .map(Json)
-        .ok_or_else(|| {
-            AppError::ModelNotFound(format!("Model '{model_id}' not found"))
-        })
+        .ok_or_else(|| AppError::ModelNotFound(format!("Model '{model_id}' not found")))
 }

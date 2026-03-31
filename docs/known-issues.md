@@ -45,3 +45,46 @@ Under investigation. The adapter correctly proxies all requests it receives,
 but the root cause of the dual requests has not been definitively confirmed.
 See `ISSUE-DUAL-RESPONSES.md` for the detailed bug report and investigation
 notes.
+
+---
+
+## Parameter Type Coercion (XML Mode)
+
+### Description
+When using XML-based tool injection (the default), the XML parser historically
+converted all parameter values to strings. This caused MCP validation errors
+for tools expecting typed parameters (numbers, booleans, etc.).
+
+### Resolution
+**Fixed.** The adapter now uses a `ToolRegistry` that inspects tool schemas
+from the request to coerce XML parameter values to their expected types.
+Numbers, booleans, objects, and arrays are parsed accordingly. Unknown
+parameters fall back to strings.
+
+This fix applies to the XML injection path. When using `--native-tools`,
+parameter types are preserved automatically by the OpenAI function calling
+format.
+
+---
+
+## Buffered Streaming with XML Tools
+
+### Description
+When using XML-based tool injection (the default), streaming responses that
+contain tool calls are **buffered entirely** before being emitted to the
+client. This means text, tool calls, and follow-up content all appear at once
+rather than streaming progressively.
+
+### Workaround
+Use `--native-tools` mode for progressive streaming:
+```bash
+copilot-adapter start --native-tools
+```
+
+In native tools mode, text and tool calls stream incrementally as they are
+generated, matching the native Anthropic API behavior.
+
+### Status
+This is by design for the XML path — tool calls cannot be parsed until the
+closing `</function_calls>` XML tag arrives. Use native tools mode for a
+better streaming UX.

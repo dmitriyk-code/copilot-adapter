@@ -8,7 +8,7 @@ use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
 use copilot_adapter::copilot::models_cache::ModelsCache;
-use copilot_adapter::server::{AppState, AdapterConfig, build_router};
+use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
 use super::test_helpers::InMemoryStorage;
 

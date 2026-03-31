@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use copilot_adapter::anthropic::types::{
-    ContentDelta, ResponseContentBlock, StreamEvent,
-};
+use copilot_adapter::anthropic::types::{ContentDelta, ResponseContentBlock, StreamEvent};
 use copilot_adapter::copilot::types::{
     ChatCompletionChunk, ChunkChoice, ChunkDelta, StreamingFunctionCall, StreamingToolCall,
 };
@@ -13,7 +11,12 @@ use copilot_adapter::streaming::state::StreamingState;
 // ---------------------------------------------------------------------------
 
 /// Build a simple text chunk with optional finish_reason.
-fn text_chunk(id: &str, model: &str, text: &str, finish_reason: Option<&str>) -> ChatCompletionChunk {
+fn text_chunk(
+    id: &str,
+    model: &str,
+    text: &str,
+    finish_reason: Option<&str>,
+) -> ChatCompletionChunk {
     ChatCompletionChunk {
         id: id.to_string(),
         object: "chat.completion.chunk".to_string(),
@@ -245,7 +248,12 @@ fn text_only_streaming() {
     let mut state = StreamingState::new(HashMap::new());
 
     // First chunk: triggers message_start + content_block_start + text delta
-    let events = state.process_chunk(&text_chunk("chatcmpl-abc", "claude-sonnet-4", "Hello", None));
+    let events = state.process_chunk(&text_chunk(
+        "chatcmpl-abc",
+        "claude-sonnet-4",
+        "Hello",
+        None,
+    ));
     assert_eq!(events.len(), 3);
     let msg_id = assert_message_start(&events[0]);
     assert!(msg_id.starts_with("msg_"));
@@ -253,12 +261,22 @@ fn text_only_streaming() {
     assert_text_delta(&events[2], 0, "Hello");
 
     // Second chunk: only text delta (no new block)
-    let events = state.process_chunk(&text_chunk("chatcmpl-abc", "claude-sonnet-4", " world", None));
+    let events = state.process_chunk(&text_chunk(
+        "chatcmpl-abc",
+        "claude-sonnet-4",
+        " world",
+        None,
+    ));
     assert_eq!(events.len(), 1);
     assert_text_delta(&events[0], 0, " world");
 
     // Third chunk: text + finish_reason
-    let events = state.process_chunk(&text_chunk("chatcmpl-abc", "claude-sonnet-4", "!", Some("stop")));
+    let events = state.process_chunk(&text_chunk(
+        "chatcmpl-abc",
+        "claude-sonnet-4",
+        "!",
+        Some("stop"),
+    ));
     assert_eq!(events.len(), 3);
     assert_text_delta(&events[0], 0, "!");
     // finish closes the block and emits message_delta
@@ -341,7 +359,11 @@ fn single_tool_call_streaming() {
     assert_input_json_delta(&events[0], 0, "\"}");
 
     // Finish with tool_calls reason
-    let events = state.process_chunk(&finish_chunk("chatcmpl-xyz", "claude-sonnet-4", "tool_calls"));
+    let events = state.process_chunk(&finish_chunk(
+        "chatcmpl-xyz",
+        "claude-sonnet-4",
+        "tool_calls",
+    ));
     assert_eq!(events.len(), 2);
     assert_block_stop(&events[0], 0);
     assert_message_delta(&events[1], "tool_use");
@@ -414,7 +436,7 @@ fn tool_call_without_id_gets_synthetic_id() {
 
     let events = state.process_chunk(&chunk);
     assert_eq!(events.len(), 2); // message_start + block_start (no args delta)
-    // Should use synthetic "call_0"
+                                 // Should use synthetic "call_0"
     assert_tool_use_block_start(&events[1], 0, "call_0", "test_tool");
 }
 
@@ -440,10 +462,15 @@ fn mixed_text_then_tool_streaming() {
 
     // Transition to tool call — should close text block, increment index, open tool block
     let events = state.process_chunk(&tool_call_start_chunk(
-        "c1", "m1", 0, "call_1", "bash", "{\"command\"",
+        "c1",
+        "m1",
+        0,
+        "call_1",
+        "bash",
+        "{\"command\"",
     ));
     assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 0);        // close text block at index 0
+    assert_block_stop(&events[0], 0); // close text block at index 0
     assert_tool_use_block_start(&events[1], 1, "call_1", "bash"); // tool at index 1
     assert_input_json_delta(&events[2], 1, "{\"command\"");
 
@@ -487,21 +514,36 @@ fn parallel_tool_calls_streaming() {
 
     // Second tool call starts (parallel) — should close first block, open second
     let events = state.process_chunk(&tool_call_start_chunk(
-        "c1", "m1", 1, "call_b", "read_file", "{\"",
+        "c1",
+        "m1",
+        1,
+        "call_b",
+        "read_file",
+        "{\"",
     ));
     assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 0);         // close first tool block
+    assert_block_stop(&events[0], 0); // close first tool block
     assert_tool_use_block_start(&events[1], 1, "call_b", "read_file"); // second tool at index 1
     assert_input_json_delta(&events[2], 1, "{\"");
 
     // Continue second tool args
-    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 1, "path\":\"README.md\"}"));
+    let events = state.process_chunk(&tool_call_args_chunk(
+        "c1",
+        "m1",
+        1,
+        "path\":\"README.md\"}",
+    ));
     assert_eq!(events.len(), 1);
     assert_input_json_delta(&events[0], 1, "path\":\"README.md\"}");
 
     // Third tool call
     let events = state.process_chunk(&tool_call_start_chunk(
-        "c1", "m1", 2, "call_c", "write_file", "{}",
+        "c1",
+        "m1",
+        2,
+        "call_c",
+        "write_file",
+        "{}",
     ));
     assert_eq!(events.len(), 3);
     assert_block_stop(&events[0], 1);
@@ -533,9 +575,7 @@ fn block_transitions_emit_stop_then_start() {
     assert_text_block_start(&events[1], 0);
 
     // Transition to tool — verify stop(0) then start(1)
-    let events = state.process_chunk(&tool_call_start_chunk(
-        "c1", "m1", 0, "call_1", "bash", "",
-    ));
+    let events = state.process_chunk(&tool_call_start_chunk("c1", "m1", 0, "call_1", "bash", ""));
     // stop(0) + start(1) (no args delta since args is empty)
     assert_eq!(events.len(), 2);
     assert_block_stop(&events[0], 0);
@@ -571,11 +611,12 @@ fn finalize_closes_open_text_block() {
     let events = state.process_chunk(&text_chunk("c1", "m1", "Hello", None));
     assert_eq!(events.len(), 3);
 
-    // Finalize should close the open text block
+    // Finalize should close the open text block, emit message_delta, then message_stop
     let events = state.finalize();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
     assert_block_stop(&events[0], 0);
-    assert_message_stop(&events[1]);
+    assert_message_delta(&events[1], "end_turn");
+    assert_message_stop(&events[2]);
 }
 
 #[test]
@@ -584,15 +625,21 @@ fn finalize_closes_open_tool_block() {
 
     // Send tool call without finish
     let events = state.process_chunk(&tool_call_start_chunk(
-        "c1", "m1", 0, "call_1", "bash", "{\"cmd\":\"ls\"}",
+        "c1",
+        "m1",
+        0,
+        "call_1",
+        "bash",
+        "{\"cmd\":\"ls\"}",
     ));
     assert_eq!(events.len(), 3);
 
-    // Finalize should close the open tool block
+    // Finalize should close the open tool block, emit message_delta, then message_stop
     let events = state.finalize();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
     assert_block_stop(&events[0], 0);
-    assert_message_stop(&events[1]);
+    assert_message_delta(&events[1], "end_turn");
+    assert_message_stop(&events[2]);
 }
 
 #[test]
@@ -616,7 +663,12 @@ fn finalize_after_finish_emits_only_message_stop() {
 fn message_start_strips_chatcmpl_prefix() {
     let mut state = StreamingState::new(HashMap::new());
 
-    let events = state.process_chunk(&text_chunk("chatcmpl-abc123", "claude-sonnet-4", "Hi", None));
+    let events = state.process_chunk(&text_chunk(
+        "chatcmpl-abc123",
+        "claude-sonnet-4",
+        "Hi",
+        None,
+    ));
     let msg_id = assert_message_start(&events[0]);
     assert_eq!(msg_id, "msg_abc123");
 }
@@ -640,7 +692,9 @@ fn message_start_emitted_only_once() {
     // First chunk should have message_start
     assert!(matches!(&events1[0], StreamEvent::MessageStart { .. }));
     // Second chunk should NOT have message_start
-    assert!(events2.iter().all(|e| !matches!(e, StreamEvent::MessageStart { .. })));
+    assert!(events2
+        .iter()
+        .all(|e| !matches!(e, StreamEvent::MessageStart { .. })));
 }
 
 // ===========================================================================
@@ -761,7 +815,12 @@ fn events_serialize_to_valid_json() {
     // Process a mixed stream
     let events1 = state.process_chunk(&text_chunk("c1", "claude-sonnet-4", "Hello", None));
     let events2 = state.process_chunk(&tool_call_start_chunk(
-        "c1", "claude-sonnet-4", 0, "call_1", "bash", "{\"cmd\":\"ls\"}",
+        "c1",
+        "claude-sonnet-4",
+        0,
+        "call_1",
+        "bash",
+        "{\"cmd\":\"ls\"}",
     ));
     let events3 = state.process_chunk(&finish_chunk("c1", "claude-sonnet-4", "tool_calls"));
     let events4 = state.finalize();

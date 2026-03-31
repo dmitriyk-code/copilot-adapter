@@ -19,7 +19,8 @@ pub fn normalize_model_name(model: &str) -> String {
     // If already in correct format, return as-is
     if model.starts_with("gpt-")
         || model.starts_with("gemini-")
-        || model.starts_with("text-embedding-") {
+        || model.starts_with("text-embedding-")
+    {
         return model.to_string();
     }
 
@@ -40,8 +41,8 @@ pub fn normalize_model_name(model: &str) -> String {
         }
 
         let family = parts[1]; // haiku, sonnet, opus
-        let major = parts[2];  // 4
-        let minor = parts[3];  // 5
+        let major = parts[2]; // 4
+        let minor = parts[3]; // 5
 
         // Guard: if parts[3] is a datestamp (8-digit number like 20250514),
         // not a minor version, return the model name as-is.
@@ -96,10 +97,7 @@ mod tests {
 
     #[test]
     fn test_normalize_gpt_model() {
-        assert_eq!(
-            normalize_model_name("gpt-4o"),
-            "gpt-4o"
-        );
+        assert_eq!(normalize_model_name("gpt-4o"), "gpt-4o");
     }
 
     #[test]

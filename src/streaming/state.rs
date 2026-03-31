@@ -42,6 +42,10 @@ pub struct StreamingState {
     message_started: bool,
     /// Whether the current content block is open.
     block_open: bool,
+    /// Whether a `message_delta` (finish) event has already been emitted via
+    /// `handle_finish()`. Used by `finalize()` to ensure the required
+    /// `message_delta` is always emitted before `message_stop`.
+    finish_emitted: bool,
 }
 
 impl StreamingState {
@@ -62,6 +66,7 @@ impl StreamingState {
             name_mapping,
             message_started: false,
             block_open: false,
+            finish_emitted: false,
         }
     }
 
@@ -114,8 +119,12 @@ impl StreamingState {
 
     /// Finalize the stream and return closing events.
     ///
-    /// Closes any open content block and emits `message_stop`. Must be
-    /// called exactly once after the upstream chunk stream ends.
+    /// Closes any open content block, emits `message_delta` (if not already
+    /// emitted by a `finish_reason` chunk), and emits the terminal
+    /// `message_stop`. The Anthropic SSE protocol requires a `message_delta`
+    /// between the last `content_block_stop` and `message_stop`.
+    ///
+    /// Must be called exactly once after the upstream chunk stream ends.
     ///
     /// Returns an empty vec if no chunks were ever processed (i.e.,
     /// `message_start` was never emitted), preventing a malformed stream
@@ -133,6 +142,19 @@ impl StreamingState {
                 index: self.current_block_index,
             });
             self.block_open = false;
+        }
+
+        // Emit message_delta if no finish_reason chunk was received (e.g.,
+        // the upstream stream was truncated or dropped). The Anthropic
+        // protocol mandates message_delta before message_stop.
+        if !self.finish_emitted {
+            events.push(StreamEvent::MessageDelta {
+                delta: MessageDeltaBody {
+                    stop_reason: Some("end_turn".to_string()),
+                    stop_sequence: None,
+                },
+                usage: MessageDeltaUsage { output_tokens: 0 },
+            });
         }
 
         // Terminal event.
@@ -193,11 +215,7 @@ impl StreamingState {
         let idx = tc.index;
 
         // A tool call delta with a function name signals a new call.
-        let is_new_call = tc
-            .function
-            .as_ref()
-            .and_then(|f| f.name.as_ref())
-            .is_some();
+        let is_new_call = tc.function.as_ref().and_then(|f| f.name.as_ref()).is_some();
 
         if is_new_call {
             // Close previous block if open.
@@ -231,11 +249,7 @@ impl StreamingState {
                 .get(&idx)
                 .cloned()
                 .unwrap_or_else(|| format!("call_{}", idx));
-            let name = self
-                .tool_call_names
-                .get(&idx)
-                .cloned()
-                .unwrap_or_default();
+            let name = self.tool_call_names.get(&idx).cloned().unwrap_or_default();
 
             events.push(StreamEvent::ContentBlockStart {
                 index: self.current_block_index,
@@ -297,10 +311,12 @@ impl StreamingState {
                 stop_sequence: None,
             },
             usage: MessageDeltaUsage {
-                // TODO(epic-4): wire actual token counts once ChatCompletionChunk exposes usage
+                // TODO: wire actual token counts once ChatCompletionChunk exposes usage
                 output_tokens: 0,
             },
         });
+
+        self.finish_emitted = true;
 
         events
     }

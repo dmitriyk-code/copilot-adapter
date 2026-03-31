@@ -67,11 +67,7 @@ async fn spawn_mock_copilot_with_handler<F, Fut>(
     handler: F,
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
 where
-    F: Fn(axum::http::HeaderMap, Json<serde_json::Value>) -> Fut
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    F: Fn(axum::http::HeaderMap, Json<serde_json::Value>) -> Fut + Clone + Send + Sync + 'static,
     Fut: std::future::Future<Output = Response> + Send,
 {
     let app = Router::new().route(
@@ -298,8 +294,7 @@ async fn e2e_complex_arguments_anthropic() {
             let args = args.clone();
             async move {
                 let model = body["model"].as_str().unwrap_or("gpt-4");
-                Json(build_tool_call_response(model, "bash", args, None))
-                    .into_response()
+                Json(build_tool_call_response(model, "bash", args, None)).into_response()
             }
         }
     })
@@ -363,10 +358,7 @@ async fn e2e_complex_arguments_anthropic() {
         tool_use["input"]["command"],
         "find /home -name '*.rs' -type f"
     );
-    assert_eq!(
-        tool_use["input"]["working_directory"],
-        "/home/user/project"
-    );
+    assert_eq!(tool_use["input"]["working_directory"], "/home/user/project");
     assert_eq!(tool_use["input"]["timeout"], "30");
 
     assert_eq!(resp.stop_reason, Some("tool_use".to_string()));
@@ -383,7 +375,11 @@ async fn e2e_no_tool_calls_passthrough_anthropic() {
     let (copilot_addr, _h1) = spawn_mock_copilot_with_handler(
         |_headers, Json(body): Json<serde_json::Value>| async move {
             let model = body["model"].as_str().unwrap_or("gpt-4");
-            Json(build_plain_response(model, "Here is a plain text response.")).into_response()
+            Json(build_plain_response(
+                model,
+                "Here is a plain text response.",
+            ))
+            .into_response()
         },
     )
     .await;
@@ -430,7 +426,10 @@ async fn e2e_no_tool_calls_passthrough_anthropic() {
     assert!(tool_use_blocks.is_empty(), "should have no tool_use blocks");
 
     let text_blocks: Vec<_> = content.iter().filter(|b| b["type"] == "text").collect();
-    assert!(!text_blocks.is_empty(), "should have at least one text block");
+    assert!(
+        !text_blocks.is_empty(),
+        "should have at least one text block"
+    );
     assert_eq!(text_blocks[0]["text"], "Here is a plain text response.");
 
     // stop_reason should NOT be "tool_use"

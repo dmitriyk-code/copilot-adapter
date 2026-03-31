@@ -12,10 +12,8 @@ use std::process::Command;
 pub fn open_url(url: &str) -> anyhow::Result<bool> {
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()?;
-        return Ok(true);
+        Command::new("cmd").args(["/C", "start", "", url]).spawn()?;
+        Ok(true)
     }
 
     #[cfg(target_os = "macos")]

@@ -117,10 +117,12 @@ impl MockCopilot {
     pub async fn spawn_slow(delay_ms: u64) -> Self {
         let app = Router::new().route(
             "/chat/completions",
-            post(move |headers: HeaderMap, body: Json<serde_json::Value>| async move {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                mock_chat_completions(headers, body).await
-            }),
+            post(
+                move |headers: HeaderMap, body: Json<serde_json::Value>| async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    mock_chat_completions(headers, body).await
+                },
+            ),
         );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -163,7 +165,9 @@ async fn mock_chat_completions(
     if integration_id != "vscode-chat" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("expected Copilot-Integration-Id 'vscode-chat', got '{integration_id}'")})),
+            Json(
+                json!({"error": format!("expected Copilot-Integration-Id 'vscode-chat', got '{integration_id}'")}),
+            ),
         ));
     }
 
@@ -174,7 +178,9 @@ async fn mock_chat_completions(
     if editor_version != "vscode/1.85.0" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("expected Editor-Version 'vscode/1.85.0', got '{editor_version}'")})),
+            Json(
+                json!({"error": format!("expected Editor-Version 'vscode/1.85.0', got '{editor_version}'")}),
+            ),
         ));
     }
 
@@ -369,7 +375,9 @@ async fn mock_models_handler(
     if integration_id != "vscode-chat" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("expected Copilot-Integration-Id 'vscode-chat', got '{integration_id}'")})),
+            Json(
+                json!({"error": format!("expected Copilot-Integration-Id 'vscode-chat', got '{integration_id}'")}),
+            ),
         ));
     }
 
@@ -380,7 +388,9 @@ async fn mock_models_handler(
     if editor_version != "vscode/1.85.0" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("expected Editor-Version 'vscode/1.85.0', got '{editor_version}'")})),
+            Json(
+                json!({"error": format!("expected Editor-Version 'vscode/1.85.0', got '{editor_version}'")}),
+            ),
         ));
     }
 

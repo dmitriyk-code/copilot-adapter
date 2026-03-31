@@ -59,8 +59,7 @@ fn windows_guidance_contains_persist_instructions() {
 
 #[test]
 fn unix_guidance_zsh_shows_zshrc() {
-    let output =
-        guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/zsh");
+    let output = guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/zsh");
     assert!(output.contains("~/.zshrc"));
     assert!(output.contains("export ANTHROPIC_BASE_URL=http://127.0.0.1:6767"));
     assert!(output.contains("export ANTHROPIC_API_KEY=dummy"));
@@ -68,24 +67,21 @@ fn unix_guidance_zsh_shows_zshrc() {
 
 #[test]
 fn unix_guidance_usr_bin_zsh_shows_zshrc() {
-    let output =
-        guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/usr/bin/zsh");
+    let output = guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/usr/bin/zsh");
     assert!(output.contains("~/.zshrc"));
     assert!(output.contains("zsh"));
 }
 
 #[test]
 fn unix_guidance_bash_shows_bashrc() {
-    let output =
-        guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/bash");
+    let output = guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/bash");
     assert!(output.contains("~/.bashrc"));
     assert!(output.contains("export ANTHROPIC_BASE_URL=http://127.0.0.1:6767"));
 }
 
 #[test]
 fn unix_guidance_unknown_shell_defaults_to_bash() {
-    let output =
-        guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/fish");
+    let output = guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/fish");
     assert!(output.contains("~/.bashrc"));
 }
 
@@ -97,15 +93,13 @@ fn unix_guidance_empty_shell_defaults_to_bash() {
 
 #[test]
 fn unix_guidance_contains_current_session_option() {
-    let output =
-        guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/bash");
+    let output = guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/bash");
     assert!(output.contains("Current session"));
 }
 
 #[test]
 fn unix_guidance_contains_persist_option() {
-    let output =
-        guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/bash");
+    let output = guidance::build_unix_guidance_for_shell("http://127.0.0.1:6767", "/bin/bash");
     assert!(output.contains("Persist in bash"));
 }
 

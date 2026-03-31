@@ -44,9 +44,8 @@ use crate::tools::types::{FunctionCall, ToolCall};
 // ---------------------------------------------------------------------------
 
 /// Collapses runs of 3+ newlines down to 2 (one blank line).
-static COLLAPSE_NEWLINES: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\n{3,}").expect("collapse regex should compile")
-});
+static COLLAPSE_NEWLINES: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\n{3,}").expect("collapse regex should compile"));
 
 /// Matches `<function_calls>...</function_calls>` blocks for stripping.
 static STRIP_FUNCTION_CALLS: Lazy<Regex> = Lazy::new(|| {
@@ -56,8 +55,7 @@ static STRIP_FUNCTION_CALLS: Lazy<Regex> = Lazy::new(|| {
 
 /// Matches standalone `<invoke...>...</invoke>` blocks for stripping.
 static STRIP_INVOKE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)<invoke[^>]*>.*?</invoke>")
-        .expect("invoke strip regex should compile")
+    Regex::new(r"(?s)<invoke[^>]*>.*?</invoke>").expect("invoke strip regex should compile")
 });
 
 /// Matches `<invoke name="...">...</invoke>` blocks (attribute-based format).
@@ -106,9 +104,8 @@ fn contains_tag(tag: &str, content: &str) -> bool {
 /// Matches opening tags like `<param_name>` in tag-based XML parameters.
 ///
 /// Compiled once and reused across all calls to [`parse_xml_params`].
-static OPEN_TAG: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>").expect("open tag regex should compile")
-});
+static OPEN_TAG: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>").expect("open tag regex should compile"));
 
 /// Parse XML parameters in tag-based format into a JSON object.
 ///
@@ -324,10 +321,7 @@ fn parse_invokes(content: &str, registry: Option<&ToolRegistry>) -> Vec<ToolCall
 ///   <param_name>value</param_name>
 /// </parameters>
 /// ```
-fn try_parse_tag_invoke(
-    invoke_content: &str,
-    registry: Option<&ToolRegistry>,
-) -> Option<ToolCall> {
+fn try_parse_tag_invoke(invoke_content: &str, registry: Option<&ToolRegistry>) -> Option<ToolCall> {
     let tool_name = extract_between_tags("tool_name", invoke_content)
         .first()
         .map(|s| s.trim().to_string())?;
@@ -396,9 +390,7 @@ pub fn strip_tool_calls(content: &str) -> String {
     let mut result = content.to_string();
 
     // Remove <function_calls>...</function_calls> blocks
-    result = STRIP_FUNCTION_CALLS
-        .replace_all(&result, "")
-        .to_string();
+    result = STRIP_FUNCTION_CALLS.replace_all(&result, "").to_string();
 
     // Remove standalone <invoke>...</invoke> blocks
     result = STRIP_INVOKE.replace_all(&result, "").to_string();
