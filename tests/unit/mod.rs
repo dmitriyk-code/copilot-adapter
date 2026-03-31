@@ -10,6 +10,7 @@ mod error_tests;
 mod guidance_tests;
 mod input_tests;
 mod models_cache_tests;
+mod native_tools_verification_tests;
 mod sse_tests;
 mod storage_tests;
 mod token_tests;

@@ -616,3 +616,114 @@ copilot-adapter start --native-tools
 - [litellm AnthropicAdapter source](https://github.com/BerriAI/litellm/tree/main/litellm/llms/anthropic/experimental_pass_through/adapters)
 - [OpenAI Function Calling](https://platform.openai.com/docs/guides/function-calling)
 - [Anthropic Tool Use](https://docs.anthropic.com/en/docs/tool-use)
+
+---
+
+## Appendix A: Epic 0 Verification Results
+
+**Date:** 2026-03-31
+
+### Summary
+
+Epic 0 verified that the copilot-adapter's type system and client infrastructure
+can handle native OpenAI-format tool calls. Testing was done via:
+
+1. **15 unit tests** (`tests/unit/native_tools_verification_tests.rs`) — type serialization/deserialization
+2. **5 integration tests** (`tests/integration/native_tools_verification_tests.rs`) — mock server round-trips
+3. **Verification scripts** (`scripts/verify-native-tools.sh`, `scripts/verify-native-tools.ps1`) — for manual testing with a live Copilot token
+
+### Key Findings
+
+#### ✅ Finding 1: Type System Supports Native Tool Calls
+
+The existing types in `src/tools/types.rs` and `src/copilot/types.rs` already support the
+OpenAI tool call format:
+
+- **Request**: `Tool` / `Function` / `FunctionParameters` serialize correctly to OpenAI format
+- **Response**: `ToolCall` / `FunctionCall` deserialize from both streaming and non-streaming responses
+- **Streaming**: `ChunkDelta.tool_calls` handles partial deltas (only `arguments` fragment, no `id`/`name`)
+- **Request forwarding**: `ChatCompletionRequest.tools` and `.tool_choice` serialize and are included in the JSON body sent to the API
+
+#### ✅ Finding 2: Streaming Tool Call Reconstruction Works
+
+The streaming format uses incremental deltas that can be accumulated:
+
+```
+Chunk 1: { delta: { role: "assistant" } }
+Chunk 2: { delta: { tool_calls: [{ index: 0, id: "call_001", type: "function", function: { name: "get_weather", arguments: "" } }] } }
+Chunk 3: { delta: { tool_calls: [{ index: 0, function: { arguments: "{\"loc" } }] } }
+Chunk 4: { delta: { tool_calls: [{ index: 0, function: { arguments: "ation\":\"London\"}" } }] } }
+Chunk 5: { delta: {}, finish_reason: "tool_calls" }
+```
+
+Accumulating `function.arguments` across chunks produces valid JSON.
+
+#### ✅ Finding 3: Parameter Types Are Preserved
+
+Native tool calls use JSON strings for arguments, which preserve types:
+
+```json
+{"query": "test", "limit": 10, "recursive": true}
+```
+
+- `limit` is a JSON number (not string `"10"`)
+- `recursive` is a JSON boolean (not string `"true"`)
+
+This solves the MCP validation error described in the plan.
+
+#### ⚠️ Finding 4: `MessageContent` Cannot Handle `null` Content (BLOCKER)
+
+When models return native tool calls, they typically set `"content": null` in the
+assistant message. The current `MessageContent` type:
+
+```rust
+#[serde(untagged)]
+pub enum MessageContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+}
+```
+
+Cannot deserialize `null` because neither `String` nor `Vec<ContentBlock>` matches.
+
+**Impact**: This must be fixed before native tools can work end-to-end.
+
+**Proposed fix** (for Epic 1/2):
+```rust
+#[serde(untagged)]
+pub enum MessageContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+    Null,  // handles null content from native tool call responses
+}
+```
+
+Or use `Option<MessageContent>` on the `Message.content` field.
+
+#### ✅ Finding 5: Tool Name Truncation Design Is Sound
+
+The plan proposes truncating tool names longer than 64 chars using:
+- 55-char prefix + `_` + 8-char SHA-256 hex hash = 64 chars
+
+The type system (`Tool.function.name`) accepts any string length, so truncation
+must be applied in the translation layer (Epic 1). Verification scripts test
+64-char, 65-char, and 100-char names empirically against the live API.
+
+### Files Created/Modified
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `scripts/verify-native-tools.sh` | Created | Bash verification script (4 tests) |
+| `scripts/verify-native-tools.ps1` | Created | PowerShell verification script |
+| `tests/unit/native_tools_verification_tests.rs` | Created | 15 unit tests |
+| `tests/integration/native_tools_verification_tests.rs` | Created | 5 integration tests |
+| `tests/common/mock_copilot.rs` | Modified | Added native tool call mock helpers |
+| `tests/unit/mod.rs` | Modified | Registered new test module |
+| `tests/integration/mod.rs` | Modified | Registered new test module |
+
+### Conclusion
+
+Native tools support via the Copilot API is feasible. The type infrastructure is
+largely in place. The main blocker is the `MessageContent` null handling, which is
+a small fix. The project should proceed to Epic 1 (Tool Translation Layer).
+

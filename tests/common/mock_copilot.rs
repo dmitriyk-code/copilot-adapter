@@ -659,6 +659,293 @@ pub fn build_streaming_tool_call_chunks(
 }
 
 // ---------------------------------------------------------------------------
+// Native tool call mock helpers (Epic 0 — verification)
+// ---------------------------------------------------------------------------
+
+/// Build a non-streaming response with a native OpenAI-format tool call.
+///
+/// Unlike `build_tool_call_response` (which uses XML in text content), this
+/// returns a response with structured `tool_calls` in the message — the format
+/// expected when passing native tools to the Copilot API.
+pub fn build_native_tool_call_response(
+    model: &str,
+    tool_name: &str,
+    arguments: serde_json::Value,
+    call_id: Option<&str>,
+) -> serde_json::Value {
+    let call_id = call_id.unwrap_or("call_native_mock_001");
+    let args_str = serde_json::to_string(&arguments).unwrap_or_default();
+
+    // NOTE: Using empty string for content instead of null because the current
+    // MessageContent type (untagged: String | Vec) cannot deserialize null.
+    // This is a known issue documented in Epic 0 findings. When MessageContent
+    // is updated to handle null, this should be changed to serde_json::Value::Null.
+    json!({
+        "id": "chatcmpl-native-toolmock",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": args_str
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 25,
+            "completion_tokens": 15,
+            "total_tokens": 40
+        }
+    })
+}
+
+/// Build a non-streaming response with multiple native tool calls.
+pub fn build_native_multi_tool_call_response(
+    model: &str,
+    tool_calls: &[(&str, serde_json::Value)],
+) -> serde_json::Value {
+    let calls: Vec<serde_json::Value> = tool_calls
+        .iter()
+        .enumerate()
+        .map(|(i, (name, args))| {
+            let args_str = serde_json::to_string(args).unwrap_or_default();
+            json!({
+                "id": format!("call_native_mock_{:03}", i),
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": args_str
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "id": "chatcmpl-native-multitool",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": calls
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 40,
+            "completion_tokens": 30,
+            "total_tokens": 70
+        }
+    })
+}
+
+/// Build SSE streaming chunks with native tool_calls deltas.
+///
+/// Simulates the OpenAI streaming format for tool calls:
+/// 1. Role chunk (assistant)
+/// 2. Tool call start (id, type, function name)
+/// 3. Tool call arguments (partial JSON fragments)
+/// 4. Finish reason chunk (tool_calls)
+/// 5. [DONE]
+pub fn build_native_streaming_tool_call_chunks(
+    model: &str,
+    tool_name: &str,
+    arguments: serde_json::Value,
+) -> String {
+    let args_str = serde_json::to_string(&arguments).unwrap_or_default();
+
+    // Split arguments into fragments to simulate streaming
+    let (frag1, frag2) = if args_str.len() > 10 {
+        let mid = args_str.len() / 2;
+        (&args_str[..mid], &args_str[mid..])
+    } else {
+        (args_str.as_str(), "")
+    };
+
+    let mut chunks = vec![
+        // Chunk 1: role
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-stream",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        // Chunk 2: tool call start (id + name)
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-stream",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_native_stream_001",
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": ""}
+                    }]
+                }, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        // Chunk 3: arguments fragment 1
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-stream",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "function": {"arguments": frag1}
+                    }]
+                }, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+    ];
+
+    // Chunk 4: arguments fragment 2 (if any)
+    if !frag2.is_empty() {
+        chunks.push(format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-stream",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "function": {"arguments": frag2}
+                    }]
+                }, "finish_reason": serde_json::Value::Null}]
+            })
+        ));
+    }
+
+    // Final chunk: finish_reason
+    chunks.push(format!(
+        "data: {}\n\n",
+        json!({
+            "id": "chatcmpl-native-stream",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+        })
+    ));
+
+    chunks.push("data: [DONE]\n\n".to_string());
+
+    chunks.concat()
+}
+
+/// Build SSE streaming chunks with text content followed by a native tool call.
+///
+/// Simulates a response where the model first outputs some text, then makes
+/// a tool call — testing the text-to-tool transition in streaming.
+pub fn build_native_streaming_text_then_tool_chunks(
+    model: &str,
+    text: &str,
+    tool_name: &str,
+    arguments: serde_json::Value,
+) -> String {
+    let args_str = serde_json::to_string(&arguments).unwrap_or_default();
+
+    let chunks = vec![
+        // Role chunk
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-mixed",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        // Text content chunk
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-mixed",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        // Tool call start
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-mixed",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_native_mixed_001",
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": ""}
+                    }]
+                }, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        // Tool call arguments
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-mixed",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "function": {"arguments": args_str}
+                    }]
+                }, "finish_reason": serde_json::Value::Null}]
+            })
+        ),
+        // Finish
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chatcmpl-native-mixed",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+            })
+        ),
+        "data: [DONE]\n\n".to_string(),
+    ];
+
+    chunks.concat()
+}
+
+// ---------------------------------------------------------------------------
 // SSE parsing utility
 // ---------------------------------------------------------------------------
 
