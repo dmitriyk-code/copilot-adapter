@@ -23,6 +23,7 @@ async fn main() -> anyhow::Result<()> {
             conversation_log,
             conversation_log_max_size,
             debug_tools,
+            skip_auth,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -30,6 +31,56 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("Use 'copilot-adapter stop' to stop it first.");
                 std::process::exit(1);
             }
+
+            // Pre-start auth check. If the check produces a valid TokenManager
+            // with a cached Copilot token, we keep it and reuse it for the server
+            // to avoid a redundant token-exchange network call on startup.
+            let pre_validated_manager: Option<std::sync::Arc<TokenManager>> = if !skip_auth {
+                let store = storage::create_storage();
+                let has_token = store.get_github_token().is_ok();
+
+                if !has_token {
+                    if is_daemon {
+                        eprintln!("No authentication credentials found.");
+                        eprintln!("Please run 'copilot-adapter auth' first, or use --skip-auth to bypass.");
+                        std::process::exit(1);
+                    }
+
+                    // Foreground mode: offer to authenticate now
+                    eprintln!("No authentication credentials found.");
+                    eprintln!("Starting authentication flow...\n");
+                    run_auth(false).await?;
+                    // run_auth uses its own TokenManager; create a fresh one for the server later.
+                    None
+                } else {
+                    // Token exists — verify it's actually valid.
+                    // Note: tracing is not yet initialized at this point, so log
+                    // messages from TokenManager::new() and storage will be silently
+                    // dropped. This is intentional — we need to validate credentials
+                    // before setting up the server (and thus before configuring logging).
+                    let auth_client = DeviceFlowAuth::new();
+                    let manager =
+                        std::sync::Arc::new(TokenManager::new(store, auth_client).await?);
+
+                    match manager.get_valid_token().await {
+                        Ok(_) => Some(manager),
+                        Err(e) => {
+                            if is_daemon {
+                                eprintln!("Stored token is invalid or expired: {e}");
+                                eprintln!("Please run 'copilot-adapter auth --force' first, or use --skip-auth to bypass.");
+                                std::process::exit(1);
+                            }
+
+                            eprintln!("Stored token is invalid or expired: {e}");
+                            eprintln!("Starting re-authentication...\n");
+                            run_auth(true).await?;
+                            None
+                        }
+                    }
+                }
+            } else {
+                None
+            };
 
             if is_daemon {
                 #[cfg(unix)]
@@ -69,6 +120,11 @@ async fn main() -> anyhow::Result<()> {
                     if debug_tools {
                         args.push("--debug-tools".to_string());
                     }
+                    // Always pass --skip-auth to the daemon child process. The
+                    // parent has already validated credentials above; the child
+                    // runs without a terminal (stdin/stdout/stderr are null) and
+                    // must not attempt interactive auth.
+                    args.push("--skip-auth".to_string());
 
                     let pid = daemon::spawn_background(&args)?;
                     println!("Adapter started in background (PID {pid})");
@@ -78,10 +134,16 @@ async fn main() -> anyhow::Result<()> {
                 init_tracing_to_file(&log_level, log_file.as_deref());
             }
 
-            let store = storage::create_storage();
-            let auth_client = DeviceFlowAuth::new();
-            let manager =
-                std::sync::Arc::new(TokenManager::new(store, auth_client).await?);
+            // Reuse the pre-validated manager if available (avoids a redundant
+            // Copilot token exchange). Otherwise create a fresh one.
+            let manager = match pre_validated_manager {
+                Some(m) => m,
+                None => {
+                    let store = storage::create_storage();
+                    let auth_client = DeviceFlowAuth::new();
+                    std::sync::Arc::new(TokenManager::new(store, auth_client).await?)
+                }
+            };
 
             tracing::info!("Starting copilot-adapter on {host}:{port}");
 

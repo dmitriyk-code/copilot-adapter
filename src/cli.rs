@@ -14,6 +14,9 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Start the adapter server
+    ///
+    /// If not authenticated, will prompt for authentication in foreground mode.
+    /// In daemon mode, authentication must be completed first.
     Start {
         /// Run as background process
         #[arg(short, long)]
@@ -54,6 +57,10 @@ pub enum Command {
         /// Enable verbose tool-related logging at INFO level
         #[arg(long)]
         debug_tools: bool,
+
+        /// Skip automatic authentication if not logged in
+        #[arg(long)]
+        skip_auth: bool,
     },
 
     /// Stop the background adapter

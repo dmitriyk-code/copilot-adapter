@@ -16,6 +16,7 @@ fn parse_start_defaults() {
             conversation_log,
             conversation_log_max_size,
             debug_tools,
+            skip_auth,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -27,6 +28,7 @@ fn parse_start_defaults() {
             assert!(conversation_log.is_none());
             assert_eq!(conversation_log_max_size, 10_485_760);
             assert!(!debug_tools);
+            assert!(!skip_auth);
         }
         _ => panic!("Expected Start command"),
     }
@@ -307,6 +309,38 @@ fn parse_start_debug_tools_default_false() {
     let cli = Cli::parse_from(["copilot-adapter", "start"]);
     match cli.command {
         Command::Start { debug_tools, .. } => assert!(!debug_tools),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_skip_auth_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--skip-auth"]);
+    match cli.command {
+        Command::Start { skip_auth, .. } => assert!(skip_auth),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_skip_auth_default_false() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start { skip_auth, .. } => assert!(!skip_auth),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_skip_auth_with_daemon() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--daemon", "--skip-auth"]);
+    match cli.command {
+        Command::Start {
+            daemon, skip_auth, ..
+        } => {
+            assert!(daemon);
+            assert!(skip_auth);
+        }
         _ => panic!("Expected Start command"),
     }
 }
