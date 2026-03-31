@@ -530,7 +530,7 @@ Start {
 
 ### Epic 4: Documentation Updates
 
-**Status: NOT STARTED**
+**Status: DONE**
 
 #### 4.1 Update README.md
 

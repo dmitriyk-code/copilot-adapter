@@ -18,17 +18,7 @@ A standalone Rust binary that acts as an **Anthropic-to-Copilot proxy**. This ad
 
 ## Quick Start
 
-### 1. Install Claude Code
-
-If you haven't already, install Claude Code from Anthropic:
-
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-For more information, visit the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code).
-
-### 2. Install the Adapter
+### 1. Install
 
 ```bash
 # From source
@@ -39,33 +29,27 @@ cargo build --release
 # Binary: target/release/copilot-adapter (or .exe on Windows)
 ```
 
-### 3. Authenticate with GitHub
+### 2. Start the Adapter
 
 ```bash
-copilot-adapter auth
-```
-
-This starts the GitHub OAuth device flow:
-1. Open the URL shown in your browser
-2. Enter the displayed code
-3. Authorize the application
-4. Credentials are stored securely in your OS keyring
-
-### 4. Start the Adapter
-
-```bash
-# Foreground mode
 copilot-adapter start
-
-# Background daemon
-copilot-adapter start --daemon
 ```
+
+On first run, the adapter will:
+1. Detect missing authentication and start the OAuth flow
+2. Offer to open the GitHub authorization URL in your browser
+3. Wait for you to authorize the application
+4. Display configuration instructions for Claude Code
 
 The adapter starts listening on `http://127.0.0.1:6767` by default.
 
-### 5. Configure Claude Code
+> **Note:** You can still authenticate separately with `copilot-adapter auth` if you prefer.
 
-Set the environment variables to point Claude Code at the adapter. Choose the format for your platform:
+### 3. Configure Claude Code
+
+Choose one of these methods:
+
+**Method A: Environment Variables (session)**
 
 **Linux / macOS (bash/zsh):**
 
@@ -88,9 +72,29 @@ $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:6767"
 $env:ANTHROPIC_API_KEY = "dummy"
 ```
 
-> **Tip:** Add these to your shell profile (`.bashrc`, `.zshrc`, PowerShell `$PROFILE`) for persistence.
+> **Tip:** Add these to your shell profile (`.bashrc`, `.zshrc`, PowerShell `$PROFILE`) for persistence across terminal sessions.
 
-### 6. Run Claude Code
+**Method B: Claude Code Settings (recommended, persistent)**
+
+Create or edit `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:6767",
+    "ANTHROPIC_API_KEY": "dummy"
+  }
+}
+```
+
+For project-specific configuration, create `.claude/settings.json` in your project root.
+
+Settings precedence (highest to lowest):
+1. `<project>/.claude/settings.local.json` (gitignored, for personal overrides)
+2. `<project>/.claude/settings.json` (committed, for team sharing)
+3. `~/.claude/settings.json` (user-level defaults)
+
+### 4. Run Claude Code
 
 ```bash
 claude
@@ -104,8 +108,10 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 |---------|-------------|
 | `copilot-adapter auth` | Authenticate with GitHub (device flow) |
 | `copilot-adapter auth --force` | Re-authenticate, overwriting stored credentials |
-| `copilot-adapter start` | Start the adapter in foreground |
-| `copilot-adapter start --daemon` | Start as a background daemon |
+| `copilot-adapter start` | Start adapter (auto-authenticates if needed) |
+| `copilot-adapter start --daemon` | Start as background daemon (requires prior auth) |
+| `copilot-adapter start --skip-auth` | Start without auto-authentication |
+| `copilot-adapter start --quiet` | Start without displaying setup guidance |
 | `copilot-adapter start -p 9090` | Start on a custom port |
 | `copilot-adapter start --host 0.0.0.0` | Bind to all interfaces |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
@@ -510,6 +516,18 @@ cargo test -- --nocapture
 ### "Not authenticated" error
 
 Run `copilot-adapter auth` to authenticate. If you're already authenticated, try `copilot-adapter auth --force` to refresh credentials.
+
+### Auto-authentication not working in daemon mode
+
+Daemon mode cannot perform interactive authentication. Run `copilot-adapter auth`
+first, or start in foreground mode (`copilot-adapter start` without `--daemon`)
+to authenticate interactively.
+
+### Browser doesn't open during auth
+
+The adapter waits 10 seconds for you to press Enter before opening the browser.
+If your system doesn't support automatic browser opening, copy the URL manually.
+On headless systems, the browser launch is skipped automatically.
 
 ### "Adapter is already running"
 
