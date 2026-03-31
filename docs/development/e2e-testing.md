@@ -1063,21 +1063,309 @@ Check the adapter logs for:
    Use Claude Code's image upload feature (drag-and-drop or paste) and ask:
    `What is in this image?`
 
-4. **Verify:**
-   - Claude Code does **not** display a 422 or deserialization error
-   - The model responds with a description of the image
-   - No error messages in Claude Code output
+---
 
-5. **Check adapter logs:**
+## Test 21: Native Tools — Basic Streaming
+
+**Purpose:** Verify that `--native-tools` mode passes tool definitions natively to the Copilot API and streams responses progressively.
+
+### Steps
+
+1. **Start the adapter in native tools mode:**
    ```bash
-   cat /tmp/copilot-adapter-image-test.log | grep -i -E "(error|warn|image|multimodal)"
+   copilot-adapter start --native-tools --log-level debug
    ```
-   Expected:
-   - No `Failed to deserialize` errors
-   - No `422` status codes
-   - Possible debug entries showing multimodal translation
 
-6. **Clean up:**
+2. **Send a streaming request with a tool:**
+   ```bash
+   curl -N -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "stream": true,
+       "tools": [{
+         "name": "bash",
+         "description": "Run a bash command",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "command": {"type": "string", "description": "The command to run"}
+           },
+           "required": ["command"]
+         }
+       }]
+     }'
+   ```
+
+3. **Expected output:**
+   - SSE events stream **progressively** (tokens appear incrementally, not all at once)
+   - `content_block_start` event with `type: "tool_use"` for the tool call
+   - `content_block_delta` events with `input_json_delta` for tool arguments
+   - Stream ends with `message_stop`
+
+4. **Log verification:**
+   - Debug logs should show native tools being sent to the Copilot API (no XML injection)
+   - No `Injecting tools into prompt` log message (that's XML mode only)
+
+### Comparison with XML Mode
+
+Start the adapter without `--native-tools` and run the same request. Compare:
+- **XML mode:** Response arrives all at once (buffered)
+- **Native mode:** Response streams progressively
+
+---
+
+## Test 22: Native Tools — MCP Tools with Typed Parameters
+
+**Purpose:** Verify that MCP tools with typed parameters (number, boolean) work correctly in native tools mode without validation errors.
+
+### Steps
+
+1. **Start the adapter in native tools mode:**
+   ```bash
+   copilot-adapter start --native-tools --log-level debug
+   ```
+
+2. **Send a request with typed parameters:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "Search for Rust tutorials, limit to 5 results"}],
+       "tools": [{
+         "name": "mcp__search__search_web",
+         "description": "Search the web",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "limit": {"type": "number", "description": "Maximum results"},
+             "safe_search": {"type": "boolean", "description": "Enable safe search"}
+           },
+           "required": ["query"]
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Expected response:**
+   - `content` contains a `tool_use` block
+   - `input.limit` is a number (e.g., `5`), not a string (`"5"`)
+   - `input.safe_search` is a boolean (e.g., `true`), not a string (`"true"`)
+   - No MCP validation errors
+
+---
+
+## Test 23: Native Tools — Tool Name Truncation
+
+**Purpose:** Verify that long MCP tool names (>64 characters) are automatically truncated with a hash suffix and restored in responses.
+
+### Steps
+
+1. **Start the adapter in native tools mode:**
+   ```bash
+   copilot-adapter start --native-tools --log-level debug
+   ```
+
+2. **Send a request with a long tool name:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "Search for code"}],
+       "tools": [{
+         "name": "mcp__codemogger__codemogger_search_with_extra_long_suffix_name",
+         "description": "Search code in the repository",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "query": {"type": "string"}
+           },
+           "required": ["query"]
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Expected behavior:**
+   - The adapter truncates the name to ≤64 characters with a hash suffix
+   - Debug logs show the truncation: original name → truncated name
+   - If the model calls the tool, the response `tool_use` block has the **original** full name restored
+
+---
+
+## Test 24: XML Fallback with `--xml-tools`
+
+**Purpose:** Verify that `--xml-tools` forces XML-based tool injection and that the adapter correctly parses XML tool call responses.
+
+### Steps
+
+1. **Start the adapter in XML mode:**
+   ```bash
+   copilot-adapter start --xml-tools --log-level trace
+   ```
+
+2. **Send a tool request:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "What directory am I in?"}],
+       "tools": [{
+         "name": "bash",
+         "description": "Run a bash command",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "command": {"type": "string", "description": "The command to run"}
+           },
+           "required": ["command"]
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Log verification:**
+   - Trace logs show XML tool definitions injected into the system prompt
+   - The `Injecting tools into prompt` log message appears
+   - No native tools sent in the request body
+
+4. **Expected response:**
+   - `content` contains `tool_use` blocks (parsed from XML)
+   - `stop_reason` is `"tool_use"`
+
+---
+
+## Test 25: XML Fallback — Parameter Type Coercion
+
+**Purpose:** Verify that the XML fallback path correctly coerces parameter types using schema information from the request.
+
+### Steps
+
+1. **Start the adapter in XML mode:**
+   ```bash
+   copilot-adapter start --xml-tools --log-level debug
+   ```
+
+2. **Send a request with typed parameters:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-3-5-sonnet-20241022",
+       "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "Search for Rust tutorials, limit to 5 results"}],
+       "tools": [{
+         "name": "mcp__search__search_web",
+         "description": "Search the web",
+         "input_schema": {
+           "type": "object",
+           "properties": {
+             "query": {"type": "string", "description": "Search query"},
+             "limit": {"type": "number", "description": "Maximum results"},
+             "safe_search": {"type": "boolean", "description": "Enable safe search"}
+           },
+           "required": ["query"]
+         }
+       }]
+     }' | python3 -m json.tool
+   ```
+
+3. **Expected response:**
+   - `content` contains a `tool_use` block
+   - `input.limit` is a number (coerced from XML string), not a string
+   - `input.safe_search` is a boolean (coerced from XML string), not a string
+   - The `ToolRegistry` performs schema-aware coercion to prevent MCP validation errors
+
+---
+
+## Test 26: Native Tools — Mutual Exclusivity of Flags
+
+**Purpose:** Verify that `--native-tools` and `--xml-tools` cannot be used simultaneously and that the adapter rejects invalid flag combinations.
+
+### Steps
+
+1. **Attempt to start with both flags:**
+   ```bash
+   copilot-adapter start --native-tools --xml-tools
+   ```
+
+2. **Expected result:**
+   - The adapter exits with a non-zero exit code
+   - An error message indicates the flags are mutually exclusive (e.g., "the argument '--native-tools' cannot be used with '--xml-tools'")
+   - The adapter does **not** start listening on any port
+
+3. **Verify `--native-tools` alone works:**
+   ```bash
+   copilot-adapter start --native-tools --log-level debug
+   ```
+   - The adapter starts successfully
+   - Debug logs indicate native tools mode is active
+
+4. **Verify `--xml-tools` alone works:**
+   ```bash
+   copilot-adapter start --xml-tools --log-level debug
+   ```
+   - The adapter starts successfully
+   - Debug logs indicate XML tools mode is active
+
+5. **Verify default (no flag) works:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+   - The adapter starts successfully
+   - Default mode is XML injection (no native tools log message)
+
+---
+
+## Test 27: Native Tools — Claude Code Integration
+
+**Purpose:** Verify that native tools mode works end-to-end with Claude Code, including progressive streaming of tool calls.
+
+### Steps
+
+1. **Start the adapter in native tools mode:**
+   ```bash
+   copilot-adapter start --native-tools --log-level debug
+   ```
+
+2. **Configure Claude Code:**
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+   export ANTHROPIC_API_KEY=dummy
+   ```
+
+3. **Run Claude Code and use a tool:**
+   ```bash
+   claude
+   ```
+   Ask Claude Code to perform an operation that invokes a tool, e.g.:
+   `What files are in the current directory?`
+
+4. **Verify progressive streaming:**
+   - Text and tool calls stream **progressively** (tokens appear incrementally)
+   - Tool execution completes successfully (e.g., file listing is displayed)
+   - No errors or warnings in the Claude Code UI
+
+5. **Clean up:**
    ```bash
    copilot-adapter stop
    ```
@@ -1086,31 +1374,33 @@ Check the adapter logs for:
 
 ## Test Summary Checklist
 
-| # | Test | Pass/Fail | Notes |
-|---|------|-----------|-------|
-| 1 | Authentication flow | | |
-| 2 | Server start & health | | |
-| 3 | Daemon lifecycle | | |
-| 4 | Models endpoint | | |
-| 4a | Fresh start fetches from API | | |
-| 4b | Second request uses cache | | |
-| 4c | Request after TTL refetches | | |
-| 4d | Network disconnect fallback | | |
-| 4e | Static models mode | | |
-| 5 | Non-streaming messages | | |
-| 6 | Streaming messages | | |
-| 7 | Concurrent clients | | |
-| 8 | Error handling | | |
-| 9 | Logging | | |
-| 10 | Claude Code integration | | |
-| 11 | Tool call (non-streaming, Anthropic) | | |
-| 12 | Tool call (streaming, Anthropic) | | |
-| 13 | Multi-turn with tool results | | |
-| 14 | Tool call with multiple tools | | |
-| 14b | XML tool call format verification | | |
-| 15 | Claude Code with tools | | |
-| 16 | Image upload (base64) | | |
-| 17 | Image upload (URL) | | |
-| 18 | Mixed content (image + doc) | | |
-| 19 | Image with cache control | | |
-| 20 | Claude Code image upload | | |
+| # | Test Name | Category |
+|---|-----------|----------|
+| 1 | Authentication Flow | Auth |
+| 2 | Server Start and Health Check | Operations |
+| 3 | Daemon Lifecycle | Operations |
+| 4 | Models Endpoint | Models |
+| 5 | Non-Streaming Messages | API |
+| 6 | Streaming Messages | API |
+| 7 | Concurrent Clients | API |
+| 8 | Error Handling | API |
+| 9 | Logging | Operations |
+| 10 | Claude Code Integration | Integration |
+| 11 | Tool Call (Non-Streaming, Anthropic Format) | Tools |
+| 12 | Tool Call (Streaming, Anthropic Format) | Tools |
+| 13 | Multi-Turn Conversation with Tool Results | Tools |
+| 14 | Tool Call with Multiple Tools | Tools |
+| 14b | XML Tool Call Format Verification | Tools |
+| 15 | Claude Code with Tools Integration | Integration |
+| 16 | Image Upload (Anthropic Format — Base64) | Vision |
+| 17 | Image Upload (Anthropic Format — URL) | Vision |
+| 18 | Mixed Content (Text + Image + Document) | Vision |
+| 19 | Image Upload with Cache Control | Vision |
+| 20 | Claude Code Image Upload (Integration) | Vision |
+| 21 | Native Tools — Basic Streaming | Native Tools |
+| 22 | Native Tools — MCP Tools with Typed Parameters | Native Tools |
+| 23 | Native Tools — Tool Name Truncation | Native Tools |
+| 24 | XML Fallback with `--xml-tools` | Native Tools |
+| 25 | XML Fallback — Parameter Type Coercion | Native Tools |
+| 26 | Native Tools — Mutual Exclusivity of Flags | Native Tools |
+| 27 | Native Tools — Claude Code Integration | Native Tools |
