@@ -189,7 +189,7 @@ Both require `COPILOT_TOKEN` environment variable.
 
 **Goal:** Implement Anthropic → OpenAI tool definition translation.
 
-**Status:** Pending
+**Status:** DONE
 
 **Prerequisite:** Epic 0 confirms native tools support
 
@@ -197,16 +197,16 @@ Both require `COPILOT_TOKEN` environment variable.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `src/tools/translator.rs` module | `src/tools/translator.rs` | Pending |
-| E1-T2 | IMPL | Add `OpenAITool` and `OpenAIFunction` types | `src/copilot/types.rs` | Pending |
-| E1-T3 | IMPL | Implement `translate_anthropic_tools_to_openai()` | `src/tools/translator.rs` | Pending |
-| E1-T4 | IMPL | Implement `truncate_tool_name()` with hash | `src/tools/translator.rs` | Pending |
-| E1-T5 | IMPL | Add `ToolNameMapping` for reverse lookup | `src/tools/translator.rs` | Pending |
-| E1-T6 | IMPL | Export module from `src/tools/mod.rs` | `src/tools/mod.rs` | Pending |
-| E1-T7 | TEST | Unit test: basic tool translation | `tests/unit/translator_tests.rs` | Pending |
-| E1-T8 | TEST | Unit test: tool name truncation | `tests/unit/translator_tests.rs` | Pending |
-| E1-T9 | TEST | Unit test: name mapping roundtrip | `tests/unit/translator_tests.rs` | Pending |
-| E1-T10 | TEST | Unit test: schema preservation | `tests/unit/translator_tests.rs` | Pending |
+| E1-T1 | IMPL | Create `src/tools/translator.rs` module | `src/tools/translator.rs` | Done |
+| E1-T2 | IMPL | Add `OpenAITool` and `OpenAIFunction` types | `src/copilot/types.rs` | Done |
+| E1-T3 | IMPL | Implement `translate_anthropic_tools_to_openai()` | `src/tools/translator.rs` | Done |
+| E1-T4 | IMPL | Implement `truncate_tool_name()` with hash | `src/tools/translator.rs` | Done |
+| E1-T5 | IMPL | Add `ToolNameMapping` for reverse lookup | `src/tools/translator.rs` | Done |
+| E1-T6 | IMPL | Export module from `src/tools/mod.rs` | `src/tools/mod.rs` | Done |
+| E1-T7 | TEST | Unit test: basic tool translation | `tests/unit/translator_tests.rs` | Done |
+| E1-T8 | TEST | Unit test: tool name truncation | `tests/unit/translator_tests.rs` | Done |
+| E1-T9 | TEST | Unit test: name mapping roundtrip | `tests/unit/translator_tests.rs` | Done |
+| E1-T10 | TEST | Unit test: schema preservation | `tests/unit/translator_tests.rs` | Done |
 
 **New Types:**
 
@@ -338,11 +338,11 @@ pub fn restore_tool_name(name: &str, mapping: &HashMap<String, String>) -> Strin
 ```
 
 **Acceptance Criteria:**
-- [ ] Tool definitions correctly translated to OpenAI format
-- [ ] Names over 64 chars truncated with deterministic hash
-- [ ] Name mapping enables reverse lookup
-- [ ] Schema types and properties preserved
-- [ ] All unit tests pass
+- [x] Tool definitions correctly translated to OpenAI format
+- [x] Names over 64 chars truncated with deterministic hash
+- [x] Name mapping enables reverse lookup
+- [x] Schema types and properties preserved
+- [x] All unit tests pass
 
 ---
 
@@ -1342,10 +1342,10 @@ All changes are additive with feature flags, making rollback straightforward.
 - [ ] Findings documented
 
 ### Epic 1: Tool Translation
-- [ ] `translate_anthropic_tools_to_openai()` implemented
-- [ ] Tool name truncation working
-- [ ] Name mapping roundtrip verified
-- [ ] Unit tests pass
+- [x] `translate_anthropic_tools_to_openai()` implemented
+- [x] Tool name truncation working
+- [x] Name mapping roundtrip verified
+- [x] Unit tests pass
 
 ### Epic 2: Copilot Client
 - [ ] Request types updated

@@ -28,6 +28,8 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 bytes = "1"
 regex = "1"
 once_cell = "1"
+sha2 = "0.10"
+hex = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.5"

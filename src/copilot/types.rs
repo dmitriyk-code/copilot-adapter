@@ -194,3 +194,28 @@ pub struct ChatCompletionChunk {
 fn default_chunk_object_type() -> String {
     "chat.completion.chunk".to_string()
 }
+
+// ---------------------------------------------------------------------------
+// OpenAI-format tool definitions for native function calling
+// ---------------------------------------------------------------------------
+
+/// OpenAI-format tool definition for native function calling.
+///
+/// Separate from `crate::tools::types::Tool` which is used for the prompt-injection path.
+/// These types are used when forwarding tool definitions natively to the Copilot/OpenAI API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAITool {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: OpenAIToolFunction,
+}
+
+/// Function definition within an OpenAI tool (native function calling).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIToolFunction {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
+}
