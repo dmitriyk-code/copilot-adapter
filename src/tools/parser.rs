@@ -36,6 +36,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use uuid::Uuid;
 
+use crate::tools::registry::{parse_value_with_type, ToolRegistry};
 use crate::tools::types::{FunctionCall, ToolCall};
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,14 @@ static OPEN_TAG: Lazy<Regex> = Lazy::new(|| {
 ///
 /// Input: `<file_path>/src/main.rs</file_path><limit>100</limit>`
 /// Output: `{"file_path": "/src/main.rs", "limit": "100"}`
-fn parse_xml_params(params_content: &str) -> serde_json::Value {
+///
+/// When `tool_name` and `registry` are provided, values are coerced
+/// to their schema-defined types.
+fn parse_xml_params(
+    params_content: &str,
+    tool_name: &str,
+    registry: Option<&ToolRegistry>,
+) -> serde_json::Value {
     let mut params = serde_json::Map::new();
 
     // Match opening tags and manually find their closing counterpart.
@@ -127,10 +135,20 @@ fn parse_xml_params(params_content: &str) -> serde_json::Value {
         let after_open = full_match.end();
         if let Some(close_pos) = params_content[after_open..].find(&closing_tag) {
             let value = &params_content[after_open..after_open + close_pos];
-            params.insert(
-                name.to_string(),
-                serde_json::Value::String(value.trim().to_string()),
-            );
+            let trimmed = value.trim();
+
+            // Coerce type if registry available
+            let typed_value = if let Some(reg) = registry {
+                if let Some(param_type) = reg.get_param_type(tool_name, name) {
+                    parse_value_with_type(trimmed, param_type)
+                } else {
+                    serde_json::Value::String(trimmed.to_string())
+                }
+            } else {
+                serde_json::Value::String(trimmed.to_string())
+            };
+
+            params.insert(name.to_string(), typed_value);
         }
     }
 
@@ -141,16 +159,32 @@ fn parse_xml_params(params_content: &str) -> serde_json::Value {
 ///
 /// Input: `<parameter name="file_path">/src/main.rs</parameter>`
 /// Output: `{"file_path": "/src/main.rs"}`
-fn parse_attribute_params(invoke_body: &str) -> serde_json::Value {
+///
+/// When `tool_name` and `registry` are provided, values are coerced
+/// to their schema-defined types.
+fn parse_attribute_params(
+    invoke_body: &str,
+    tool_name: &str,
+    registry: Option<&ToolRegistry>,
+) -> serde_json::Value {
     let mut params = serde_json::Map::new();
 
     for param_cap in XML_PARAMETER.captures_iter(invoke_body) {
         let param_name = param_cap.get(1).unwrap().as_str();
         let param_value = param_cap.get(2).unwrap().as_str().trim();
-        params.insert(
-            param_name.to_string(),
-            serde_json::Value::String(param_value.to_string()),
-        );
+
+        // Coerce type if registry available
+        let typed_value = if let Some(reg) = registry {
+            if let Some(param_type) = reg.get_param_type(tool_name, param_name) {
+                parse_value_with_type(param_value, param_type)
+            } else {
+                serde_json::Value::String(param_value.to_string())
+            }
+        } else {
+            serde_json::Value::String(param_value.to_string())
+        };
+
+        params.insert(param_name.to_string(), typed_value);
     }
 
     serde_json::Value::Object(params)
@@ -172,15 +206,22 @@ fn parse_attribute_params(invoke_body: &str) -> serde_json::Value {
 ///
 /// Invalid or malformed content is silently skipped.
 ///
+/// When `registry` is provided, parameter values are coerced to their
+/// schema-defined types. Otherwise, all values are returned as strings.
+///
 /// When `debug_tools` is `true`, additional INFO-level logs are emitted
 /// showing parsing results and diagnostic details.
-pub fn parse_tool_calls(content: &str, debug_tools: bool) -> Vec<ToolCall> {
+pub fn parse_tool_calls(
+    content: &str,
+    registry: Option<&ToolRegistry>,
+    debug_tools: bool,
+) -> Vec<ToolCall> {
     // Primary: Look for <function_calls> wrapper
     if contains_tag("function_calls", content) {
         let fc_content = extract_between_tags("function_calls", content);
         let mut calls = Vec::new();
         for fc in fc_content {
-            calls.extend(parse_invokes(&fc));
+            calls.extend(parse_invokes(&fc, registry));
         }
         if !calls.is_empty() {
             tracing::debug!(
@@ -199,7 +240,7 @@ pub fn parse_tool_calls(content: &str, debug_tools: bool) -> Vec<ToolCall> {
     }
 
     // Fallback: Look for standalone <invoke> blocks
-    let calls = parse_invokes(content);
+    let calls = parse_invokes(content, registry);
     if !calls.is_empty() {
         tracing::debug!(
             num_calls = calls.len(),
@@ -252,12 +293,12 @@ pub fn parse_tool_calls(content: &str, debug_tools: bool) -> Vec<ToolCall> {
 /// If both formats appear in the same block the output order may differ from
 /// document order. In practice models use one format consistently so this
 /// is not an issue.
-fn parse_invokes(content: &str) -> Vec<ToolCall> {
+fn parse_invokes(content: &str, registry: Option<&ToolRegistry>) -> Vec<ToolCall> {
     let mut calls = Vec::new();
 
     // Tag-based: <invoke><tool_name>...</tool_name>...</invoke>
     for invoke_content in extract_between_tags("invoke", content) {
-        if let Some(tc) = try_parse_tag_invoke(&invoke_content) {
+        if let Some(tc) = try_parse_tag_invoke(&invoke_content, registry) {
             calls.push(tc);
         }
     }
@@ -266,7 +307,7 @@ fn parse_invokes(content: &str) -> Vec<ToolCall> {
     for cap in XML_ATTR_INVOKE.captures_iter(content) {
         let name = cap.get(1).unwrap().as_str();
         let invoke_body = cap.get(2).unwrap().as_str();
-        if let Some(tc) = try_parse_attr_invoke(name, invoke_body) {
+        if let Some(tc) = try_parse_attr_invoke(name, invoke_body, registry) {
             calls.push(tc);
         }
     }
@@ -283,7 +324,10 @@ fn parse_invokes(content: &str) -> Vec<ToolCall> {
 ///   <param_name>value</param_name>
 /// </parameters>
 /// ```
-fn try_parse_tag_invoke(invoke_content: &str) -> Option<ToolCall> {
+fn try_parse_tag_invoke(
+    invoke_content: &str,
+    registry: Option<&ToolRegistry>,
+) -> Option<ToolCall> {
     let tool_name = extract_between_tags("tool_name", invoke_content)
         .first()
         .map(|s| s.trim().to_string())?;
@@ -294,7 +338,7 @@ fn try_parse_tag_invoke(invoke_content: &str) -> Option<ToolCall> {
 
     let params = extract_between_tags("parameters", invoke_content)
         .first()
-        .map(|s| parse_xml_params(s))
+        .map(|s| parse_xml_params(s, &tool_name, registry))
         .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
     Some(ToolCall {
@@ -313,12 +357,16 @@ fn try_parse_tag_invoke(invoke_content: &str) -> Option<ToolCall> {
 /// `invoke_body` is the inner content of the `<invoke>` element.
 ///
 /// Returns `None` if the name is empty.
-fn try_parse_attr_invoke(name: &str, invoke_body: &str) -> Option<ToolCall> {
+fn try_parse_attr_invoke(
+    name: &str,
+    invoke_body: &str,
+    registry: Option<&ToolRegistry>,
+) -> Option<ToolCall> {
     if name.is_empty() {
         return None;
     }
 
-    let params = parse_attribute_params(invoke_body);
+    let params = parse_attribute_params(invoke_body, name, registry);
 
     let arguments = if params.as_object().map_or(true, |m| m.is_empty()) {
         Some("{}".to_string())
@@ -456,7 +504,7 @@ mod tests {
     #[test]
     fn parse_xml_params_simple() {
         let content = "<file_path>/src/main.rs</file_path><limit>100</limit>";
-        let params = parse_xml_params(content);
+        let params = parse_xml_params(content, "", None);
         assert_eq!(params["file_path"], "/src/main.rs");
         assert_eq!(params["limit"], "100");
     }
@@ -464,13 +512,13 @@ mod tests {
     #[test]
     fn parse_xml_params_with_whitespace() {
         let content = "<name>  hello world  </name>";
-        let params = parse_xml_params(content);
+        let params = parse_xml_params(content, "", None);
         assert_eq!(params["name"], "hello world");
     }
 
     #[test]
     fn parse_xml_params_empty() {
-        let params = parse_xml_params("");
+        let params = parse_xml_params("", "", None);
         assert!(params.as_object().unwrap().is_empty());
     }
 
@@ -479,7 +527,7 @@ mod tests {
     #[test]
     fn try_parse_tag_invoke_basic() {
         let content = "<tool_name>Read</tool_name>\n<parameters>\n<file_path>/a.rs</file_path>\n</parameters>";
-        let tc = try_parse_tag_invoke(content).unwrap();
+        let tc = try_parse_tag_invoke(content, None).unwrap();
         assert_eq!(tc.function.name, Some("Read".to_string()));
         let args: serde_json::Value =
             serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
@@ -489,7 +537,7 @@ mod tests {
     #[test]
     fn try_parse_tag_invoke_no_params() {
         let content = "<tool_name>NoOp</tool_name>";
-        let tc = try_parse_tag_invoke(content).unwrap();
+        let tc = try_parse_tag_invoke(content, None).unwrap();
         assert_eq!(tc.function.name, Some("NoOp".to_string()));
         let args: serde_json::Value =
             serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
@@ -499,7 +547,7 @@ mod tests {
     #[test]
     fn try_parse_tag_invoke_empty_name() {
         let content = "<tool_name></tool_name>";
-        assert!(try_parse_tag_invoke(content).is_none());
+        assert!(try_parse_tag_invoke(content, None).is_none());
     }
 
     // -- try_parse_attr_invoke --------------------------------------------
@@ -507,7 +555,7 @@ mod tests {
     #[test]
     fn try_parse_attr_invoke_basic() {
         let body = r#"<parameter name="command">ls</parameter>"#;
-        let tc = try_parse_attr_invoke("Bash", body).unwrap();
+        let tc = try_parse_attr_invoke("Bash", body, None).unwrap();
         assert_eq!(tc.function.name, Some("Bash".to_string()));
         let args: serde_json::Value =
             serde_json::from_str(tc.function.arguments.as_ref().unwrap()).unwrap();
@@ -516,6 +564,6 @@ mod tests {
 
     #[test]
     fn try_parse_attr_invoke_empty_name() {
-        assert!(try_parse_attr_invoke("", "").is_none());
+        assert!(try_parse_attr_invoke("", "", None).is_none());
     }
 }

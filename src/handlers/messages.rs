@@ -21,6 +21,7 @@ use crate::server::AppState;
 use crate::streaming::state::StreamingState;
 use crate::tools::injector;
 use crate::tools::parser;
+use crate::tools::registry::ToolRegistry;
 use crate::tools::translator;
 
 /// Handler for `POST /v1/messages` — the sole Claude Code entrypoint.
@@ -136,6 +137,15 @@ pub async fn messages(
 
     // --- XML injection path (existing behaviour) ---
 
+    // Build a ToolRegistry for schema-aware parameter type coercion.
+    // This allows the XML parser to convert string values to their correct
+    // JSON types (numbers, booleans, objects, arrays) based on tool schemas.
+    let tool_registry = request
+        .tools
+        .as_ref()
+        .filter(|t| !t.is_empty())
+        .map(|t| ToolRegistry::from_tools(t));
+
     // Translate to Copilot API format (OpenAI-compatible)
     let mut openai_request = request.to_chat_completion_request();
 
@@ -240,6 +250,7 @@ pub async fn messages(
             &openai_request,
             parse_tools,
             cycle_builder,
+            tool_registry,
         )
         .await;
     }
@@ -294,7 +305,7 @@ pub async fn messages(
     if has_tools {
         for choice in &mut response.choices {
             let content_text = choice.message.content.as_text();
-            let tool_calls = parser::parse_tool_calls(&content_text, state.config.debug_tools);
+            let tool_calls = parser::parse_tool_calls(&content_text, tool_registry.as_ref(), state.config.debug_tools);
 
             if !tool_calls.is_empty() {
                 tracing::debug!(
@@ -381,6 +392,7 @@ async fn handle_streaming(
     openai_request: &crate::copilot::types::ChatCompletionRequest,
     parse_tools: bool,
     cycle_builder: Option<ConversationCycleBuilder>,
+    tool_registry: Option<ToolRegistry>,
 ) -> Result<Response, AppError> {
     let chunk_stream = state
         .copilot_client
@@ -398,6 +410,7 @@ async fn handle_streaming(
             debug_tools,
             cycle_builder,
             conversation_logger,
+            tool_registry,
         )
         .await;
     }
@@ -602,6 +615,7 @@ async fn handle_streaming_with_tools(
     debug_tools: bool,
     cycle_builder: Option<ConversationCycleBuilder>,
     conversation_logger: Option<crate::conversation_log::ConversationLogger>,
+    tool_registry: Option<ToolRegistry>,
 ) -> Result<Response, AppError> {
     let event_stream = async_stream::stream! {
         let mut buffered_chunks: Vec<crate::copilot::types::ChatCompletionChunk> = Vec::new();
@@ -689,7 +703,7 @@ async fn handle_streaming_with_tools(
             );
         }
 
-        let tool_calls = parser::parse_tool_calls(&content_buffer, debug_tools);
+        let tool_calls = parser::parse_tool_calls(&content_buffer, tool_registry.as_ref(), debug_tools);
         let has_tool_calls = !tool_calls.is_empty();
 
         if has_tool_calls {

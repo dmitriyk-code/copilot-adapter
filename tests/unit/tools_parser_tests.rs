@@ -18,7 +18,7 @@ Here's my analysis:
 </invoke>
 </function_calls>
 "#;
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].function.name, Some("Read".to_string()));
 
@@ -39,7 +39,7 @@ fn parse_standalone_invoke_tag_based() {
 </parameters>
 </invoke>
 "#;
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].function.name, Some("Edit".to_string()));
 
@@ -64,7 +64,7 @@ fn parse_multiple_invokes_tag_based() {
 </invoke>
 </function_calls>
 "#;
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert_eq!(calls.len(), 2);
 
     let args0: serde_json::Value =
@@ -87,7 +87,7 @@ fn parse_tag_based_no_parameters_block() {
 </invoke>
 </function_calls>
 "#;
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].function.name, Some("NoOp".to_string()));
 
@@ -107,7 +107,7 @@ fn parse_tag_based_empty_tool_name_skipped() {
 </invoke>
 </function_calls>
 "#;
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert!(calls.is_empty());
 }
 
@@ -120,7 +120,7 @@ fn parse_tag_based_missing_tool_name_skipped() {
 </invoke>
 </function_calls>
 "#;
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert!(calls.is_empty());
 }
 
@@ -136,7 +136,7 @@ fn parse_single_xml_tool_call_attr_based() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 1);
     let tc = &tool_calls[0];
@@ -158,7 +158,7 @@ fn parse_xml_with_multiple_parameters_attr_based() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
@@ -180,7 +180,7 @@ fn parse_multiple_xml_invokes_attr_based() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 2);
     assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
@@ -202,7 +202,7 @@ fn parse_xml_with_surrounding_text_attr_based() {
 
 I'll run that now."#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
@@ -212,7 +212,7 @@ I'll run that now."#;
 fn parse_xml_no_parameters_attr_based() {
     let content = r#"<function_calls><invoke name="NoOp"></invoke></function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, Some("NoOp".to_string()));
@@ -226,7 +226,7 @@ fn parse_xml_no_parameters_attr_based() {
 fn parse_xml_empty_name_returns_empty_attr_based() {
     let content = r#"<function_calls><invoke name=""><parameter name="x">y</parameter></invoke></function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert!(tool_calls.is_empty());
 }
 
@@ -238,7 +238,7 @@ fn parse_xml_with_whitespace_in_tags_attr_based() {
   </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
@@ -260,7 +260,7 @@ Second block:
 <invoke name="Tool2"><parameter name="b">2</parameter></invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 2);
     assert_eq!(tool_calls[0].function.name, Some("Tool1".to_string()));
@@ -277,7 +277,7 @@ fn parse_xml_parameters_are_all_strings() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
 
     let args: serde_json::Value =
@@ -297,7 +297,7 @@ fn parse_xml_trims_parameter_whitespace_attr_based() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
 
     let args: serde_json::Value =
@@ -314,7 +314,7 @@ fn parse_xml_trims_multiline_parameter_value_attr_based() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
 
     let args: serde_json::Value =
@@ -331,7 +331,7 @@ fn parse_xml_trims_multiline_parameter_value_attr_based() {
 fn parse_standalone_invoke_attr_based() {
     let content = r#"<invoke name="Bash"><parameter name="command">ls</parameter></invoke>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, Some("Bash".to_string()));
 }
@@ -345,7 +345,7 @@ fn parse_standalone_invoke_prefers_function_calls_wrapper() {
 </function_calls>
 <invoke name="Outer"><parameter name="y">2</parameter></invoke>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, Some("Inner".to_string()));
 }
@@ -356,27 +356,27 @@ fn parse_standalone_invoke_prefers_function_calls_wrapper() {
 
 #[test]
 fn no_tool_calls_returns_empty() {
-    let tool_calls = parse_tool_calls("Just a regular message with no tool calls at all.", false);
+    let tool_calls = parse_tool_calls("Just a regular message with no tool calls at all.", None, false);
     assert!(tool_calls.is_empty());
 }
 
 #[test]
 fn empty_string_returns_empty() {
-    let tool_calls = parse_tool_calls("", false);
+    let tool_calls = parse_tool_calls("", None, false);
     assert!(tool_calls.is_empty());
 }
 
 #[test]
 fn no_content_returns_empty_for_various_inputs() {
-    assert!(parse_tool_calls("", false).is_empty());
-    assert!(parse_tool_calls("just plain text", false).is_empty());
-    assert!(parse_tool_calls("<not_function_calls></not_function_calls>", false).is_empty());
+    assert!(parse_tool_calls("", None, false).is_empty());
+    assert!(parse_tool_calls("just plain text", None, false).is_empty());
+    assert!(parse_tool_calls("<not_function_calls></not_function_calls>", None, false).is_empty());
 }
 
 #[test]
 fn xml_empty_function_calls_returns_empty() {
     let content = "<function_calls></function_calls>";
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert!(tool_calls.is_empty());
 }
 
@@ -392,7 +392,7 @@ fn tool_call_ids_are_unique_across_calls() {
 <invoke name="C"><parameter name="z">3</parameter></invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
 
     assert_eq!(tool_calls.len(), 3);
     let ids: Vec<&str> = tool_calls
@@ -423,7 +423,7 @@ fn tag_based_tool_call_ids_are_unique() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 2);
 
     assert_ne!(tool_calls[0].id, tool_calls[1].id);
@@ -604,7 +604,7 @@ fn parse_xml_malformed_missing_name_attribute() {
     let content =
         r#"<function_calls><invoke><parameter name="x">y</parameter></invoke></function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert!(tool_calls.is_empty());
 }
 
@@ -619,7 +619,7 @@ fn regular_json_code_block_not_affected() {
 
 That's a sample."#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert!(tool_calls.is_empty());
 }
 
@@ -630,7 +630,7 @@ fn json_function_call_format_no_longer_parsed() {
 {"function_call": {"name": "bash", "arguments": {"command": "ls"}}}
 ```"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert!(tool_calls.is_empty());
 }
 
@@ -662,7 +662,7 @@ fn parse_tag_based_with_whitespace_in_params() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert_eq!(calls.len(), 1);
 
     let args: serde_json::Value =
@@ -689,7 +689,7 @@ Second:
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(content, false);
+    let calls = parse_tool_calls(content, None, false);
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].function.name, Some("Tool1".to_string()));
     assert_eq!(calls[1].function.name, Some("Tool2".to_string()));
@@ -707,7 +707,7 @@ fn parse_attr_parameter_with_less_than_sign() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
 
     let args: serde_json::Value =
@@ -724,7 +724,7 @@ fn parse_attr_parameter_with_html_content() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
 
     let args: serde_json::Value =
@@ -741,7 +741,7 @@ fn parse_attr_parameter_with_comparison_operator() {
 </invoke>
 </function_calls>"#;
 
-    let tool_calls = parse_tool_calls(content, false);
+    let tool_calls = parse_tool_calls(content, None, false);
     assert_eq!(tool_calls.len(), 1);
 
     let args: serde_json::Value =

@@ -387,7 +387,7 @@ fn round_trip_injected_format_is_parseable() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(model_response, false);
+    let calls = parse_tool_calls(model_response, None, false);
     assert_eq!(calls.len(), 1, "Expected 1 tool call, got {}", calls.len());
 
     let call = &calls[0];
@@ -416,7 +416,7 @@ fn round_trip_multiple_tool_calls() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(model_response, false);
+    let calls = parse_tool_calls(model_response, None, false);
     assert_eq!(calls.len(), 2, "Expected 2 tool calls, got {}", calls.len());
 
     assert_eq!(calls[0].function.name, Some("bash".to_string()));
@@ -438,7 +438,7 @@ fn round_trip_no_parameters() {
 </invoke>
 </function_calls>"#;
 
-    let calls = parse_tool_calls(model_response, false);
+    let calls = parse_tool_calls(model_response, None, false);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].function.name, Some("get_status".to_string()));
     // Arguments should be empty object
