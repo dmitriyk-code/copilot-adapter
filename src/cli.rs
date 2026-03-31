@@ -61,6 +61,10 @@ pub enum Command {
         /// Skip automatic authentication if not logged in
         #[arg(long)]
         skip_auth: bool,
+
+        /// Suppress startup guidance messages
+        #[arg(short = 'q', long)]
+        quiet: bool,
     },
 
     /// Stop the background adapter

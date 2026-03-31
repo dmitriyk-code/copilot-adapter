@@ -17,6 +17,7 @@ fn parse_start_defaults() {
             conversation_log_max_size,
             debug_tools,
             skip_auth,
+            quiet,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -29,6 +30,7 @@ fn parse_start_defaults() {
             assert_eq!(conversation_log_max_size, 10_485_760);
             assert!(!debug_tools);
             assert!(!skip_auth);
+            assert!(!quiet);
         }
         _ => panic!("Expected Start command"),
     }
@@ -340,6 +342,47 @@ fn parse_start_skip_auth_with_daemon() {
         } => {
             assert!(daemon);
             assert!(skip_auth);
+        }
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_quiet_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--quiet"]);
+    match cli.command {
+        Command::Start { quiet, .. } => assert!(quiet),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_quiet_short_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "-q"]);
+    match cli.command {
+        Command::Start { quiet, .. } => assert!(quiet),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_quiet_default_false() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start { quiet, .. } => assert!(!quiet),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_quiet_with_daemon() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--daemon", "--quiet"]);
+    match cli.command {
+        Command::Start {
+            daemon, quiet, ..
+        } => {
+            assert!(daemon);
+            assert!(quiet);
         }
         _ => panic!("Expected Start command"),
     }

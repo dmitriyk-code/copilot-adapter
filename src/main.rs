@@ -5,6 +5,7 @@ use copilot_adapter::auth::input::wait_for_enter_or_timeout;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::cli::{Cli, Command};
 use copilot_adapter::daemon;
+use copilot_adapter::guidance;
 use copilot_adapter::server;
 use copilot_adapter::storage;
 use std::time::Duration;
@@ -27,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
             conversation_log_max_size,
             debug_tools,
             skip_auth,
+            quiet,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -88,6 +90,11 @@ async fn main() -> anyhow::Result<()> {
             if is_daemon {
                 #[cfg(unix)]
                 {
+                    // Print brief daemon guidance before daemonizing, while we
+                    // still have access to the parent's terminal.
+                    if !quiet {
+                        guidance::display_daemon_guidance(&host, port, None);
+                    }
                     // On Unix, daemonize via double-fork before starting the server.
                     // After daemonize(), we are in the child process.
                     daemon::daemonize(log_file.as_deref())?;
@@ -123,14 +130,19 @@ async fn main() -> anyhow::Result<()> {
                     if debug_tools {
                         args.push("--debug-tools".to_string());
                     }
-                    // Always pass --skip-auth to the daemon child process. The
-                    // parent has already validated credentials above; the child
+                    // Always pass --skip-auth and --quiet to the daemon child process.
+                    // The parent has already validated credentials above; the child
                     // runs without a terminal (stdin/stdout/stderr are null) and
-                    // must not attempt interactive auth.
+                    // must not attempt interactive auth or print guidance.
                     args.push("--skip-auth".to_string());
+                    args.push("--quiet".to_string());
 
                     let pid = daemon::spawn_background(&args)?;
-                    println!("Adapter started in background (PID {pid})");
+                    if !quiet {
+                        guidance::display_daemon_guidance(&host, port, Some(pid));
+                    } else {
+                        println!("Adapter started in background (PID {pid})");
+                    }
                     return Ok(());
                 }
             } else {
@@ -166,6 +178,13 @@ async fn main() -> anyhow::Result<()> {
 
             if debug_tools {
                 tracing::info!("Debug tools mode is ENABLED (verbose tool logging at INFO level)");
+            }
+
+            // Display post-start guidance in foreground mode (unless suppressed).
+            // In daemon mode the guidance was already shown above (or the Unix
+            // daemon child has no terminal).
+            if !is_daemon && !quiet {
+                guidance::display_post_start_guidance(&host, port);
             }
 
             // write_pid=true when running as daemon so stop/status can find us;

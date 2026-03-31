@@ -382,11 +382,7 @@ pub struct DeviceCodeResponse {
 
 ### Epic 3: Post-Start Guidance
 
-**Status: NOT STARTED**
-
-#### 3.1 Create guidance display module
-
-**File:** `src/guidance.rs` (new file)
+**Status: DONE**
 
 ```rust
 use std::env;

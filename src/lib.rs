@@ -5,6 +5,7 @@ pub mod conversation_log;
 pub mod copilot;
 pub mod daemon;
 pub mod error;
+pub mod guidance;
 pub mod handlers;
 pub mod model_mapper;
 pub mod server;
