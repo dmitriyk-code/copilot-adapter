@@ -1,6 +1,6 @@
 # Native Tools Streaming — Implementation Plan
 
-**Status:** In Progress (Epic 3 Complete)
+**Status:** In Progress (Epic 4 Complete)
 **Date:** 2026-03-31
 **Based on:** [NATIVE-TOOLS-STREAMING.design.md](./NATIVE-TOOLS-STREAMING.design.md), [BUG-ANALYSIS-TOOL-PARAMS-TYPING.md](../../BUG-ANALYSIS-TOOL-PARAMS-TYPING.md)
 **Related:** `TOOLS-SUPPORT.plan.md` (deprecated), `DUAL-RESPONSES.plan.md`
@@ -743,7 +743,7 @@ impl StreamingState {
 
 **Goal:** Integrate native tools path into the messages handler with feature flag.
 
-**Status:** Pending
+**Status:** DONE
 
 **Prerequisite:** Epics 1-3
 
@@ -751,17 +751,17 @@ impl StreamingState {
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `--native-tools` CLI flag | `src/cli.rs` | Pending |
-| E4-T2 | IMPL | Add `native_tools` to `AdapterConfig` | `src/server.rs` | Pending |
-| E4-T3 | IMPL | Create `handle_with_native_tools()` function | `src/handlers/messages.rs` | Pending |
-| E4-T4 | IMPL | Implement native tools streaming path | `src/handlers/messages.rs` | Pending |
-| E4-T5 | IMPL | Implement fallback detection and switching | `src/handlers/messages.rs` | Pending |
-| E4-T6 | IMPL | Add request translation with tools | `src/handlers/messages.rs` | Pending |
-| E4-T7 | IMPL | Add response translation with tool_calls | `src/handlers/messages.rs` | Pending |
-| E4-T8 | TEST | Integration test: native tools request/response | `tests/integration/native_tools_tests.rs` | Pending |
-| E4-T9 | TEST | Integration test: native tools streaming | `tests/integration/native_tools_tests.rs` | Pending |
-| E4-T10 | TEST | Integration test: fallback to XML | `tests/integration/native_tools_tests.rs` | Pending |
-| E4-T11 | TEST | Integration test: tool name truncation roundtrip | `tests/integration/native_tools_tests.rs` | Pending |
+| E4-T1 | IMPL | Add `--native-tools` CLI flag | `src/cli.rs` | DONE |
+| E4-T2 | IMPL | Add `native_tools` to `AdapterConfig` | `src/server.rs` | DONE |
+| E4-T3 | IMPL | Create `handle_with_native_tools()` function | `src/handlers/messages.rs` | DONE |
+| E4-T4 | IMPL | Implement native tools streaming path | `src/handlers/messages.rs` | DONE |
+| E4-T5 | IMPL | Implement fallback detection and switching | `src/handlers/messages.rs` | DONE |
+| E4-T6 | IMPL | Add request translation with tools | `src/handlers/messages.rs` | DONE |
+| E4-T7 | IMPL | Add response translation with tool_calls | `src/handlers/messages.rs` | DONE |
+| E4-T8 | TEST | Integration test: native tools request/response | `tests/integration/native_tools_tests.rs` | DONE |
+| E4-T9 | TEST | Integration test: native tools streaming | `tests/integration/native_tools_tests.rs` | DONE |
+| E4-T10 | TEST | Integration test: fallback to XML | `tests/integration/native_tools_tests.rs` | DONE |
+| E4-T11 | TEST | Integration test: tool name truncation roundtrip | `tests/integration/native_tools_tests.rs` | DONE |
 
 **Handler Updates:**
 
@@ -892,13 +892,15 @@ pub async fn handle_messages(
 ```
 
 **Acceptance Criteria:**
-- [ ] `--native-tools` flag enables native tools path
-- [ ] Native tools requests include translated tool definitions
-- [ ] Streaming responses translated incrementally
-- [ ] Non-streaming responses translated correctly
-- [ ] Fallback to XML on unsupported error
-- [ ] Tool names restored in responses
-- [ ] All integration tests pass
+- [x] `--native-tools` flag enables native tools path
+- [x] Native tools requests include translated tool definitions
+- [x] Streaming responses translated incrementally
+- [x] Non-streaming responses translated correctly
+- [x] Fallback to XML on unsupported error
+- [x] Tool names restored in responses
+- [x] All integration tests pass
+
+**Completion Notes (2026-03-31):** Code review fixes applied — fixed `is_tools_not_supported_error()` to detect JSON-escaped `\"tools\"` forms; corrected double-quoted mock server to remove `code: unsupported_parameter` (ensuring test isolation); replaced byte-index slicing in `truncated_name_has_hash_suffix` with char-based operations; extracted shared `parse_sse_events()` helper to eliminate duplication in streaming tests.
 
 ---
 
@@ -1358,9 +1360,9 @@ All changes are additive with feature flags, making rollback straightforward.
 - [x] Unit tests pass
 
 ### Epic 4: Handler Integration
-- [ ] Native tools path implemented
-- [ ] Fallback detection working
-- [ ] Integration tests pass
+- [x] Native tools path implemented
+- [x] Fallback detection working
+- [x] Integration tests pass
 
 ### Epic 5: Schema-Aware Parsing
 - [ ] `ToolRegistry` implemented

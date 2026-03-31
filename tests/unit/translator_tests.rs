@@ -153,7 +153,7 @@ fn name_at_65_chars_is_truncated() {
     let result = translate_anthropic_tools_to_openai(&tools);
 
     let truncated_name = &result.tools[0].function.name;
-    assert_eq!(truncated_name.len(), 64);
+    assert_eq!(truncated_name.chars().count(), 64);
     assert!(result.name_mapping.contains_key(truncated_name));
     assert_eq!(result.name_mapping[truncated_name], name);
 }
@@ -197,13 +197,58 @@ fn truncated_name_has_hash_suffix() {
     let truncated = &result.tools[0].function.name;
 
     // Format is: 55-char prefix + "_" + 8-char hash = 64
-    assert_eq!(truncated.len(), 64);
-    assert_eq!(&truncated[55..56], "_");
+    assert_eq!(truncated.chars().count(), 64);
+    assert_eq!(
+        truncated.chars().nth(55),
+        Some('_'),
+        "Character at index 55 should be the '_' separator"
+    );
 
-    // Hash part should be valid hex
-    let hash_part = &truncated[56..];
-    assert_eq!(hash_part.len(), 8);
+    // Hash part (chars 56..64) should be valid hex
+    let hash_part: String = truncated.chars().skip(56).collect();
+    assert_eq!(hash_part.chars().count(), 8);
     assert!(hash_part.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[test]
+fn unicode_name_truncation_respects_char_count() {
+    // Build a name with multi-byte characters (CJK) that exceeds 64 chars().count().
+    // Each CJK char is 3 bytes in UTF-8, so 65 CJK chars = 195 bytes but only 65 chars.
+    let name: String = std::iter::repeat('天').take(65).collect();
+    assert_eq!(name.chars().count(), 65);
+    assert!(name.len() > 65, "Name should be >65 bytes (multi-byte chars)");
+
+    let tools = vec![ToolDefinition {
+        name: name.clone(),
+        description: None,
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: None,
+            required: None,
+        },
+    }];
+
+    let result = translate_anthropic_tools_to_openai(&tools);
+
+    let truncated_name = &result.tools[0].function.name;
+    // Truncated name must be exactly 64 characters (not bytes).
+    assert_eq!(
+        truncated_name.chars().count(),
+        64,
+        "Truncated name should be 64 chars, got {} chars ({} bytes)",
+        truncated_name.chars().count(),
+        truncated_name.len()
+    );
+    // Byte length will be larger than 64 due to multi-byte CJK characters.
+    assert!(
+        truncated_name.len() > 64,
+        "Truncated name should be >64 bytes for multi-byte chars"
+    );
+    // Roundtrip should restore original name.
+    assert!(result.name_mapping.contains_key(truncated_name));
+    assert_eq!(result.name_mapping[truncated_name], name);
+    let restored = restore_tool_name(truncated_name, &result.name_mapping);
+    assert_eq!(restored, name);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,11 +15,13 @@ use crate::anthropic::types::{
     ResponseContentBlock, StreamEvent, TextDelta, ToolResultContent,
 };
 use crate::conversation_log::ConversationCycleBuilder;
-use crate::copilot::types::MessageContent;
+use crate::copilot::types::{ChatCompletionRequest, MessageContent};
 use crate::error::AppError;
 use crate::server::AppState;
+use crate::streaming::state::StreamingState;
 use crate::tools::injector;
 use crate::tools::parser;
+use crate::tools::translator;
 
 /// Handler for `POST /v1/messages` — the sole Claude Code entrypoint.
 ///
@@ -106,6 +109,32 @@ pub async fn messages(
         .tools
         .as_ref()
         .map_or(false, |t| !t.is_empty());
+
+    // --- Native tools path ---
+    // When native_tools is enabled and the request has tools, try the native
+    // OpenAI function calling path first. Falls back to XML injection on
+    // unsupported-error responses.
+    if has_tools && state.config.native_tools {
+        tracing::debug!("Native tools enabled, attempting native function calling path");
+
+        match handle_with_native_tools(&request, &state, cycle_builder).await {
+            Ok(response) => return Ok(response),
+            Err((e, returned_builder)) => {
+                if is_tools_not_supported_error(&e) {
+                    tracing::warn!(
+                        "Native tools not supported by Copilot API, falling back to XML injection"
+                    );
+                    // Restore cycle_builder for the XML injection fallback path.
+                    cycle_builder = returned_builder;
+                    // Fall through to XML injection path below
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    // --- XML injection path (existing behaviour) ---
 
     // Translate to Copilot API format (OpenAI-compatible)
     let mut openai_request = request.to_chat_completion_request();
@@ -849,4 +878,483 @@ async fn handle_streaming_with_tools(
     );
 
     Ok(sse.into_response())
+}
+
+// ===========================================================================
+// Native OpenAI tools support
+// ===========================================================================
+
+/// Handle a request using native OpenAI function calling.
+///
+/// Translates Anthropic tool definitions to OpenAI format, forwards them
+/// natively to the Copilot API, and translates the response back. The
+/// caller should fall back to XML injection if this returns an error
+/// identified by [`is_tools_not_supported_error`].
+///
+/// On error, returns the `cycle_builder` so the caller can reuse it for
+/// the XML injection fallback path.
+async fn handle_with_native_tools(
+    request: &AnthropicRequest,
+    state: &AppState,
+    cycle_builder: Option<ConversationCycleBuilder>,
+) -> Result<Response, (AppError, Option<ConversationCycleBuilder>)> {
+    let tools = match request.tools.as_ref() {
+        Some(t) => t,
+        None => {
+            return Err((
+                AppError::Internal("handle_with_native_tools called without tools".into()),
+                cycle_builder,
+            ));
+        }
+    };
+
+    // Translate Anthropic tool definitions → OpenAI format, handling name
+    // truncation for the 64-char limit.
+    let translation = translator::translate_anthropic_tools_to_openai(tools);
+
+    if state.config.debug_tools {
+        tracing::info!(
+            num_tools = translation.tools.len(),
+            truncated_names = translation.name_mapping.len(),
+            "Translated Anthropic tools to OpenAI native format"
+        );
+    }
+
+    // Build OpenAI request with native tools attached.
+    let mut openai_request = request.to_chat_completion_request();
+    openai_request.tools = Some(translation.tools);
+    openai_request.tool_choice = Some(serde_json::json!("auto"));
+
+    // TRACE: Log the native tools request
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&openai_request) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "GitHub Copilot API",
+                endpoint = "/chat/completions",
+                format = "OpenAI-compatible",
+                mode = "native_tools",
+                request_json = %json,
+                "Native tools request being sent to GitHub Copilot API"
+            );
+        }
+    }
+
+    let token = match state.token_manager.get_valid_token().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = %e, "Authentication failed");
+            return Err((AppError::NotAuthenticated, cycle_builder));
+        }
+    };
+
+    // --- Conversation log: capture outgoing native tools request ---
+    let mut cycle_builder = cycle_builder;
+    if let Some(ref mut builder) = cycle_builder {
+        builder.set_outgoing(&openai_request, false, 0);
+    }
+
+    if request.stream == Some(true) {
+        handle_native_tools_streaming(
+            openai_request,
+            translation.name_mapping,
+            &token,
+            state,
+            cycle_builder,
+        )
+        .await
+    } else {
+        handle_native_tools_non_streaming(
+            openai_request,
+            translation.name_mapping,
+            &token,
+            state,
+            cycle_builder,
+        )
+        .await
+    }
+}
+
+/// Handle a non-streaming response with native tools.
+///
+/// Sends the request to the Copilot API, receives a full response, and
+/// translates any `tool_calls` in the response to Anthropic `tool_use`
+/// content blocks.
+///
+/// Returns the `cycle_builder` on error so the caller can reuse it for
+/// the XML injection fallback path.
+async fn handle_native_tools_non_streaming(
+    openai_request: ChatCompletionRequest,
+    name_mapping: HashMap<String, String>,
+    token: &str,
+    state: &AppState,
+    cycle_builder: Option<ConversationCycleBuilder>,
+) -> Result<Response, (AppError, Option<ConversationCycleBuilder>)> {
+    let mut response = match state
+        .copilot_client
+        .send_chat_completion(token, &openai_request)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return Err((e, cycle_builder)),
+    };
+
+    // TRACE: Log the full response
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&response) {
+            tracing::trace!(
+                direction = "INCOMING",
+                source = "GitHub Copilot API",
+                format = "OpenAI-compatible",
+                mode = "native_tools",
+                response_json = %json,
+                "Native tools response received from GitHub Copilot API"
+            );
+        }
+    }
+
+    // Restore truncated tool names in the response.
+    if !name_mapping.is_empty() {
+        for choice in &mut response.choices {
+            if let Some(tool_calls) = &mut choice.message.tool_calls {
+                for tc in tool_calls {
+                    if let Some(ref name) = tc.function.name {
+                        let restored = translator::restore_tool_name(name, &name_mapping);
+                        if restored != *name {
+                            tracing::debug!(
+                                truncated = %name,
+                                restored = %restored,
+                                "Restored truncated tool name in native tools response"
+                            );
+                        }
+                        tc.function.name = Some(restored);
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::debug!(
+        actual_model = %response.model,
+        num_choices = response.choices.len(),
+        has_tool_calls = response.choices.first()
+            .and_then(|c| c.message.tool_calls.as_ref())
+            .map_or(false, |tc| !tc.is_empty()),
+        "Native tools non-streaming response processed"
+    );
+
+    let anthropic_response = response.to_anthropic_response();
+
+    // TRACE: Log the final response
+    if tracing::enabled!(tracing::Level::TRACE) {
+        if let Ok(json) = serde_json::to_string_pretty(&anthropic_response) {
+            tracing::trace!(
+                direction = "OUTGOING",
+                destination = "Claude Code",
+                endpoint = "/v1/messages",
+                format = "Anthropic",
+                mode = "native_tools",
+                response_json = %json,
+                "Native tools response sent to Claude Code"
+            );
+        }
+    }
+
+    // --- Conversation log: capture Copilot response and final response ---
+    if let Some(mut builder) = cycle_builder {
+        builder.set_copilot_response(&response);
+
+        let all_tool_calls: Vec<_> = response
+            .choices
+            .iter()
+            .flat_map(|c| c.message.tool_calls.as_deref().unwrap_or(&[]))
+            .cloned()
+            .collect();
+
+        builder.set_final(
+            anthropic_response.stop_reason.as_deref(),
+            &anthropic_response.content,
+            &all_tool_calls,
+        );
+        let cycle = builder.build();
+        if let Some(ref logger) = state.conversation_logger {
+            let logger = logger.clone();
+            tokio::spawn(async move {
+                if let Err(e) = logger.log_cycle(&cycle).await {
+                    tracing::warn!(error = %e, "Failed to write conversation log");
+                }
+            });
+        }
+    }
+
+    Ok(Json(anthropic_response).into_response())
+}
+
+/// Handle a streaming response with native tools.
+///
+/// Uses [`StreamingState`] to incrementally translate OpenAI streaming
+/// chunks (including `tool_calls` deltas) into Anthropic SSE events.
+///
+/// Returns the `cycle_builder` on error so the caller can reuse it for
+/// the XML injection fallback path.
+async fn handle_native_tools_streaming(
+    openai_request: ChatCompletionRequest,
+    name_mapping: HashMap<String, String>,
+    token: &str,
+    state: &AppState,
+    cycle_builder: Option<ConversationCycleBuilder>,
+) -> Result<Response, (AppError, Option<ConversationCycleBuilder>)> {
+    let chunk_stream = match state
+        .copilot_client
+        .stream_chat_completion(token, &openai_request)
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => return Err((e, cycle_builder)),
+    };
+
+    let model = openai_request.model.clone();
+    let conversation_logger = state.conversation_logger.clone();
+
+    let event_stream = async_stream::stream! {
+        let mut streaming_state = StreamingState::new(name_mapping.clone());
+        let mut stream = std::pin::pin!(chunk_stream);
+        let mut content_buffer = String::new();
+        let mut last_finish_reason: Option<String> = None;
+        let mut has_tool_calls = false;
+
+        // Accumulate tool call metadata for conversation logging.
+        // Keyed by tool-call index from the streaming deltas.
+        let mut log_tool_ids: HashMap<u32, String> = HashMap::new();
+        let mut log_tool_names: HashMap<u32, String> = HashMap::new();
+        let mut log_tool_args: HashMap<u32, String> = HashMap::new();
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(chunk) => {
+                    // TRACE: Log each chunk
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        if let Ok(json) = serde_json::to_string(&chunk) {
+                            tracing::trace!(
+                                direction = "INCOMING",
+                                source = "GitHub Copilot API",
+                                format = "OpenAI-compatible",
+                                mode = "native_tools_streaming",
+                                chunk_json = %json,
+                                "Received SSE chunk (native tools)"
+                            );
+                        }
+                    }
+
+                    // Track content and tool call data for conversation logging.
+                    for choice in &chunk.choices {
+                        if let Some(ref text) = choice.delta.content {
+                            content_buffer.push_str(text);
+                        }
+                        if let Some(ref tool_calls) = choice.delta.tool_calls {
+                            has_tool_calls = true;
+                            for tc in tool_calls {
+                                let idx = tc.index;
+                                if let Some(ref id) = tc.id {
+                                    log_tool_ids.insert(idx, id.clone());
+                                }
+                                if let Some(ref func) = tc.function {
+                                    if let Some(ref name) = func.name {
+                                        // Restore original name if truncated.
+                                        let original = name_mapping
+                                            .get(name)
+                                            .cloned()
+                                            .unwrap_or_else(|| name.clone());
+                                        log_tool_names.insert(idx, original);
+                                    }
+                                    if let Some(ref args) = func.arguments {
+                                        log_tool_args
+                                            .entry(idx)
+                                            .or_default()
+                                            .push_str(args);
+                                    }
+                                }
+                            }
+                        }
+                        if choice.finish_reason.is_some() {
+                            last_finish_reason = choice.finish_reason.clone();
+                        }
+                    }
+
+                    let events = streaming_state.process_chunk(&chunk);
+                    for event in events {
+                        let event_name = stream_event_type(&event);
+                        match serde_json::to_string(&event) {
+                            Ok(json) => {
+                                yield Ok::<Event, Infallible>(
+                                    Event::default().event(event_name).data(json)
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!("failed to serialise native tools SSE event: {e}");
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Error in native tools stream");
+                    let err_json = serde_json::json!({
+                        "type": "error",
+                        "error": { "type": "api_error", "message": e.to_string() }
+                    });
+                    yield Ok::<Event, Infallible>(
+                        Event::default().event("error").data(err_json.to_string())
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Finalize — close any open content blocks and emit message_stop.
+        let final_events = streaming_state.finalize();
+        for event in final_events {
+            let event_name = stream_event_type(&event);
+            match serde_json::to_string(&event) {
+                Ok(json) => {
+                    yield Ok::<Event, Infallible>(
+                        Event::default().event(event_name).data(json)
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("failed to serialise native tools SSE event: {e}");
+                    return;
+                }
+            }
+        }
+
+        // --- Conversation log: write cycle for native tools streaming ---
+        if let Some(mut builder) = cycle_builder {
+            builder.set_copilot_streaming_response(
+                &model,
+                &content_buffer,
+                last_finish_reason.as_deref(),
+                has_tool_calls,
+            );
+
+            let stop_reason = if has_tool_calls {
+                Some("tool_use".to_string())
+            } else {
+                crate::anthropic::types::map_stop_reason(last_finish_reason.as_deref())
+            };
+
+            // Build content blocks for logging.
+            let mut log_blocks = Vec::new();
+            if !content_buffer.is_empty() {
+                log_blocks.push(crate::anthropic::types::ResponseContentBlock::text(
+                    content_buffer,
+                ));
+            }
+
+            // Reconstruct tool calls from accumulated streaming data.
+            let mut log_tool_calls = Vec::new();
+            let mut tool_indices: Vec<u32> = log_tool_ids.keys()
+                .chain(log_tool_names.keys())
+                .copied()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            tool_indices.sort();
+
+            for idx in tool_indices {
+                let id = log_tool_ids
+                    .get(&idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("call_{}", idx));
+                let name = log_tool_names
+                    .get(&idx)
+                    .cloned()
+                    .unwrap_or_default();
+                let arguments = log_tool_args
+                    .get(&idx)
+                    .cloned()
+                    .unwrap_or_else(|| "{}".to_string());
+
+                log_blocks.push(crate::anthropic::types::ResponseContentBlock::ToolUse {
+                    block_type: "tool_use".to_string(),
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: serde_json::from_str(&arguments)
+                        .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+                });
+
+                log_tool_calls.push(crate::tools::types::ToolCall {
+                    id: Some(id),
+                    call_type: Some("function".to_string()),
+                    function: crate::tools::types::FunctionCall {
+                        name: Some(name),
+                        arguments: Some(arguments),
+                    },
+                });
+            }
+
+            builder.set_final(stop_reason.as_deref(), &log_blocks, &log_tool_calls);
+            let cycle = builder.build();
+            if let Some(ref logger) = conversation_logger {
+                let logger = logger.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = logger.log_cycle(&cycle).await {
+                        tracing::warn!(error = %e, "Failed to write conversation log");
+                    }
+                });
+            }
+        }
+    };
+
+    let sse = Sse::new(event_stream).keep_alive(
+        KeepAlive::new().interval(Duration::from_secs(15)),
+    );
+
+    Ok(sse.into_response())
+}
+
+/// Map an Anthropic `StreamEvent` to its SSE event name.
+fn stream_event_type(event: &StreamEvent) -> &'static str {
+    match event {
+        StreamEvent::MessageStart { .. } => "message_start",
+        StreamEvent::ContentBlockStart { .. } => "content_block_start",
+        StreamEvent::ContentBlockDelta { .. } => "content_block_delta",
+        StreamEvent::ContentBlockStop { .. } => "content_block_stop",
+        StreamEvent::MessageDelta { .. } => "message_delta",
+        StreamEvent::MessageStop {} => "message_stop",
+        StreamEvent::Ping {} => "ping",
+    }
+}
+
+/// Check if an error indicates the upstream API does not support native
+/// tools, in which case the caller should fall back to XML injection.
+///
+/// Matches `CopilotError` responses where the body unambiguously indicates
+/// that the tools/function-calling feature is unsupported. Avoids broad
+/// keywords like "function" that could match unrelated error messages.
+///
+/// Checks both literal double-quoted forms (`"tools"`) and JSON-escaped
+/// forms (`\"tools\"`) since error messages from JSON API responses will
+/// have inner double quotes escaped with backslashes in the raw body text.
+fn is_tools_not_supported_error(error: &AppError) -> bool {
+    match error {
+        AppError::CopilotError(msg) => {
+            let msg_lower = msg.to_lowercase();
+            msg_lower.contains("tools is not supported")
+                || msg_lower.contains("tools are not supported")
+                || msg_lower.contains("tool_choice is not supported")
+                || msg_lower.contains("functions is not supported")
+                || msg_lower.contains("functions are not supported")
+                || msg_lower.contains("unsupported_parameter")
+                || msg_lower.contains("unrecognized_parameter")
+                || (msg_lower.contains("'tools'") && msg_lower.contains("not supported"))
+                || (msg_lower.contains("'tool_choice'") && msg_lower.contains("not supported"))
+                || (msg_lower.contains("\"tools\"") && msg_lower.contains("not supported"))
+                || (msg_lower.contains("\"tool_choice\"") && msg_lower.contains("not supported"))
+                // JSON-escaped double quotes: raw body contains \"tools\" (backslash-quote)
+                || (msg_lower.contains("\\\"tools\\\"") && msg_lower.contains("not supported"))
+                || (msg_lower.contains("\\\"tool_choice\\\"") && msg_lower.contains("not supported"))
+        }
+        _ => false,
+    }
 }
