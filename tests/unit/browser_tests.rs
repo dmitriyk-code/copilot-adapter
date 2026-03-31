@@ -1,6 +1,7 @@
 use copilot_adapter::auth::browser::open_url;
 
 #[test]
+#[ignore] // Ignored by default to prevent browser from opening. Run with: cargo test -- --ignored
 fn open_url_returns_ok() {
     // We can't actually open a browser in tests, but we can verify the function
     // doesn't panic and returns a Result. On CI/headless systems, the command
@@ -11,6 +12,7 @@ fn open_url_returns_ok() {
 }
 
 #[test]
+#[ignore] // Ignored by default to prevent browser from opening. Run with: cargo test -- --ignored
 fn open_url_handles_empty_url() {
     let result = open_url("");
     // Should not panic regardless of URL content
