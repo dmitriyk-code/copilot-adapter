@@ -10,4 +10,5 @@ pub mod handlers;
 pub mod model_mapper;
 pub mod server;
 pub mod storage;
+pub mod streaming;
 pub mod tools;

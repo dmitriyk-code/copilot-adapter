@@ -17,5 +17,6 @@ mod token_tests;
 mod tools_injector_tests;
 mod tools_parser_tests;
 mod tools_types_tests;
+mod streaming_tests;
 mod translator_tests;
 mod types_tests;

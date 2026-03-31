@@ -1,6 +1,6 @@
 # Native Tools Streaming — Implementation Plan
 
-**Status:** In Progress (Epic 2 Complete)
+**Status:** In Progress (Epic 3 Complete)
 **Date:** 2026-03-31
 **Based on:** [NATIVE-TOOLS-STREAMING.design.md](./NATIVE-TOOLS-STREAMING.design.md), [BUG-ANALYSIS-TOOL-PARAMS-TYPING.md](../../BUG-ANALYSIS-TOOL-PARAMS-TYPING.md)
 **Related:** `TOOLS-SUPPORT.plan.md` (deprecated), `DUAL-RESPONSES.plan.md`
@@ -434,27 +434,25 @@ pub struct StreamingDelta {
 
 **Goal:** Implement incremental translation of OpenAI streaming chunks to Anthropic events.
 
-**Status:** Pending
-
-**Prerequisite:** Epic 2
+**Status:** ✅ Complete
 
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Create `src/streaming/mod.rs` module | `src/streaming/mod.rs` | Pending |
-| E3-T2 | IMPL | Create `StreamingState` struct | `src/streaming/state.rs` | Pending |
-| E3-T3 | IMPL | Implement content block tracking | `src/streaming/state.rs` | Pending |
-| E3-T4 | IMPL | Implement text delta translation | `src/streaming/state.rs` | Pending |
-| E3-T5 | IMPL | Implement tool_calls delta translation | `src/streaming/state.rs` | Pending |
-| E3-T6 | IMPL | Handle tool call ID and name restoration | `src/streaming/state.rs` | Pending |
-| E3-T7 | IMPL | Implement input_json_delta emission | `src/streaming/state.rs` | Pending |
-| E3-T8 | IMPL | Handle finish_reason transitions | `src/streaming/state.rs` | Pending |
-| E3-T9 | TEST | Unit test: text-only streaming | `tests/unit/streaming_tests.rs` | Pending |
-| E3-T10 | TEST | Unit test: tool call streaming | `tests/unit/streaming_tests.rs` | Pending |
-| E3-T11 | TEST | Unit test: mixed content streaming | `tests/unit/streaming_tests.rs` | Pending |
-| E3-T12 | TEST | Unit test: parallel tool calls | `tests/unit/streaming_tests.rs` | Pending |
-| E3-T13 | TEST | Unit test: content block transitions | `tests/unit/streaming_tests.rs` | Pending |
+| E3-T1 | IMPL | Create `src/streaming/mod.rs` module | `src/streaming/mod.rs` | Done |
+| E3-T2 | IMPL | Create `StreamingState` struct | `src/streaming/state.rs` | Done |
+| E3-T3 | IMPL | Implement content block tracking | `src/streaming/state.rs` | Done |
+| E3-T4 | IMPL | Implement text delta translation | `src/streaming/state.rs` | Done |
+| E3-T5 | IMPL | Implement tool_calls delta translation | `src/streaming/state.rs` | Done |
+| E3-T6 | IMPL | Handle tool call ID and name restoration | `src/streaming/state.rs` | Done |
+| E3-T7 | IMPL | Implement input_json_delta emission | `src/streaming/state.rs` | Done |
+| E3-T8 | IMPL | Handle finish_reason transitions | `src/streaming/state.rs` | Done |
+| E3-T9 | TEST | Unit test: text-only streaming | `tests/unit/streaming_tests.rs` | Done |
+| E3-T10 | TEST | Unit test: tool call streaming | `tests/unit/streaming_tests.rs` | Done |
+| E3-T11 | TEST | Unit test: mixed content streaming | `tests/unit/streaming_tests.rs` | Done |
+| E3-T12 | TEST | Unit test: parallel tool calls | `tests/unit/streaming_tests.rs` | Done |
+| E3-T13 | TEST | Unit test: content block transitions | `tests/unit/streaming_tests.rs` | Done |
 
 **State Machine Design:**
 
@@ -1354,10 +1352,10 @@ All changes are additive with feature flags, making rollback straightforward.
 - [x] Unit tests pass
 
 ### Epic 3: Streaming State Machine
-- [ ] `StreamingState` implemented
-- [ ] Content block transitions working
-- [ ] Tool name restoration working
-- [ ] Unit tests pass
+- [x] `StreamingState` implemented
+- [x] Content block transitions working
+- [x] Tool name restoration working
+- [x] Unit tests pass
 
 ### Epic 4: Handler Integration
 - [ ] Native tools path implemented
