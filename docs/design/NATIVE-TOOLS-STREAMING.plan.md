@@ -1,6 +1,6 @@
 # Native Tools Streaming — Implementation Plan
 
-**Status:** In Progress (Epic 5 Complete)
+**Status:** In Progress (Epic 6 Complete)
 **Date:** 2026-03-31
 **Based on:** [NATIVE-TOOLS-STREAMING.design.md](./NATIVE-TOOLS-STREAMING.design.md), [BUG-ANALYSIS-TOOL-PARAMS-TYPING.md](../../BUG-ANALYSIS-TOOL-PARAMS-TYPING.md)
 **Related:** `TOOLS-SUPPORT.plan.md` (deprecated), `DUAL-RESPONSES.plan.md`
@@ -1153,7 +1153,7 @@ fn parse_attribute_params(
 
 **Goal:** Add CLI flags and configuration for native tools.
 
-**Status:** Pending
+**Status:** DONE
 
 **Prerequisite:** Epic 4
 
@@ -1161,14 +1161,14 @@ fn parse_attribute_params(
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E6-T1 | IMPL | Add `--native-tools` flag | `src/cli.rs` | Pending |
-| E6-T2 | IMPL | Add `--xml-tools` flag (force XML fallback) | `src/cli.rs` | Pending |
-| E6-T3 | IMPL | Update `AdapterConfig` with tool mode | `src/server.rs` | Pending |
-| E6-T4 | IMPL | Pass configuration to handler | `src/main.rs` | Pending |
-| E6-T5 | DOC | Update CLI help text | `src/cli.rs` | Pending |
-| E6-T6 | TEST | CLI test: default mode | Manual | Pending |
-| E6-T7 | TEST | CLI test: native-tools flag | Manual | Pending |
-| E6-T8 | TEST | CLI test: xml-tools flag | Manual | Pending |
+| E6-T1 | IMPL | Add `--native-tools` flag | `src/cli.rs` | Done (Epic 4) |
+| E6-T2 | IMPL | Add `--xml-tools` flag (force XML fallback) | `src/cli.rs` | Done |
+| E6-T3 | IMPL | Update `AdapterConfig` with tool mode | `src/server.rs` | Done |
+| E6-T4 | IMPL | Pass configuration to handler | `src/main.rs` | Done |
+| E6-T5 | DOC | Update CLI help text | `src/cli.rs` | Done |
+| E6-T6 | TEST | CLI test: default mode | `tests/unit/cli_tests.rs` | Done |
+| E6-T7 | TEST | CLI test: native-tools flag | `tests/unit/cli_tests.rs` | Done (Epic 4) |
+| E6-T8 | TEST | CLI test: xml-tools flag | `tests/unit/cli_tests.rs` | Done |
 
 **CLI Changes:**
 
@@ -1193,11 +1193,13 @@ pub struct StartArgs {
 ```
 
 **Acceptance Criteria:**
-- [ ] `--native-tools` enables native tools
-- [ ] `--xml-tools` forces XML injection
-- [ ] Flags are mutually exclusive (error if both specified)
-- [ ] Help text explains each mode
-- [ ] Default is XML injection (for stability)
+- [x] `--native-tools` enables native tools
+- [x] `--xml-tools` forces XML injection
+- [x] Flags are mutually exclusive (error if both specified)
+- [x] Help text explains each mode
+- [x] Default is XML injection (for stability)
+
+**Completion Notes (2026-03-31):** Added `--xml-tools` flag to `src/cli.rs` with `conflicts_with = "native_tools"` for clap-enforced mutual exclusivity (symmetric with `--native-tools`). Added `xml_tools: bool` field to `AdapterConfig` in `src/server.rs`. Wired `xml_tools` through `src/main.rs` including Windows daemon arg forwarding and `tracing::info` log when explicitly enabled. Updated help text for both flags with detailed doc comments. Added comprehensive CLI tests for default mode, `--xml-tools` flag, and mutual exclusivity enforcement.
 
 ---
 
@@ -1373,9 +1375,9 @@ All changes are additive with feature flags, making rollback straightforward.
 - [x] MCP tests pass
 
 ### Epic 6: CLI Configuration
-- [ ] `--native-tools` flag added
-- [ ] `--xml-tools` flag added
-- [ ] Help text updated
+- [x] `--native-tools` flag added
+- [x] `--xml-tools` flag added
+- [x] Help text updated
 
 ### Epic 7: Documentation
 - [ ] CLAUDE.md updated

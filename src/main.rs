@@ -29,6 +29,8 @@ async fn main() -> anyhow::Result<()> {
             debug_tools,
             skip_auth,
             quiet,
+            native_tools,
+            xml_tools,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -130,6 +132,12 @@ async fn main() -> anyhow::Result<()> {
                     if debug_tools {
                         args.push("--debug-tools".to_string());
                     }
+                    if native_tools {
+                        args.push("--native-tools".to_string());
+                    }
+                    if xml_tools {
+                        args.push("--xml-tools".to_string());
+                    }
                     // Always pass --skip-auth and --quiet to the daemon child process.
                     // The parent has already validated credentials above; the child
                     // runs without a terminal (stdin/stdout/stderr are null) and
@@ -168,6 +176,8 @@ async fn main() -> anyhow::Result<()> {
                 conversation_log_path: conversation_log.map(std::path::PathBuf::from),
                 conversation_log_max_size,
                 debug_tools,
+                native_tools,
+                xml_tools,
             };
 
             if static_models {
@@ -178,6 +188,14 @@ async fn main() -> anyhow::Result<()> {
 
             if debug_tools {
                 tracing::info!("Debug tools mode is ENABLED (verbose tool logging at INFO level)");
+            }
+
+            if native_tools {
+                tracing::info!("Native tools mode is ENABLED (OpenAI function calling, XML fallback)");
+            }
+
+            if xml_tools {
+                tracing::info!("XML tools mode is EXPLICITLY ENABLED (native tools disabled)");
             }
 
             // Display post-start guidance in foreground mode (unless suppressed).
