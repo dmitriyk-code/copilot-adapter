@@ -1,10 +1,13 @@
 use clap::Parser;
+use copilot_adapter::auth::browser::open_url;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
+use copilot_adapter::auth::input::wait_for_enter_or_timeout;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::cli::{Cli, Command};
 use copilot_adapter::daemon;
 use copilot_adapter::server;
 use copilot_adapter::storage;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -227,11 +230,36 @@ async fn run_auth(force: bool) -> anyhow::Result<()> {
     let response = manager.auth_client().initiate().await?;
 
     println!();
-    println!("  To authenticate, open the following URL in your browser:");
+    println!("  To authenticate, visit:");
     println!();
     println!("    {}", response.verification_uri);
     println!();
     println!("  And enter this code: {}", response.user_code);
+    println!();
+
+    // Offer to open the authorization URL in the user's default browser.
+    // Prefer verification_uri_complete (pre-fills the user code) when available.
+    let url_to_open = response
+        .verification_uri_complete
+        .as_deref()
+        .unwrap_or(&response.verification_uri);
+
+    print!("  Press Enter to open in browser (or wait to continue manually)... ");
+    use std::io::Write;
+    std::io::stdout().flush()?;
+
+    let should_open = wait_for_enter_or_timeout(Duration::from_secs(10));
+
+    if should_open {
+        match open_url(url_to_open) {
+            Ok(true) => println!("  Browser opened!"),
+            Ok(false) => println!("  Could not open browser. Please open the URL manually."),
+            Err(e) => println!("  Failed to open browser: {e}"),
+        }
+    } else {
+        println!(); // Move past the prompt line after timeout
+    }
+
     println!();
     println!("  Waiting for authorization...");
 

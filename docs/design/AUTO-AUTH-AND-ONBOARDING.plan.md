@@ -169,7 +169,7 @@ Start { ... }
 
 ### Epic 2: Interactive Browser Launch
 
-**Status: NOT STARTED**
+**Status: DONE**
 
 #### 2.1 Add browser-opening utility
 
@@ -370,6 +370,13 @@ pub struct DeviceCodeResponse {
     pub interval: u64,
 }
 ```
+
+**Completion Notes:**
+- `open_url()` implemented cross-platform using `cmd /C start` (Windows), `open` (macOS), `xdg-open` (Linux) with no new crate dependencies
+- `wait_for_enter_or_timeout()` uses `std::io::IsTerminal` (stable since Rust 1.70) for TTY detection and `thread + mpsc` for timed input wait — no platform-specific `select()` or crates needed
+- Non-interactive / piped-stdin environments automatically skip the browser prompt
+- `verification_uri_complete` added with `#[serde(default)]` so it degrades gracefully when absent
+- Unit tests added: `tests/unit/browser_tests.rs`, `tests/unit/input_tests.rs`, `tests/unit/device_flow_tests.rs`
 
 ---
 
