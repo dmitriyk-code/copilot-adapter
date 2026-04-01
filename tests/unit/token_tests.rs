@@ -35,7 +35,7 @@ fn seconds_until_expiry_positive() {
         expires_at: Utc::now().timestamp() + 600,
     };
     let secs = token.seconds_until_expiry();
-    assert!(secs >= 599 && secs <= 601);
+    assert!((599..=601).contains(&secs));
 }
 
 #[test]

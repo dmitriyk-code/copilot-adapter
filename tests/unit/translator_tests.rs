@@ -213,7 +213,7 @@ fn truncated_name_has_hash_suffix() {
 fn unicode_name_truncation_respects_char_count() {
     // Build a name with multi-byte characters (CJK) that exceeds 64 chars().count().
     // Each CJK char is 3 bytes in UTF-8, so 65 CJK chars = 195 bytes but only 65 chars.
-    let name: String = std::iter::repeat('天').take(65).collect();
+    let name: String = "天".repeat(65);
     assert_eq!(name.chars().count(), 65);
     assert!(
         name.len() > 65,

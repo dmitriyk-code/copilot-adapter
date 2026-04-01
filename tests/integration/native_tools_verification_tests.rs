@@ -21,7 +21,7 @@ use copilot_adapter::copilot::types::ChatCompletionRequest;
 
 use crate::common::mock_copilot::{
     build_native_multi_tool_call_response, build_native_streaming_text_then_tool_chunks,
-    build_native_streaming_tool_call_chunks, build_native_tool_call_response, parse_sse_body,
+    build_native_streaming_tool_call_chunks, build_native_tool_call_response,
 };
 
 // ---------------------------------------------------------------------------

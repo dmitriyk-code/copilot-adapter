@@ -11,8 +11,6 @@
 //! - E7-T5: Response with no tool calls (graceful passthrough)
 //! - E7-T6: Malformed tool call JSON in response
 
-use std::sync::Arc;
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};

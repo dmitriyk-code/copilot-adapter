@@ -707,7 +707,7 @@ fn finish_reason_stop_maps_to_end_turn() {
     state.process_chunk(&text_chunk("c1", "m1", "Hi", None));
 
     let events = state.process_chunk(&finish_chunk("c1", "m1", "stop"));
-    assert_message_delta(&events.last().unwrap(), "end_turn");
+    assert_message_delta(events.last().unwrap(), "end_turn");
 }
 
 #[test]
@@ -716,7 +716,7 @@ fn finish_reason_length_maps_to_max_tokens() {
     state.process_chunk(&text_chunk("c1", "m1", "Hi", None));
 
     let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
-    assert_message_delta(&events.last().unwrap(), "max_tokens");
+    assert_message_delta(events.last().unwrap(), "max_tokens");
 }
 
 #[test]
@@ -725,7 +725,7 @@ fn finish_reason_tool_calls_maps_to_tool_use() {
     state.process_chunk(&tool_call_start_chunk("c1", "m1", 0, "call_1", "t", "{}"));
 
     let events = state.process_chunk(&finish_chunk("c1", "m1", "tool_calls"));
-    assert_message_delta(&events.last().unwrap(), "tool_use");
+    assert_message_delta(events.last().unwrap(), "tool_use");
 }
 
 #[test]
@@ -734,7 +734,7 @@ fn finish_reason_unknown_passed_through() {
     state.process_chunk(&text_chunk("c1", "m1", "Hi", None));
 
     let events = state.process_chunk(&finish_chunk("c1", "m1", "content_filter"));
-    assert_message_delta(&events.last().unwrap(), "content_filter");
+    assert_message_delta(events.last().unwrap(), "content_filter");
 }
 
 // ===========================================================================

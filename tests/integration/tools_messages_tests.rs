@@ -6,8 +6,6 @@
 //! - `tool_result` content blocks translated and forwarded correctly
 //! - `stop_reason` is `"tool_use"` when tool calls are present
 
-use std::sync::Arc;
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
