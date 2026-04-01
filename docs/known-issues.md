@@ -88,3 +88,30 @@ generated, matching the native Anthropic API behavior.
 This is by design for the XML path — tool calls cannot be parsed until the
 closing `</function_calls>` XML tag arrives. Use native tools mode for a
 better streaming UX.
+
+---
+
+## Token Counting: Image Blocks Inside ToolResult
+
+### Description
+When counting tokens, top-level `Image` and `Document` blocks use a fixed
+estimate of 85 tokens (approximating a low-resolution image tile). However,
+`Image` blocks nested inside a `ToolResult`'s `Blocks` content are serialized
+to JSON instead, which counts the full serialized content including base64
+data. This means a `ToolResult` carrying a large base64 image could produce
+a significantly higher token count than the same image at the top level.
+
+### Impact
+Token counts for `ToolResult` blocks containing images may be inflated
+compared to the same image referenced as a top-level content block. This
+primarily affects accuracy of token estimates, not correctness of the API.
+
+### Workaround
+No workaround needed — token counts are estimates by design (see NFR1 in the
+design document). The inconsistency only affects edge cases where images are
+returned inside tool results.
+
+### Status
+Known limitation. A follow-up may unify the handling so that `Image` blocks
+inside `ToolResult` also use the fixed 85-token estimate, matching top-level
+behavior.

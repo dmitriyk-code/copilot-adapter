@@ -211,39 +211,39 @@ pub struct CountTokensResponse {
 
 ---
 
-### Epic 3: Token Counter Module
+### Epic 3: Token Counter Module — ✅ COMPLETE
 
 **Goal:** Implement token counting logic using tiktoken-rs.
 
-**Prerequisites:** Epic 2 (types)
+**Prerequisites:** Epic 2 (types) — COMPLETE
 
 **Estimated Effort:** 2-3 hours
 
 **Tasks:**
 
-| Task ID | Type | Description | Files | Est. |
-|---------|------|-------------|-------|------|
-| E3-T1 | IMPL | Add `tiktoken-rs` to Cargo.toml | `Cargo.toml` | 5m |
-| E3-T2 | IMPL | Create `src/token_counter.rs` module file | `src/token_counter.rs` | 5m |
-| E3-T3 | IMPL | Add `TokenCountError` enum | `src/token_counter.rs` | 10m |
-| E3-T4 | IMPL | Implement `count_tokens()` main function | `src/token_counter.rs` | 30m |
-| E3-T5 | IMPL | Implement `count_content_tokens()` helper | `src/token_counter.rs` | 30m |
-| E3-T6 | IMPL | Handle text content blocks | `src/token_counter.rs` | 10m |
-| E3-T7 | IMPL | Handle image blocks (fixed estimate) | `src/token_counter.rs` | 10m |
-| E3-T8 | IMPL | Handle tool_use and tool_result blocks | `src/token_counter.rs` | 15m |
-| E3-T9 | IMPL | Export module from `lib.rs` | `src/lib.rs` | 5m |
-| E3-T10 | TEST | Unit test: count simple text message | `tests/unit/` | 10m |
-| E3-T11 | TEST | Unit test: count with system prompt | `tests/unit/` | 10m |
-| E3-T12 | TEST | Unit test: count with tools | `tests/unit/` | 10m |
-| E3-T13 | TEST | Unit test: count with multiple messages | `tests/unit/` | 10m |
-| E3-T14 | TEST | Unit test: image block uses estimate | `tests/unit/` | 5m |
+| Task ID | Type | Description | Files | Status |
+|---------|------|-------------|-------|--------|
+| E3-T1 | IMPL | Add `tiktoken-rs` to Cargo.toml | `Cargo.toml` | ✅ DONE |
+| E3-T2 | IMPL | Create `src/token_counter.rs` module file | `src/token_counter.rs` | ✅ DONE |
+| E3-T3 | IMPL | Add `TokenCountError` enum | `src/token_counter.rs` | ✅ DONE |
+| E3-T4 | IMPL | Implement `count_tokens()` main function | `src/token_counter.rs` | ✅ DONE |
+| E3-T5 | IMPL | Implement `count_content_tokens()` helper | `src/token_counter.rs` | ✅ DONE |
+| E3-T6 | IMPL | Handle text content blocks | `src/token_counter.rs` | ✅ DONE |
+| E3-T7 | IMPL | Handle image blocks (fixed estimate) | `src/token_counter.rs` | ✅ DONE |
+| E3-T8 | IMPL | Handle tool_use and tool_result blocks | `src/token_counter.rs` | ✅ DONE |
+| E3-T9 | IMPL | Export module from `lib.rs` | `src/lib.rs` | ✅ DONE |
+| E3-T10 | TEST | Unit test: count simple text message | `tests/unit/token_counter_tests.rs` | ✅ DONE |
+| E3-T11 | TEST | Unit test: count with system prompt | `tests/unit/token_counter_tests.rs` | ✅ DONE |
+| E3-T12 | TEST | Unit test: count with tools | `tests/unit/token_counter_tests.rs` | ✅ DONE |
+| E3-T13 | TEST | Unit test: count with multiple messages | `tests/unit/token_counter_tests.rs` | ✅ DONE |
+| E3-T14 | TEST | Unit test: image block uses estimate | `tests/unit/token_counter_tests.rs` | ✅ DONE |
 
 **Acceptance Criteria:**
-- [ ] `count_tokens()` returns reasonable counts for text
-- [ ] System prompts included in count
-- [ ] Tool definitions included in count
-- [ ] Image blocks use fixed estimate (~85 tokens)
-- [ ] All unit tests pass
+- [x] `count_tokens()` returns reasonable counts for text
+- [x] System prompts included in count
+- [x] Tool definitions included in count
+- [x] Image blocks use fixed estimate (~85 tokens)
+- [x] All unit tests pass
 
 **Implementation Details:**
 
@@ -514,9 +514,9 @@ time curl -X POST http://localhost:6767/v1/messages/count_tokens \
 - [x] Unit tests pass
 
 ### Phase 3: Token Counter Module (Day 1-2)
-- [ ] Add tiktoken-rs dependency
-- [ ] Implement Epic 3 (counting logic)
-- [ ] Unit tests pass
+- [x] Add tiktoken-rs dependency
+- [x] Implement Epic 3 (counting logic)
+- [x] Unit tests pass
 
 ### Phase 4: Handler and Route (Day 2)
 - [ ] Implement Epic 4 (handler)
