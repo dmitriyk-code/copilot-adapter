@@ -9,22 +9,58 @@ use axum::{routing::get, Router};
 use tower_http::cors::CorsLayer;
 
 use crate::auth::token::TokenManager;
+use crate::conversation_log::ConversationLogger;
 use crate::copilot::client::CopilotClient;
+use crate::copilot::models_cache::ModelsCache;
 use crate::handlers;
+
+/// Configuration options that control adapter behaviour.
+#[derive(Debug, Clone)]
+pub struct AdapterConfig {
+    /// When `true`, `/v1/models` always returns the static fallback list
+    /// without attempting to fetch from the Copilot API.
+    pub static_models: bool,
+    /// TTL for the dynamic models cache. After this duration the cached
+    /// model list is considered stale and will be re-fetched.
+    pub models_cache_ttl: std::time::Duration,
+    /// Path to write human-readable conversation logs. `None` disables logging.
+    pub conversation_log_path: Option<std::path::PathBuf>,
+    /// Maximum size for the conversation log before rotation (bytes).
+    pub conversation_log_max_size: u64,
+    /// When `true`, emit additional INFO-level logs for tool injection/parsing.
+    pub debug_tools: bool,
+    /// When `true`, use native OpenAI function calling instead of XML prompt
+    /// injection. Falls back to XML injection if the upstream API returns a
+    /// tools-not-supported error. This is now the default behaviour.
+    pub native_tools: bool,
+}
+
+impl Default for AdapterConfig {
+    fn default() -> Self {
+        Self {
+            static_models: false,
+            models_cache_ttl: std::time::Duration::from_secs(300),
+            conversation_log_path: None,
+            conversation_log_max_size: 10_485_760,
+            debug_tools: false,
+            native_tools: true,
+        }
+    }
+}
 
 /// Shared application state available to all handlers via axum's `State` extractor.
 pub struct AppState {
     pub token_manager: Arc<TokenManager>,
-    /// Shared HTTP client for direct upstream calls (used by the Epic 4 streaming handler).
-    pub http_client: reqwest::Client,
     pub copilot_client: CopilotClient,
+    pub config: AdapterConfig,
+    /// In-memory cache for the Copilot models list with TTL-based expiration.
+    pub models_cache: ModelsCache,
+    /// Optional conversation logger for human-readable request/response logs.
+    pub conversation_logger: Option<ConversationLogger>,
 }
 
 /// Request tracing middleware that logs method, path, status, duration, and request ID.
-async fn request_tracing(
-    req: Request<Body>,
-    next: middleware::Next,
-) -> Response {
+async fn request_tracing(req: Request<Body>, next: middleware::Next) -> Response {
     let request_id = uuid::Uuid::new_v4().to_string();
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -64,14 +100,15 @@ async fn request_tracing(
 /// Build the axum Router with all routes and middleware layers.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route("/", get(handlers::health::root).head(handlers::health::root))
         .route("/health", get(handlers::health::health))
-        .route(
-            "/v1/chat/completions",
-            axum::routing::post(handlers::chat::chat_completions),
-        )
         .route(
             "/v1/messages",
             axum::routing::post(handlers::messages::messages),
+        )
+        .route(
+            "/v1/messages/count_tokens",
+            axum::routing::post(handlers::count_tokens::count_tokens),
         )
         .route("/v1/models", get(handlers::models::list_models))
         .route("/v1/models/:model", get(handlers::models::get_model))
@@ -89,12 +126,40 @@ pub async fn run(
     port: u16,
     token_manager: Arc<TokenManager>,
     write_pid: bool,
+    config: AdapterConfig,
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
+    let models_cache = ModelsCache::new(config.models_cache_ttl);
+
+    let conversation_logger = if let Some(ref path) = config.conversation_log_path {
+        // Validate that the parent directory exists at startup
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                anyhow::bail!(
+                    "Conversation log directory does not exist: {}",
+                    parent.display()
+                );
+            }
+        }
+        tracing::info!(
+            path = %path.display(),
+            max_size = config.conversation_log_max_size,
+            "Conversation logging enabled"
+        );
+        Some(ConversationLogger::new(
+            path,
+            config.conversation_log_max_size,
+        ))
+    } else {
+        None
+    };
+
     let state = Arc::new(AppState {
         token_manager,
-        copilot_client: CopilotClient::new(http_client.clone()),
-        http_client,
+        copilot_client: CopilotClient::new(http_client),
+        config,
+        models_cache,
+        conversation_logger,
     });
 
     let app = build_router(state);
@@ -133,8 +198,7 @@ async fn shutdown_signal() {
 
         let mut sigterm =
             signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
-        let mut sigint =
-            signal(SignalKind::interrupt()).expect("failed to install SIGINT handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("failed to install SIGINT handler");
 
         tokio::select! {
             _ = sigterm.recv() => {

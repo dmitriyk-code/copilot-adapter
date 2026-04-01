@@ -7,7 +7,8 @@ use tower::ServiceExt;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
-use copilot_adapter::server::{AppState, build_router};
+use copilot_adapter::copilot::models_cache::ModelsCache;
+use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
 use super::test_helpers::InMemoryStorage;
 
@@ -25,8 +26,10 @@ async fn test_state() -> Arc<AppState> {
     let client = reqwest::Client::new();
     Arc::new(AppState {
         token_manager: tm,
-        copilot_client: CopilotClient::new(client.clone()),
-        http_client: client,
+        copilot_client: CopilotClient::new(client),
+        config: AdapterConfig::default(),
+        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
+        conversation_logger: None,
     })
 }
 

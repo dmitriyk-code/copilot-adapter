@@ -1,6 +1,10 @@
 # Tools/Functions Support for Copilot Adapter — Implementation Plan
 
-**Status:** Ready for Implementation
+**Status:** Deprecated (superseded by DUAL-RESPONSES.plan.md)
+**Note:** The JSON tool format described in this document has been replaced
+with XML format following the Anthropic Cookbook. See [DUAL-RESPONSES.plan.md](./DUAL-RESPONSES.plan.md)
+for current implementation.
+
 **Date:** 2026-03-27
 **Based on:** [TOOLS-SUPPORT.design.md](./TOOLS-SUPPORT.design.md)
 **Prerequisite:** Core adapter implementation — **COMPLETE**
@@ -280,6 +284,8 @@ Request with tools
 
 ### Epic 1: Tool Types and Data Structures
 
+**Status:** COMPLETE
+
 **Goal:** Define all types needed for tool support in both OpenAI and Anthropic formats.
 
 **Prerequisites:** None
@@ -288,29 +294,31 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `src/tools/mod.rs` with module exports | `src/tools/mod.rs` | |
-| E1-T2 | IMPL | Create `src/tools/types.rs` with `Tool`, `Function`, `FunctionParameters` structs matching OpenAI schema | `src/tools/types.rs` | |
-| E1-T3 | IMPL | Add `ToolCall`, `FunctionCall` structs for response tool calls | `src/tools/types.rs` | |
-| E1-T4 | IMPL | Add `tools` and `tool_choice` fields to `ChatCompletionRequest` | `src/copilot/types.rs` | |
-| E1-T5 | IMPL | Add `tool_calls` field to `Message` struct | `src/copilot/types.rs` | |
-| E1-T6 | IMPL | Add `tool_calls` field to `Choice` and `ChunkChoice` for streaming | `src/copilot/types.rs` | |
-| E1-T7 | IMPL | Add Anthropic `ToolDefinition`, `InputSchema` types | `src/anthropic/types.rs` | |
-| E1-T8 | IMPL | Add `ToolUseBlock`, `ToolResultBlock` content block variants | `src/anthropic/types.rs` | |
-| E1-T9 | IMPL | Add `tools` field to `AnthropicRequest` | `src/anthropic/types.rs` | |
-| E1-T10 | IMPL | Export `tools` module from `src/lib.rs` | `src/lib.rs` | |
-| E1-T11 | TEST | Unit tests for Tool type serialization/deserialization | `tests/unit/tools_types_tests.rs` | |
-| E1-T12 | TEST | Unit tests for ToolCall type serialization | `tests/unit/tools_types_tests.rs` | |
-| E1-T13 | TEST | Unit tests for Anthropic tool types | `tests/unit/tools_types_tests.rs` | |
+| E1-T1 | IMPL | Create `src/tools/mod.rs` with module exports | `src/tools/mod.rs` | DONE |
+| E1-T2 | IMPL | Create `src/tools/types.rs` with `Tool`, `Function`, `FunctionParameters` structs matching OpenAI schema | `src/tools/types.rs` | DONE |
+| E1-T3 | IMPL | Add `ToolCall`, `FunctionCall` structs for response tool calls | `src/tools/types.rs` | DONE |
+| E1-T4 | IMPL | Add `tools` and `tool_choice` fields to `ChatCompletionRequest` | `src/copilot/types.rs` | DONE |
+| E1-T5 | IMPL | Add `tool_calls` field to `Message` struct | `src/copilot/types.rs` | DONE |
+| E1-T6 | IMPL | Add `tool_calls` field to `Choice` and `ChunkChoice` for streaming | `src/copilot/types.rs` | DONE |
+| E1-T7 | IMPL | Add Anthropic `ToolDefinition`, `InputSchema` types | `src/anthropic/types.rs` | DONE |
+| E1-T8 | IMPL | Add `ToolUseBlock`, `ToolResultBlock` content block variants | `src/anthropic/types.rs` | DONE |
+| E1-T9 | IMPL | Add `tools` field to `AnthropicRequest` | `src/anthropic/types.rs` | DONE |
+| E1-T10 | IMPL | Export `tools` module from `src/lib.rs` | `src/lib.rs` | DONE |
+| E1-T11 | TEST | Unit tests for Tool type serialization/deserialization | `tests/unit/tools_types_tests.rs` | DONE |
+| E1-T12 | TEST | Unit tests for ToolCall type serialization | `tests/unit/tools_types_tests.rs` | DONE |
+| E1-T13 | TEST | Unit tests for Anthropic tool types | `tests/unit/tools_types_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `Tool` struct deserializes from OpenAI tool definition JSON
-- [ ] `ToolCall` struct serializes to OpenAI tool_calls format
-- [ ] Anthropic `ToolUseBlock` serializes correctly
-- [ ] All types have appropriate `skip_serializing_if` for optional fields
+- [x] `Tool` struct deserializes from OpenAI tool definition JSON
+- [x] `ToolCall` struct serializes to OpenAI tool_calls format
+- [x] Anthropic `ToolUseBlock` serializes correctly
+- [x] All types have appropriate `skip_serializing_if` for optional fields
 
 ---
 
 ### Epic 2: Tool Injection
+
+**Status:** COMPLETE
 
 **Goal:** Implement system prompt injection with tool definitions.
 
@@ -320,26 +328,28 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `src/tools/injector.rs` with module structure | `src/tools/injector.rs` | |
-| E2-T2 | IMPL | Implement `format_tools_as_json()` to convert `Vec<Tool>` to JSON prompt | `src/tools/injector.rs` | |
-| E2-T3 | IMPL | Define `TOOL_USAGE_INSTRUCTIONS` constant with call format instructions | `src/tools/injector.rs` | |
-| E2-T4 | IMPL | Implement `inject_tools_into_messages()` to prepend/append to system message | `src/tools/injector.rs` | |
-| E2-T5 | IMPL | Handle case where no system message exists (create one) | `src/tools/injector.rs` | |
-| E2-T6 | IMPL | Implement `translate_tool_messages()` to handle `tool` role messages | `src/tools/injector.rs` | |
-| E2-T7 | TEST | Unit test: tools formatted as valid JSON | `tests/unit/tools_injector_tests.rs` | |
-| E2-T8 | TEST | Unit test: injection prepends to existing system message | `tests/unit/tools_injector_tests.rs` | |
-| E2-T9 | TEST | Unit test: injection creates system message if missing | `tests/unit/tools_injector_tests.rs` | |
-| E2-T10 | TEST | Unit test: tool role messages translated to user messages with results | `tests/unit/tools_injector_tests.rs` | |
+| E2-T1 | IMPL | Create `src/tools/injector.rs` with module structure | `src/tools/injector.rs` | DONE |
+| E2-T2 | IMPL | Implement `format_tools_as_json()` to convert `Vec<Tool>` to JSON prompt | `src/tools/injector.rs` | DONE |
+| E2-T3 | IMPL | Define `TOOL_USAGE_INSTRUCTIONS` constant with call format instructions | `src/tools/injector.rs` | DONE |
+| E2-T4 | IMPL | Implement `inject_tools_into_messages()` to prepend/append to system message | `src/tools/injector.rs` | DONE |
+| E2-T5 | IMPL | Handle case where no system message exists (create one) | `src/tools/injector.rs` | DONE |
+| E2-T6 | IMPL | Implement `translate_tool_messages()` to handle `tool` role messages | `src/tools/injector.rs` | DONE |
+| E2-T7 | TEST | Unit test: tools formatted as valid JSON | `tests/unit/tools_injector_tests.rs` | DONE |
+| E2-T8 | TEST | Unit test: injection prepends to existing system message | `tests/unit/tools_injector_tests.rs` | DONE |
+| E2-T9 | TEST | Unit test: injection creates system message if missing | `tests/unit/tools_injector_tests.rs` | DONE |
+| E2-T10 | TEST | Unit test: tool role messages translated to user messages with results | `tests/unit/tools_injector_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Tool definitions formatted as readable JSON in prompt
-- [ ] Instructions tell model how to format tool calls
-- [ ] Existing system message content preserved
-- [ ] Tool result messages converted to appropriate format
+- [x] Tool definitions formatted as readable JSON in prompt
+- [x] Instructions tell model how to format tool calls
+- [x] Existing system message content preserved
+- [x] Tool result messages converted to appropriate format
 
 ---
 
 ### Epic 3: Tool Call Parsing
+
+**Status:** COMPLETE
 
 **Goal:** Extract tool calls from model text responses.
 
@@ -349,31 +359,33 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Add `regex` dependency to `Cargo.toml` | `Cargo.toml` | |
-| E3-T2 | IMPL | Create `src/tools/parser.rs` with module structure | `src/tools/parser.rs` | |
-| E3-T3 | IMPL | Define regex pattern for JSON tool calls in fenced code blocks | `src/tools/parser.rs` | |
-| E3-T4 | IMPL | Define regex pattern for inline JSON tool calls | `src/tools/parser.rs` | |
-| E3-T5 | IMPL | Implement `parse_tool_calls()` returning `Vec<ToolCall>` | `src/tools/parser.rs` | |
-| E3-T6 | IMPL | Generate unique `call_xxx` IDs for each parsed tool call | `src/tools/parser.rs` | |
-| E3-T7 | IMPL | Implement `strip_tool_calls()` to remove tool call text from content | `src/tools/parser.rs` | |
-| E3-T8 | IMPL | Handle multiple tool calls in single response | `src/tools/parser.rs` | |
-| E3-T9 | TEST | Unit test: parse single tool call from fenced code block | `tests/unit/tools_parser_tests.rs` | |
-| E3-T10 | TEST | Unit test: parse multiple tool calls | `tests/unit/tools_parser_tests.rs` | |
-| E3-T11 | TEST | Unit test: parse tool call with complex nested arguments | `tests/unit/tools_parser_tests.rs` | |
-| E3-T12 | TEST | Unit test: no tool calls found returns empty vec | `tests/unit/tools_parser_tests.rs` | |
-| E3-T13 | TEST | Unit test: malformed JSON gracefully skipped | `tests/unit/tools_parser_tests.rs` | |
-| E3-T14 | TEST | Unit test: strip_tool_calls removes tool call text | `tests/unit/tools_parser_tests.rs` | |
+| E3-T1 | IMPL | Add `regex` dependency to `Cargo.toml` | `Cargo.toml` | ✅ DONE |
+| E3-T2 | IMPL | Create `src/tools/parser.rs` with module structure | `src/tools/parser.rs` | ✅ DONE |
+| E3-T3 | IMPL | Define regex pattern for JSON tool calls in fenced code blocks | `src/tools/parser.rs` | ✅ DONE |
+| E3-T4 | IMPL | Define regex pattern for inline JSON tool calls | `src/tools/parser.rs` | ✅ DONE |
+| E3-T5 | IMPL | Implement `parse_tool_calls()` returning `Vec<ToolCall>` | `src/tools/parser.rs` | ✅ DONE |
+| E3-T6 | IMPL | Generate unique `call_xxx` IDs for each parsed tool call | `src/tools/parser.rs` | ✅ DONE |
+| E3-T7 | IMPL | Implement `strip_tool_calls()` to remove tool call text from content | `src/tools/parser.rs` | ✅ DONE |
+| E3-T8 | IMPL | Handle multiple tool calls in single response | `src/tools/parser.rs` | ✅ DONE |
+| E3-T9 | TEST | Unit test: parse single tool call from fenced code block | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T10 | TEST | Unit test: parse multiple tool calls | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T11 | TEST | Unit test: parse tool call with complex nested arguments | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T12 | TEST | Unit test: no tool calls found returns empty vec | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T13 | TEST | Unit test: malformed JSON gracefully skipped | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
+| E3-T14 | TEST | Unit test: strip_tool_calls removes tool call text | `tests/unit/tools_parser_tests.rs` | ✅ DONE |
 
 **Acceptance Criteria:**
-- [ ] Tool calls in ```json blocks parsed correctly
-- [ ] Tool calls with/without fencing both detected
-- [ ] Arguments preserved as raw JSON string
-- [ ] Multiple tool calls extracted in order
-- [ ] Invalid JSON skipped without error
+- [x] Tool calls in ```json blocks parsed correctly
+- [x] Tool calls with/without fencing both detected
+- [x] Arguments preserved as raw JSON string
+- [x] Multiple tool calls extracted in order
+- [x] Invalid JSON skipped without error
 
 ---
 
 ### Epic 4: OpenAI Endpoint Integration
+
+**Status:** COMPLETE
 
 **Goal:** Integrate tool injection and parsing into `/v1/chat/completions` handler.
 
@@ -383,27 +395,27 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `--experimental-tools` flag to CLI `Start` command | `src/cli.rs` | |
-| E4-T2 | IMPL | Create `AdapterConfig` struct with `experimental_tools: bool` | `src/server.rs` | |
-| E4-T3 | IMPL | Add `config: AdapterConfig` to `AppState` | `src/server.rs` | |
-| E4-T4 | IMPL | Pass config from CLI to server startup | `src/main.rs` | |
-| E4-T5 | IMPL | In `chat_completions` handler: check for tools in request | `src/handlers/chat.rs` | |
-| E4-T6 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/chat.rs` | |
-| E4-T7 | IMPL | If tools present and flag enabled: call `inject_tools_into_messages()` | `src/handlers/chat.rs` | |
-| E4-T8 | IMPL | After response: call `parse_tool_calls()` on content | `src/handlers/chat.rs` | |
-| E4-T9 | IMPL | If tool calls found: add to `message.tool_calls`, strip from content | `src/handlers/chat.rs` | |
-| E4-T10 | IMPL | Handle `tool` role messages in request (translate to user message with result) | `src/handlers/chat.rs` | |
-| E4-T11 | TEST | Integration test: request with tools and flag disabled returns 400 | `tests/integration/tools_chat_tests.rs` | |
-| E4-T12 | TEST | Integration test: request with tools and flag enabled succeeds | `tests/integration/tools_chat_tests.rs` | |
-| E4-T13 | TEST | Integration test: tool call parsed from mock response | `tests/integration/tools_chat_tests.rs` | |
-| E4-T14 | TEST | Integration test: tool role message handled correctly | `tests/integration/tools_chat_tests.rs` | |
+| E4-T1 | IMPL | Add `--experimental-tools` flag to CLI `Start` command | `src/cli.rs` | DONE |
+| E4-T2 | IMPL | Create `AdapterConfig` struct with `experimental_tools: bool` | `src/server.rs` | DONE |
+| E4-T3 | IMPL | Add `config: AdapterConfig` to `AppState` | `src/server.rs` | DONE |
+| E4-T4 | IMPL | Pass config from CLI to server startup | `src/main.rs` | DONE |
+| E4-T5 | IMPL | In `chat_completions` handler: check for tools in request | `src/handlers/chat.rs` | DONE |
+| E4-T6 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/chat.rs` | DONE |
+| E4-T7 | IMPL | If tools present and flag enabled: call `inject_tools_into_messages()` | `src/handlers/chat.rs` | DONE |
+| E4-T8 | IMPL | After response: call `parse_tool_calls()` on content | `src/handlers/chat.rs` | DONE |
+| E4-T9 | IMPL | If tool calls found: add to `message.tool_calls`, strip from content | `src/handlers/chat.rs` | DONE |
+| E4-T10 | IMPL | Handle `tool` role messages in request (translate to user message with result) | `src/handlers/chat.rs` | DONE |
+| E4-T11 | TEST | Integration test: request with tools and flag disabled returns 400 | `tests/integration/tools_chat_tests.rs` | DONE |
+| E4-T12 | TEST | Integration test: request with tools and flag enabled succeeds | `tests/integration/tools_chat_tests.rs` | DONE |
+| E4-T13 | TEST | Integration test: tool call parsed from mock response | `tests/integration/tools_chat_tests.rs` | DONE |
+| E4-T14 | TEST | Integration test: tool role message handled correctly | `tests/integration/tools_chat_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `--experimental-tools` flag recognized by CLI
-- [ ] Requests with tools fail with 400 when flag disabled
-- [ ] Requests with tools succeed when flag enabled
-- [ ] Tool calls appear in response `choices[0].message.tool_calls`
-- [ ] Tool call text stripped from `choices[0].message.content`
+- [x] `--experimental-tools` flag recognized by CLI
+- [x] Requests with tools fail with 400 when flag disabled
+- [x] Requests with tools succeed when flag enabled
+- [x] Tool calls appear in response `choices[0].message.tool_calls`
+- [x] Tool call text stripped from `choices[0].message.content`
 
 ---
 
@@ -413,32 +425,45 @@ Request with tools
 
 **Prerequisites:** Epics 1, 2, 3, Epic 4 (for config)
 
+**Status:** COMPLETE
+
 **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | In `messages` handler: check for tools in request | `src/handlers/messages.rs` | |
-| E5-T2 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/messages.rs` | |
-| E5-T3 | IMPL | Translate Anthropic `tools` to internal Tool format | `src/anthropic/types.rs` | |
-| E5-T4 | IMPL | Inject tools into translated OpenAI request | `src/handlers/messages.rs` | |
-| E5-T5 | IMPL | Parse tool calls from response | `src/handlers/messages.rs` | |
-| E5-T6 | IMPL | Convert `ToolCall` to Anthropic `ToolUseBlock` content | `src/anthropic/types.rs` | |
-| E5-T7 | IMPL | Return tool_use blocks in Anthropic response content array | `src/handlers/messages.rs` | |
-| E5-T8 | IMPL | Handle `tool_result` content blocks in request (translate to tool role message) | `src/anthropic/types.rs` | |
-| E5-T9 | TEST | Integration test: Anthropic request with tools and flag disabled returns 400 | `tests/integration/tools_messages_tests.rs` | |
-| E5-T10 | TEST | Integration test: Anthropic request with tools succeeds | `tests/integration/tools_messages_tests.rs` | |
-| E5-T11 | TEST | Integration test: tool_use block in response | `tests/integration/tools_messages_tests.rs` | |
-| E5-T12 | TEST | Integration test: tool_result in request handled | `tests/integration/tools_messages_tests.rs` | |
+| E5-T1 | IMPL | In `messages` handler: check for tools in request | `src/handlers/messages.rs` | DONE |
+| E5-T2 | IMPL | If tools present and flag disabled: return 400 error | `src/handlers/messages.rs` | DONE |
+| E5-T3 | IMPL | Translate Anthropic `tools` to internal Tool format | `src/anthropic/types.rs` | DONE |
+| E5-T4 | IMPL | Inject tools into translated OpenAI request | `src/handlers/messages.rs` | DONE |
+| E5-T5 | IMPL | Parse tool calls from response | `src/handlers/messages.rs` | DONE |
+| E5-T6 | IMPL | Convert `ToolCall` to Anthropic `ToolUseBlock` content | `src/anthropic/types.rs` | DONE |
+| E5-T7 | IMPL | Return tool_use blocks in Anthropic response content array | `src/handlers/messages.rs` | DONE |
+| E5-T8 | IMPL | Handle `tool_result` content blocks in request (translate to tool role message) | `src/anthropic/types.rs` | DONE |
+| E5-T9 | TEST | Integration test: Anthropic request with tools and flag disabled returns 400 | `tests/integration/tools_messages_tests.rs` | DONE |
+| E5-T10 | TEST | Integration test: Anthropic request with tools succeeds | `tests/integration/tools_messages_tests.rs` | DONE |
+| E5-T11 | TEST | Integration test: tool_use block in response | `tests/integration/tools_messages_tests.rs` | DONE |
+| E5-T12 | TEST | Integration test: tool_result in request handled | `tests/integration/tools_messages_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Anthropic `tools` array accepted and processed
-- [ ] Tool calls returned as `tool_use` content blocks
-- [ ] `tool_result` blocks translated and forwarded correctly
-- [ ] Response `stop_reason` is `"tool_use"` when tool called
+- [x] Anthropic `tools` array accepted and processed
+- [x] Tool calls returned as `tool_use` content blocks
+- [x] `tool_result` blocks translated and forwarded correctly
+- [x] Response `stop_reason` is `"tool_use"` when tool called
+
+**Code Review Fixes (2026-03-27):**
+- Added `tracing::warn!` and TODO comment when streaming with tools enabled (streaming tool call parsing not yet supported)
+- Added doc comment to `handle_streaming()` documenting the known streaming+tools limitation
+- Added `tool_choice` field (`Option<serde_json::Value>`) to `AnthropicRequest` — accepted but silently ignored with full documentation
+- Added comment documenting that assistant messages with `ToolUse` content blocks are silently reduced to text-only in `to_chat_completion_request()`
+- Added comment explaining ordering decision when `tool_result` and text blocks coexist
+- Added `debug_assert_eq!` in `ResponseContentBlock::block_type()` to catch enum/field mismatches in debug builds
+- Added `tool_choice: None` to all unit test struct initializers; new test `anthropic_request_with_tool_choice_is_accepted_and_ignored`
 
 ---
 
 ### Epic 6: Streaming Support
+
+**Status:** COMPLETE
 
 **Goal:** Support tool call detection and return in streaming responses.
 
@@ -448,22 +473,34 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E6-T1 | IMPL | Buffer streaming content for tool call detection | `src/handlers/chat.rs` | |
-| E6-T2 | IMPL | Detect complete tool call JSON in buffered content | `src/handlers/chat.rs` | |
-| E6-T3 | IMPL | Emit tool_calls in final chunk when detected | `src/handlers/chat.rs` | |
-| E6-T4 | IMPL | Add `tool_calls` field to `ChunkDelta` for streaming | `src/copilot/types.rs` | |
-| E6-T5 | IMPL | Buffer streaming content for Anthropic tool detection | `src/handlers/messages.rs` | |
-| E6-T6 | IMPL | Emit `tool_use` content block in Anthropic streaming | `src/handlers/messages.rs` | |
-| E6-T7 | IMPL | Add `ToolUseBlock` streaming event type | `src/anthropic/types.rs` | |
-| E6-T8 | TEST | Integration test: OpenAI streaming with tool call | `tests/integration/tools_chat_tests.rs` | |
-| E6-T9 | TEST | Integration test: Anthropic streaming with tool call | `tests/integration/tools_messages_tests.rs` | |
-| E6-T10 | TEST | Integration test: streaming without tool call unaffected | `tests/integration/tools_chat_tests.rs` | |
+| E6-T1 | IMPL | Buffer streaming content for tool call detection | `src/handlers/chat.rs` | DONE |
+| E6-T2 | IMPL | Detect complete tool call JSON in buffered content | `src/handlers/chat.rs` | DONE |
+| E6-T3 | IMPL | Emit tool_calls in final chunk when detected | `src/handlers/chat.rs` | DONE |
+| E6-T4 | IMPL | Add `tool_calls` field to `ChunkDelta` for streaming | `src/copilot/types.rs` | DONE (pre-existing) |
+| E6-T5 | IMPL | Buffer streaming content for Anthropic tool detection | `src/handlers/messages.rs` | DONE |
+| E6-T6 | IMPL | Emit `tool_use` content block in Anthropic streaming | `src/handlers/messages.rs` | DONE |
+| E6-T7 | IMPL | Add `ToolUseBlock` streaming event type | `src/anthropic/types.rs` | DONE |
+| E6-T8 | TEST | Integration test: OpenAI streaming with tool call | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T9 | TEST | Integration test: Anthropic streaming with tool call | `tests/integration/tools_messages_tests.rs` | DONE |
+| E6-T10 | TEST | Integration test: streaming without tool call unaffected | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T11 | FIX | Emit Anthropic-format error SSE event on upstream errors in normal streaming path | `src/handlers/messages.rs` | DONE |
+| E6-T12 | TEST | Integration test: OpenAI streaming with tools emits error on upstream failure | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T13 | TEST | Integration test: OpenAI normal streaming emits error on upstream failure | `tests/integration/tools_chat_tests.rs` | DONE |
+| E6-T14 | TEST | Integration test: Anthropic streaming with tools emits error on upstream failure | `tests/integration/tools_messages_tests.rs` | DONE |
+| E6-T15 | TEST | Integration test: Anthropic normal streaming emits error on upstream failure | `tests/integration/tools_messages_tests.rs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Streaming responses with tool calls return proper `tool_calls` field
-- [ ] Content is buffered until tool call JSON is complete
-- [ ] Non-tool streaming responses unaffected by buffering
-- [ ] Anthropic streaming emits correct event sequence for tool use
+- [x] Streaming responses with tool calls return proper `tool_calls` field
+- [x] Content is buffered until tool call JSON is complete
+- [x] Non-tool streaming responses unaffected by buffering
+- [x] Anthropic streaming emits correct event sequence for tool use
+- [x] Upstream stream errors emit an error SSE event instead of silently breaking
+- [x] Error paths tested for both OpenAI and Anthropic streaming (with and without tools)
+
+**Code Review Fixes (2026-03-27):**
+- Fixed HIGH-severity bug: `handle_streaming()` normal path in `messages.rs` now emits an Anthropic-format error SSE event (`{"type":"error","error":{"type":"api_error","message":"..."}}`) on upstream stream errors and returns immediately, preventing false `message_delta`/`message_stop` events
+- Added `spawn_mock_streaming_copilot_with_error()` and `mock_streaming_error_handler()` helpers to both `tools_chat_tests.rs` and `tools_messages_tests.rs` for error path testing
+- Added 4 new integration tests covering upstream failure scenarios for all streaming paths
 
 ---
 
@@ -477,22 +514,26 @@ Request with tools
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E7-T1 | TEST | Create mock Copilot responses with tool calls for tests | `tests/common/mock_copilot.rs` | |
-| E7-T2 | TEST | End-to-end test: simple tool call (get_weather style) | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T3 | TEST | End-to-end test: multi-turn conversation with tool results | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T4 | TEST | End-to-end test: tool call with complex arguments | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T5 | TEST | Edge case test: response with no tool calls (graceful passthrough) | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T6 | TEST | Edge case test: malformed tool call JSON in response | `tests/integration/tools_e2e_tests.rs` | |
-| E7-T7 | DOC | Update README.md with `--experimental-tools` documentation | `README.md` | |
-| E7-T8 | DOC | Update CLAUDE.md with tools feature notes | `CLAUDE.md` | |
-| E7-T9 | DOC | Add tools section to docs/e2e-testing.md | `docs/e2e-testing.md` | |
-| E7-T10 | DOC | Update TOOLS-SUPPORT.design.md status to "Implemented" | `TOOLS-SUPPORT.design.md` | |
+| E7-T1 | TEST | Create mock Copilot responses with tool calls for tests | `tests/common/mock_copilot.rs` | DONE |
+| E7-T2 | TEST | End-to-end test: simple tool call (get_weather style) | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T3 | TEST | End-to-end test: multi-turn conversation with tool results | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T4 | TEST | End-to-end test: tool call with complex arguments | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T5 | TEST | Edge case test: response with no tool calls (graceful passthrough) | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T6 | TEST | Edge case test: malformed tool call JSON in response | `tests/integration/tools_e2e_tests.rs` | DONE |
+| E7-T7 | DOC | Update README.md with `--experimental-tools` documentation | `README.md` | DONE |
+| E7-T8 | DOC | Update CLAUDE.md with tools feature notes | `CLAUDE.md` | DONE |
+| E7-T9 | DOC | Add tools section to docs/e2e-testing.md | `docs/e2e-testing.md` | DONE |
+| E7-T10 | DOC | Update TOOLS-SUPPORT.design.md status to "Implemented" | `TOOLS-SUPPORT.design.md` | DONE |
+
+**Status:** DONE
+
+**Completion Notes:** All 12 new E2E tests pass. Mock helpers added to mock_copilot.rs for reuse. Documentation updated across README.md, CLAUDE.md, docs/e2e-testing.md, and TOOLS-SUPPORT.design.md. Minor reviewer issues resolved: removed unused import and corrected misleading comment in e2e_no_tool_calls_streaming_passthrough.
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] All integration tests pass with mock servers
-- [ ] README documents the experimental feature and limitations
-- [ ] E2E testing procedures include tool scenarios
+- [x] All unit tests pass
+- [x] All integration tests pass with mock servers
+- [x] README documents the experimental feature and limitations
+- [x] E2E testing procedures include tool scenarios
 
 ---
 

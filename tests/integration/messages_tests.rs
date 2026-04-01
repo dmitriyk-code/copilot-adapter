@@ -13,7 +13,8 @@ use copilot_adapter::anthropic::types::AnthropicResponse;
 use copilot_adapter::auth::device_flow::DeviceFlowAuth;
 use copilot_adapter::auth::token::TokenManager;
 use copilot_adapter::copilot::client::CopilotClient;
-use copilot_adapter::server::{build_router, AppState};
+use copilot_adapter::copilot::models_cache::ModelsCache;
+use copilot_adapter::server::{build_router, AdapterConfig, AppState};
 
 use super::test_helpers::InMemoryStorage;
 
@@ -33,9 +34,7 @@ async fn spawn_mock_copilot_api() -> (std::net::SocketAddr, tokio::task::JoinHan
 }
 
 /// Mock chat completions endpoint supporting both streaming and non-streaming.
-async fn mock_chat_completions(
-    axum::Json(body): axum::Json<serde_json::Value>,
-) -> Response {
+async fn mock_chat_completions(axum::Json(body): axum::Json<serde_json::Value>) -> Response {
     let model = body["model"].as_str().unwrap_or("gpt-4");
     let stream = body["stream"].as_bool().unwrap_or(false);
 
@@ -151,8 +150,10 @@ async fn create_test_state(
 
     Arc::new(AppState {
         token_manager: tm,
-        copilot_client: CopilotClient::with_api_url(client.clone(), copilot_api_url),
-        http_client: client,
+        copilot_client: CopilotClient::with_api_url(client, copilot_api_url),
+        config: AdapterConfig::default(),
+        models_cache: ModelsCache::new(std::time::Duration::from_secs(300)),
+        conversation_logger: None,
     })
 }
 
@@ -223,8 +224,8 @@ async fn messages_non_streaming_returns_anthropic_format() {
     assert_eq!(resp.response_type, "message");
     assert_eq!(resp.role, "assistant");
     assert_eq!(resp.content.len(), 1);
-    assert_eq!(resp.content[0].block_type, "text");
-    assert_eq!(resp.content[0].text, "Hello from mock Copilot!");
+    assert_eq!(resp.content[0].block_type(), "text");
+    assert_eq!(resp.content[0].text_content(), "Hello from mock Copilot!");
     assert_eq!(resp.stop_reason, Some("end_turn".to_string()));
     assert_eq!(resp.usage.input_tokens, 10);
     assert_eq!(resp.usage.output_tokens, 5);
@@ -268,7 +269,7 @@ async fn messages_non_streaming_with_system_prompt() {
         .unwrap();
     let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(resp.response_type, "message");
-    assert_eq!(resp.content[0].text, "Hello from mock Copilot!");
+    assert_eq!(resp.content[0].text_content(), "Hello from mock Copilot!");
 }
 
 #[tokio::test]
@@ -390,7 +391,10 @@ async fn messages_response_has_correct_json_structure() {
     assert!(json.get("id").is_some(), "response must have 'id'");
     assert_eq!(json["type"], "message");
     assert_eq!(json["role"], "assistant");
-    assert!(json.get("content").is_some(), "response must have 'content'");
+    assert!(
+        json.get("content").is_some(),
+        "response must have 'content'"
+    );
     assert!(json["content"].is_array());
     assert_eq!(json["content"][0]["type"], "text");
     assert!(json.get("usage").is_some(), "response must have 'usage'");
@@ -580,7 +584,10 @@ async fn messages_streaming_content_deltas_contain_text() {
         .map(|(_, v)| v)
         .collect();
 
-    assert!(!deltas.is_empty(), "Should have at least one content_block_delta");
+    assert!(
+        !deltas.is_empty(),
+        "Should have at least one content_block_delta"
+    );
 
     // Each delta should have text_delta type
     for delta in &deltas {

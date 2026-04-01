@@ -1,13 +1,17 @@
 # GitHub Copilot API Adapter for Claude Code
 
-A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub Copilot's API. This adapter enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions through the familiar OpenAI API interface.
+A standalone Rust binary that acts as an **Anthropic-to-Copilot proxy**. This adapter enables Claude Code users with GitHub Copilot subscriptions to leverage those subscriptions by translating Anthropic API requests to GitHub Copilot's API format.
 
 ## Features
 
 - **GitHub OAuth device flow** — authenticate through your browser in seconds
 - **Anthropic-compatible API** — `POST /v1/messages` for native Claude Code integration
-- **OpenAI-compatible API** — `POST /v1/chat/completions`, `GET /v1/models`
+- **Token counting** — `POST /v1/messages/count_tokens` for pre-flight token estimation (tiktoken-rs)
+- **Model discovery** — `GET /v1/models` with dynamic fetching and caching
 - **SSE streaming** — real-time token-by-token responses
+- **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
+- **Tool/function support** — native OpenAI function calling with automatic XML fallback
+- **Dynamic model discovery** — fetches available models from Copilot API with caching and fallback
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
 - **Secure credential storage** — OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service) with encrypted file fallback
 - **Background daemon** — runs as a background process on all platforms
@@ -15,17 +19,7 @@ A standalone Rust binary that acts as an **OpenAI-compatible proxy** to GitHub C
 
 ## Quick Start
 
-### 1. Install Claude Code
-
-If you haven't already, install Claude Code from Anthropic:
-
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-For more information, visit the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code).
-
-### 2. Install the Adapter
+### 1. Install
 
 ```bash
 # From source
@@ -36,33 +30,27 @@ cargo build --release
 # Binary: target/release/copilot-adapter (or .exe on Windows)
 ```
 
-### 3. Authenticate with GitHub
+### 2. Start the Adapter
 
 ```bash
-copilot-adapter auth
-```
-
-This starts the GitHub OAuth device flow:
-1. Open the URL shown in your browser
-2. Enter the displayed code
-3. Authorize the application
-4. Credentials are stored securely in your OS keyring
-
-### 4. Start the Adapter
-
-```bash
-# Foreground mode
 copilot-adapter start
-
-# Background daemon
-copilot-adapter start --daemon
 ```
+
+On first run, the adapter will:
+1. Detect missing authentication and start the OAuth flow
+2. Offer to open the GitHub authorization URL in your browser
+3. Wait for you to authorize the application
+4. Display configuration instructions for Claude Code
 
 The adapter starts listening on `http://127.0.0.1:6767` by default.
 
-### 5. Configure Claude Code
+> **Note:** You can still authenticate separately with `copilot-adapter auth` if you prefer.
 
-Set the environment variables to point Claude Code at the adapter. Choose the format for your platform:
+### 3. Configure Claude Code
+
+Choose one of these methods:
+
+**Method A: Environment Variables (session)**
 
 **Linux / macOS (bash/zsh):**
 
@@ -85,9 +73,29 @@ $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:6767"
 $env:ANTHROPIC_API_KEY = "dummy"
 ```
 
-> **Tip:** Add these to your shell profile (`.bashrc`, `.zshrc`, PowerShell `$PROFILE`) for persistence.
+> **Tip:** Add these to your shell profile (`.bashrc`, `.zshrc`, PowerShell `$PROFILE`) for persistence across terminal sessions.
 
-### 6. Run Claude Code
+**Method B: Claude Code Settings (recommended, persistent)**
+
+Create or edit `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:6767",
+    "ANTHROPIC_API_KEY": "dummy"
+  }
+}
+```
+
+For project-specific configuration, create `.claude/settings.json` in your project root.
+
+Settings precedence (highest to lowest):
+1. `<project>/.claude/settings.local.json` (gitignored, for personal overrides)
+2. `<project>/.claude/settings.json` (committed, for team sharing)
+3. `~/.claude/settings.json` (user-level defaults)
+
+### 4. Run Claude Code
 
 ```bash
 claude
@@ -101,17 +109,36 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 |---------|-------------|
 | `copilot-adapter auth` | Authenticate with GitHub (device flow) |
 | `copilot-adapter auth --force` | Re-authenticate, overwriting stored credentials |
-| `copilot-adapter start` | Start the adapter in foreground |
-| `copilot-adapter start --daemon` | Start as a background daemon |
+| `copilot-adapter start` | Start adapter (auto-authenticates if needed) |
+| `copilot-adapter start --daemon` | Start as background daemon (requires prior auth) |
+| `copilot-adapter start --skip-auth` | Start without auto-authentication |
+| `copilot-adapter start --quiet` | Start without displaying setup guidance |
 | `copilot-adapter start -p 9090` | Start on a custom port |
 | `copilot-adapter start --host 0.0.0.0` | Bind to all interfaces |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --log-file /tmp/adapter.log` | Log to a file |
+| `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds, default: 300) |
+| `copilot-adapter start --static-models` | Use static model list (skip API fetch) |
+| `copilot-adapter start --disable-native-tools` | Disable native OpenAI tools and force XML-based tool injection |
 | `copilot-adapter status` | Check if the adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
 
 ## API Endpoints
+
+### `GET /` and `HEAD /`
+
+Root path handler for health probes. Claude Code sends `HEAD /` requests to check if the adapter is reachable. This endpoint requires no authentication.
+
+```bash
+# GET returns JSON body
+curl http://127.0.0.1:6767/
+# {"status": "ok"}
+
+# HEAD returns 200 OK with empty body
+curl -I http://127.0.0.1:6767/
+# HTTP/1.1 200 OK
+```
 
 ### `GET /health`
 
@@ -122,47 +149,67 @@ curl http://127.0.0.1:6767/health
 # {"status": "ok"}
 ```
 
-### `POST /v1/chat/completions`
+### `POST /v1/messages/count_tokens`
 
-OpenAI-compatible chat completions endpoint. Supports both streaming and non-streaming modes.
+Pre-flight token counting endpoint. Counts the number of input tokens in a request without sending it to the upstream API. Uses [tiktoken-rs](https://docs.rs/tiktoken-rs) with the `cl100k_base` encoding for accurate BPE tokenization.
 
-**Non-streaming:**
+This is useful for context window management and cost estimation before making a full `/v1/messages` request.
 
 ```bash
-curl -X POST http://127.0.0.1:6767/v1/chat/completions \
+# Simple message
+curl -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4",
+    "model": "claude-sonnet-4-20250514",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
+# {"input_tokens": 5}
 ```
 
-**Streaming:**
+**With system prompt and tools:**
 
 ```bash
-curl -X POST http://127.0.0.1:6767/v1/chat/completions \
+curl -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": true
+    "model": "claude-sonnet-4-20250514",
+    "messages": [{"role": "user", "content": "Search for foo"}],
+    "system": "You are a helpful assistant.",
+    "tools": [{
+      "name": "Grep",
+      "description": "Search files",
+      "input_schema": {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}}
+      }
+    }]
   }'
+# {"input_tokens": 57}
 ```
 
 **Supported request parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `model` | string | Yes | Model identifier (e.g., `gpt-4`, `gpt-4o`) |
+| `model` | string | Yes | Model identifier (used for request validation; counting uses cl100k_base) |
 | `messages` | array | Yes | Array of message objects (`role` + `content`) |
-| `stream` | boolean | No | Enable SSE streaming (default: `false`) |
-| `temperature` | number | No | Sampling temperature (0–2) |
-| `max_tokens` | integer | No | Maximum tokens in the response |
-| `top_p` | number | No | Nucleus sampling parameter |
-| `n` | integer | No | Number of completions |
-| `stop` | string/array | No | Stop sequences |
-| `presence_penalty` | number | No | Presence penalty (-2 to 2) |
-| `frequency_penalty` | number | No | Frequency penalty (-2 to 2) |
+| `system` | string or array | No | System prompt (string or content blocks) |
+| `tools` | array | No | Tool definitions (counted as JSON tokens) |
+
+**Token counting details:**
+
+| Content Type | Counting Method |
+|-------------|-----------------|
+| Text | Full BPE tokenization (cl100k_base) |
+| Images | Fixed estimate (~85 tokens per image) |
+| Documents | Fixed estimate (~85 tokens per document) |
+| Tool definitions | JSON-serialized and tokenized |
+| Per-message overhead | 4 tokens per message |
+
+**Error responses:**
+
+- `400 Bad Request` — Missing required fields (`model`, `messages`)
+- `422 Unprocessable Entity` — Invalid JSON structure
 
 ### `POST /v1/messages`
 
@@ -202,7 +249,7 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `model` | string | Yes | Model identifier (mapped to Copilot model internally) |
-| `messages` | array | Yes | Array of message objects (`role` + `content`) |
+| `messages` | array | Yes | Array of message objects (`role` + `content`). Content can be a string or an array of content blocks (`text`, `image`, `document`) for multimodal messages. See [Vision / Image Support](#vision--image-support). |
 | `max_tokens` | integer | Yes | Maximum tokens in the response |
 | `stream` | boolean | No | Enable SSE streaming (default: `false`) |
 | `system` | string | No | System prompt |
@@ -212,7 +259,7 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
 
 ### `GET /v1/models`
 
-List available models.
+List available models. By default, models are fetched dynamically from the Copilot API and cached in memory (TTL: 5 minutes). If the API is unreachable, the adapter falls back to a built-in static list.
 
 ```bash
 curl http://127.0.0.1:6767/v1/models
@@ -226,7 +273,219 @@ Get details for a specific model.
 curl http://127.0.0.1:6767/v1/models/gpt-4
 ```
 
-**Available models:** `gpt-4`, `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`, `claude-3.5-sonnet`
+**Dynamic models behaviour:**
+
+- On first request (or after cache expires), the adapter fetches the model list from `https://api.githubcopilot.com/models`
+- Subsequent requests within the cache TTL return the cached list without an API call
+- If the Copilot API is unavailable, the adapter returns a static fallback list (gpt-4o, gpt-4, gpt-4-turbo, gpt-3.5-turbo)
+- Use `--static-models` to disable dynamic fetching entirely
+
+## Vision / Image Support
+
+The adapter supports **multimodal (image) content** in the Anthropic `/v1/messages` endpoint. When Claude Code or any Anthropic-compatible client sends image content blocks, the adapter translates them to OpenAI's `image_url` format before forwarding to the Copilot API.
+
+### Supported Content Types
+
+| Content Block | Support | Details |
+|---------------|---------|---------|
+| `text` | ✅ Full | Passed through as-is |
+| `image` (base64) | ✅ Full | Converted to `data:{media_type};base64,{data}` data URI |
+| `image` (URL) | ✅ Full | URL passed through unchanged |
+| `document` | ⚠️ Skipped | Not supported by OpenAI format; skipped with a warning log |
+| `cache_control` | ✅ Accepted | Deserialized without error; not forwarded to Copilot API |
+
+### Usage
+
+Image uploads work automatically — no additional flags or configuration required. Use a vision-capable model (e.g., `gpt-4o`) for best results.
+
+**Base64 image:**
+
+```bash
+curl -s -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Describe this image."},
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "<base64-encoded image data>"
+          }
+        }
+      ]
+    }]
+  }'
+```
+
+**URL image:**
+
+```bash
+curl -s -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "What do you see?"},
+        {
+          "type": "image",
+          "source": {
+            "type": "url",
+            "url": "https://example.com/photo.jpg"
+          }
+        }
+      ]
+    }]
+  }'
+```
+
+### How It Works
+
+1. The adapter receives an Anthropic-format request with `image` content blocks
+2. Each `image` block is translated to an OpenAI `image_url` content block:
+   - **Base64 sources** → `data:{media_type};base64,{data}` data URI
+   - **URL sources** → URL passed through directly
+3. `document` blocks are skipped with a warning log (OpenAI format has no equivalent)
+4. `cache_control` metadata is accepted on any content block (prevents deserialization errors) but is not forwarded to the upstream API
+5. The translated multimodal message is sent to the Copilot API
+
+### Limitations
+
+- **Document blocks not supported:** PDF and other document uploads are silently skipped. The adapter logs a warning with the document title (if provided) but continues processing the rest of the message.
+- **`cache_control` not forwarded:** Anthropic's `cache_control` metadata is accepted to prevent errors but has no effect on the upstream Copilot API.
+- **Model must support vision:** Use a model with vision capabilities (e.g., `gpt-4o`). Non-vision models may ignore or error on image content.
+
+## Tool/Function Support
+
+The adapter supports **tool/function calling** with native OpenAI function calling enabled by default, with automatic fallback to XML prompt injection.
+
+### Mode 1: Native OpenAI Tools (default)
+
+By default, the adapter passes tool definitions natively to the Copilot API in OpenAI function calling format:
+
+Benefits:
+- **Progressive streaming** — text and tool calls appear as they are generated
+- **Type preservation** — parameter types (number, boolean, etc.) are preserved from schemas
+- **Better UX** — matches native Anthropic API behavior with incremental output
+
+The adapter automatically falls back to XML injection if the upstream API does not support native tools.
+
+### Mode 2: XML Prompt Injection (fallback)
+
+If native tools are disabled or not supported by the upstream API, the adapter uses XML prompt injection:
+
+1. **Injecting** tool definitions into the system prompt as XML (following the Anthropic Cookbook format)
+2. **Instructing** the model to respond with structured XML when it wants to call a tool
+3. **Parsing** tool calls from `<function_calls>` XML blocks in the model's text response
+4. **Returning** them as `tool_use` content blocks (Anthropic format)
+
+This mode buffers the entire response before emitting SSE events.
+
+### Disabling Native Tools
+
+To force XML-only mode (disable native tools), use the `--disable-native-tools` flag:
+
+```bash
+copilot-adapter start --disable-native-tools
+```
+
+This may be useful if native tools cause issues with your specific Copilot API configuration.
+
+> **Note:** `--native-tools` is now the default behavior, so this flag is no longer needed.
+
+### Tool Name Truncation
+
+OpenAI has a 64-character limit for function names. Long tool names (common with MCP tools like `mcp__codemogger__codemogger_search`) are automatically truncated with a deterministic hash suffix and restored in responses. This is transparent to clients.
+
+### Schema-Aware Parameter Typing
+
+In XML mode, the adapter coerces parameter values to their schema-defined types (number, boolean, object, array) using tool schemas from the request. This prevents MCP validation errors where typed parameters were incorrectly passed as strings.
+
+### Usage with Claude Code
+
+Claude Code's native tool use (file operations, bash commands, etc.) works automatically through the adapter:
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+export ANTHROPIC_API_KEY=dummy
+claude  # Tools like bash, file read/write will work
+```
+
+### Usage with Anthropic-compatible Clients
+
+Send standard Anthropic-format tool definitions in your requests:
+
+```bash
+curl -X POST http://127.0.0.1:6767/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "What is the weather in London?"}],
+    "tools": [{
+      "name": "get_weather",
+      "description": "Get the current weather",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {"type": "string"}
+        },
+        "required": ["location"]
+      }
+    }]
+  }'
+```
+
+### Limitations
+
+**Native Tools Mode (default):**
+- **`tool_choice` limited:** Only `"auto"` behavior is supported.
+- **No `parallel_tool_calls`:** Not explicitly supported.
+- **Fallback behavior:** Automatically falls back to XML mode if the upstream API does not support native tools.
+
+**XML Mode (fallback or when `--disable-native-tools` is used):**
+- **Best-effort parsing:** Tool call parsing is based on XML extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
+- **`tool_choice` limited:** Only `"auto"` behavior is supported. The `tool_choice` field is accepted but not enforced.
+- **No `parallel_tool_calls`:** The `parallel_tool_calls` parameter is not supported.
+- **Increased token usage:** Tool definitions are injected into the system prompt, increasing the token count.
+- **Streaming support:** Tool calls in streaming responses are detected via buffering — the adapter buffers the full response, parses tool calls, then replays modified chunks.
+
+### Debugging Tool Issues
+
+If web search, web fetch, or other tools aren't working as expected, see the comprehensive debugging guide:
+
+**→ [docs/development/debugging-tool-calls.md](docs/development/debugging-tool-calls.md)**
+
+Quick start:
+```bash
+# Linux/macOS
+./scripts/debug-responses.sh
+
+# Windows
+scripts\debug-responses.bat
+```
+
+This will run the adapter with trace-level logging to capture:
+- What model is being requested
+- What tools are being injected
+- The raw response content from Copilot
+- Whether tool calls are being parsed
+
+See the debugging guide for how to interpret the logs and troubleshoot common issues.
 
 ## Configuration
 
@@ -255,6 +514,28 @@ RUST_LOG=debug copilot-adapter start
 
 The `--log-level` flag takes precedence over `RUST_LOG` when explicitly set.
 
+### Dynamic Models
+
+By default, the adapter fetches the model list from the Copilot API and caches it in memory. You can configure this behaviour:
+
+```bash
+# Set cache TTL to 10 minutes (default: 300 seconds / 5 minutes)
+copilot-adapter start --models-cache-ttl 600
+
+# Disable caching (always fetch fresh)
+copilot-adapter start --models-cache-ttl 0
+
+# Use the built-in static model list (no API calls for /v1/models)
+copilot-adapter start --static-models
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--models-cache-ttl <seconds>` | `300` | How long to cache the model list (0 = no caching) |
+| `--static-models` | `false` | Always return the built-in static list; skip Copilot API calls |
+
+When the Copilot API is unreachable (network error, auth failure, HTTP error), the adapter logs a warning and returns the static fallback list. This ensures the `/v1/models` endpoint never fails.
+
 ### Credential Storage
 
 Credentials are stored in priority order:
@@ -279,17 +560,42 @@ Claude Code  ──→  copilot-adapter (localhost:6767)  ──→  GitHub Copi
 ```
 
 The adapter:
-1. Accepts OpenAI-format requests on localhost
+1. Accepts Anthropic-format requests on localhost
 2. Authenticates with GitHub via stored OAuth token
 3. Exchanges the GitHub token for a short-lived Copilot token (auto-refreshed)
-4. Forwards the request to the Copilot API with required headers
-5. Returns the response in OpenAI format
+4. Translates requests to OpenAI format and forwards to the Copilot API with required headers
+5. Translates responses back to Anthropic format and returns them
 
 ## Building from Source
 
 ### Prerequisites
 
-- **Rust** 1.75 or later (`rustup` recommended)
+- **Rust** 1.75 or later
+  - Install via rustup (recommended):
+    ```bash
+    # Linux/macOS
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+    # Windows
+    # Download and run: https://rustup.rs/
+    ```
+  - Or install cargo directly:
+    ```bash
+    # Debian/Ubuntu
+    sudo apt install cargo
+
+    # Fedora/RHEL
+    sudo dnf install cargo
+
+    # Arch Linux
+    sudo pacman -S rust
+
+    # macOS (Homebrew)
+    brew install rust
+
+    # Windows (Chocolatey)
+    choco install rust
+    ```
 - **Platform-specific:**
   - **Linux:** `libdbus-1-dev` and `libsecret-1-dev` (for keyring support)
   - **macOS:** Xcode command line tools
@@ -332,6 +638,18 @@ cargo test -- --nocapture
 
 Run `copilot-adapter auth` to authenticate. If you're already authenticated, try `copilot-adapter auth --force` to refresh credentials.
 
+### Auto-authentication not working in daemon mode
+
+Daemon mode cannot perform interactive authentication. Run `copilot-adapter auth`
+first, or start in foreground mode (`copilot-adapter start` without `--daemon`)
+to authenticate interactively.
+
+### Browser doesn't open during auth
+
+The adapter waits 10 seconds for you to press Enter before opening the browser.
+If your system doesn't support automatic browser opening, copy the URL manually.
+On headless systems, the browser launch is skipped automatically.
+
 ### "Adapter is already running"
 
 Another instance is running. Stop it first:
@@ -345,7 +663,7 @@ If the process crashed, the stale PID file will be cleaned up automatically on t
 ### Connection refused
 
 1. Verify the adapter is running: `copilot-adapter status`
-2. Check the port matches your `OPENAI_API_BASE` setting
+2. Check the port matches your `ANTHROPIC_BASE_URL` setting
 3. Ensure no firewall is blocking localhost connections
 
 ### Token refresh failures
@@ -373,6 +691,11 @@ copilot-adapter start --log-level trace
 # or
 RUST_LOG=trace copilot-adapter start
 ```
+
+## Known Issues
+
+See [docs/known-issues.md](./docs/known-issues.md) for information about:
+- Multiple responses when using Claude Code
 
 ## License
 

@@ -144,7 +144,11 @@ impl TokenManager {
     /// Server-mode integration (calling `start_auto_refresh()` from `server::run` and
     /// cancelling on shutdown) is deferred to Epic 5.
     pub fn start_auto_refresh(self: Arc<Self>) -> JoinHandle<()> {
-        let cancel = self.cancel.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let cancel = self
+            .cancel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         tokio::spawn(async move {
             loop {
                 let sleep_duration = {

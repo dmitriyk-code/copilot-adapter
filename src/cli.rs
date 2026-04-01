@@ -14,6 +14,9 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Start the adapter server
+    ///
+    /// If not authenticated, will prompt for authentication in foreground mode.
+    /// In daemon mode, authentication must be completed first.
     Start {
         /// Run as background process
         #[arg(short, long)]
@@ -34,6 +37,46 @@ pub enum Command {
         /// Log file path (default: stderr)
         #[arg(long)]
         log_file: Option<String>,
+
+        /// Cache TTL for the dynamic models list, in seconds (0 = no caching)
+        #[arg(long, default_value_t = 300)]
+        models_cache_ttl: u64,
+
+        /// Always return the built-in static models list instead of fetching from Copilot API
+        #[arg(long)]
+        static_models: bool,
+
+        /// Path to write human-readable conversation logs
+        #[arg(long)]
+        conversation_log: Option<String>,
+
+        /// Maximum size for conversation log before rotation (bytes, default: 10MB)
+        #[arg(long, default_value_t = 10_485_760)]
+        conversation_log_max_size: u64,
+
+        /// Enable verbose tool-related logging at INFO level
+        #[arg(long)]
+        debug_tools: bool,
+
+        /// Skip automatic authentication if not logged in
+        #[arg(long)]
+        skip_auth: bool,
+
+        /// Disable native OpenAI function calling and force XML prompt injection for tools.
+        ///
+        /// By default, tool definitions are forwarded natively to the Copilot API
+        /// and tool call responses stream progressively, with automatic fallback to
+        /// XML injection if the upstream API does not support native tools.
+        ///
+        /// Use this flag to always use XML-based tool injection, where tools are
+        /// injected into the system prompt using XML format and parsed from the
+        /// model's text response. This may be useful if native tools cause issues.
+        #[arg(long)]
+        disable_native_tools: bool,
+
+        /// Suppress startup guidance messages
+        #[arg(short = 'q', long)]
+        quiet: bool,
     },
 
     /// Stop the background adapter

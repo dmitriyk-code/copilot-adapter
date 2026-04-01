@@ -180,7 +180,11 @@ async fn get_valid_token_fast_path_skips_refresh() {
     // Second call: token is still valid — fast path, no HTTP request
     let token2 = manager.get_valid_token().await.unwrap();
     assert_eq!(token2, "tid_copilot_abc");
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "fast path should not call the server again");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "fast path should not call the server again"
+    );
 }
 
 #[tokio::test]
@@ -221,7 +225,10 @@ async fn clear_tokens_cancels_auto_refresh() {
 
     // The JoinHandle should complete within a short time
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
-    assert!(result.is_ok(), "auto-refresh task should have been cancelled");
+    assert!(
+        result.is_ok(),
+        "auto-refresh task should have been cancelled"
+    );
 
     // Verify state is cleared
     assert!(!manager.is_authenticated().await);

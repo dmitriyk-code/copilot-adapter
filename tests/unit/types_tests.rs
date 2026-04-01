@@ -6,6 +6,8 @@ fn message_serializes_to_json() {
         role: "user".to_string(),
         content: MessageContent::Text("Hello".to_string()),
         name: None,
+        tool_calls: None,
+        tool_call_id: None,
     };
     let json = serde_json::to_value(&msg).unwrap();
     assert_eq!(json["role"], "user");
@@ -20,6 +22,8 @@ fn message_with_name_serializes() {
         role: "user".to_string(),
         content: MessageContent::Text("Hello".to_string()),
         name: Some("Alice".to_string()),
+        tool_calls: None,
+        tool_call_id: None,
     };
     let json = serde_json::to_value(&msg).unwrap();
     assert_eq!(json["name"], "Alice");
@@ -98,6 +102,8 @@ fn chat_completion_request_roundtrip() {
             role: "user".to_string(),
             content: MessageContent::Text("Hello".to_string()),
             name: None,
+            tool_calls: None,
+            tool_call_id: None,
         }],
         stream: Some(false),
         temperature: Some(0.5),
@@ -107,6 +113,8 @@ fn chat_completion_request_roundtrip() {
         stop: None,
         presence_penalty: None,
         frequency_penalty: None,
+        tools: None,
+        tool_choice: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: ChatCompletionRequest = serde_json::from_str(&json_str).unwrap();
@@ -122,6 +130,8 @@ fn chat_completion_request_skips_none_fields() {
             role: "user".to_string(),
             content: MessageContent::Text("Hello".to_string()),
             name: None,
+            tool_calls: None,
+            tool_call_id: None,
         }],
         stream: None,
         temperature: None,
@@ -131,6 +141,8 @@ fn chat_completion_request_skips_none_fields() {
         stop: None,
         presence_penalty: None,
         frequency_penalty: None,
+        tools: None,
+        tool_choice: None,
     };
     let json = serde_json::to_value(&req).unwrap();
     // Optional fields that are None should be absent
@@ -191,6 +203,8 @@ fn chat_completion_response_roundtrip() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hi".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],

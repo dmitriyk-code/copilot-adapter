@@ -1,9 +1,15 @@
 pub mod anthropic;
 pub mod auth;
 pub mod cli;
+pub mod conversation_log;
 pub mod copilot;
 pub mod daemon;
 pub mod error;
+pub mod guidance;
 pub mod handlers;
+pub mod model_mapper;
 pub mod server;
 pub mod storage;
+pub mod streaming;
+pub mod token_counter;
+pub mod tools;

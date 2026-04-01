@@ -13,9 +13,7 @@ use super::{is_running, remove_pid_file, remove_port_file};
 pub fn daemonize(log_file_path: Option<&str>) -> Result<()> {
     use daemonize::Daemonize;
 
-    let mut daemon = Daemonize::new()
-        .chown_pid_file(true)
-        .working_directory(".");
+    let mut daemon = Daemonize::new().chown_pid_file(true).working_directory(".");
 
     // Redirect stdout/stderr to log file if specified, otherwise /dev/null
     if let Some(path) = log_file_path {
@@ -30,9 +28,7 @@ pub fn daemonize(log_file_path: Option<&str>) -> Result<()> {
         daemon = daemon.stdout(stdout_file).stderr(stderr_file);
     }
 
-    daemon
-        .start()
-        .context("Failed to daemonize process")?;
+    daemon.start().context("Failed to daemonize process")?;
 
     Ok(())
 }

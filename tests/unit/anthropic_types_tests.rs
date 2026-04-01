@@ -41,12 +41,30 @@ fn anthropic_request_full_deserializes() {
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.model, "claude-sonnet-4-20250514");
     assert_eq!(req.max_tokens, 4096);
-    assert_eq!(req.system.as_ref().map(|s| s.to_text()), Some("You are a helpful assistant.".to_string()));
+    assert_eq!(
+        req.system.as_ref().map(|s| s.to_text()),
+        Some("You are a helpful assistant.".to_string())
+    );
     assert_eq!(req.messages.len(), 3);
     assert_eq!(req.stream, Some(true));
     assert_eq!(req.temperature, Some(0.7));
     assert_eq!(req.top_p, Some(0.9));
     assert_eq!(req.stop_sequences.as_ref().unwrap().len(), 2);
+}
+
+#[test]
+fn anthropic_request_with_tool_choice_is_accepted_and_ignored() {
+    let json = serde_json::json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "tools": [{"name": "get_weather", "description": "Get weather", "input_schema": {"type": "object"}}],
+        "tool_choice": {"type": "tool", "name": "get_weather"}
+    });
+    let req: AnthropicRequest = serde_json::from_value(json).unwrap();
+    // tool_choice is accepted (not rejected) but will be ignored by the adapter
+    assert!(req.tool_choice.is_some());
+    assert_eq!(req.tool_choice.as_ref().unwrap()["type"], "tool");
 }
 
 #[test]
@@ -68,7 +86,8 @@ fn anthropic_request_with_content_blocks_deserializes() {
         ContentBlockInput::Blocks(blocks) => {
             assert_eq!(blocks.len(), 2);
             match &blocks[0] {
-                ContentBlock::Text { text } => assert_eq!(text, "Hello "),
+                ContentBlock::Text { text, .. } => assert_eq!(text, "Hello "),
+                _ => panic!("Expected Text variant"),
             }
         }
         ContentBlockInput::Text(_) => panic!("Expected Blocks variant"),
@@ -89,11 +108,16 @@ fn anthropic_request_roundtrip() {
         temperature: Some(0.5),
         top_p: None,
         stop_sequences: None,
+        tools: None,
+        tool_choice: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.model, "claude-sonnet-4-20250514");
-    assert_eq!(deserialized.system.as_ref().map(|s| s.to_text()), Some("Be helpful".to_string()));
+    assert_eq!(
+        deserialized.system.as_ref().map(|s| s.to_text()),
+        Some("Be helpful".to_string())
+    );
 }
 
 #[test]
@@ -102,10 +126,7 @@ fn anthropic_response_serializes_correctly() {
         id: "msg_abc123".to_string(),
         response_type: "message".to_string(),
         role: "assistant".to_string(),
-        content: vec![ResponseContentBlock {
-            block_type: "text".to_string(),
-            text: "Hello!".to_string(),
-        }],
+        content: vec![ResponseContentBlock::text("Hello!".to_string())],
         model: "claude-sonnet-4-20250514".to_string(),
         stop_reason: Some("end_turn".to_string()),
         stop_sequence: None,
@@ -132,10 +153,7 @@ fn anthropic_response_roundtrip() {
         id: "msg_test".to_string(),
         response_type: "message".to_string(),
         role: "assistant".to_string(),
-        content: vec![ResponseContentBlock {
-            block_type: "text".to_string(),
-            text: "Hi".to_string(),
-        }],
+        content: vec![ResponseContentBlock::text("Hi".to_string())],
         model: "claude-sonnet-4-20250514".to_string(),
         stop_reason: Some("end_turn".to_string()),
         stop_sequence: None,
@@ -147,7 +165,7 @@ fn anthropic_response_roundtrip() {
     let json_str = serde_json::to_string(&resp).unwrap();
     let deserialized: AnthropicResponse = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.id, "msg_test");
-    assert_eq!(deserialized.content[0].text, "Hi");
+    assert_eq!(deserialized.content[0].text_content(), "Hi");
 }
 
 #[test]
@@ -176,10 +194,10 @@ fn stream_event_message_start_serializes() {
 fn stream_event_content_block_delta_serializes() {
     let event = StreamEvent::ContentBlockDelta {
         index: 0,
-        delta: TextDelta {
+        delta: ContentDelta::Text(TextDelta {
             delta_type: "text_delta".to_string(),
             text: "Hello".to_string(),
-        },
+        }),
     };
     let json = serde_json::to_value(&event).unwrap();
     assert_eq!(json["type"], "content_block_delta");
@@ -208,17 +226,24 @@ fn request_translation_with_system_prepends_system_message() {
             role: "user".to_string(),
             content: ContentBlockInput::Text("Hello".to_string()),
         }],
-        system: Some(SystemInput::Text("You are a helpful assistant.".to_string())),
+        system: Some(SystemInput::Text(
+            "You are a helpful assistant.".to_string(),
+        )),
         stream: None,
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
+        tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages.len(), 2);
     assert_eq!(openai.messages[0].role, "system");
-    assert_eq!(openai.messages[0].content.as_text(), "You are a helpful assistant.");
+    assert_eq!(
+        openai.messages[0].content.as_text(),
+        "You are a helpful assistant."
+    );
     assert_eq!(openai.messages[1].role, "user");
     assert_eq!(openai.messages[1].content.as_text(), "Hello");
 }
@@ -237,9 +262,11 @@ fn request_translation_without_system_no_extra_message() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
+        tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages.len(), 1);
     assert_eq!(openai.messages[0].role, "user");
 }
@@ -254,9 +281,11 @@ fn request_translation_extracts_text_from_content_blocks() {
             content: ContentBlockInput::Blocks(vec![
                 ContentBlock::Text {
                     text: "Hello ".to_string(),
+                    cache_control: None,
                 },
                 ContentBlock::Text {
                     text: "world!".to_string(),
+                    cache_control: None,
                 },
             ]),
         }],
@@ -265,9 +294,11 @@ fn request_translation_extracts_text_from_content_blocks() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
+        tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages[0].content.as_text(), "Hello world!");
 }
 
@@ -285,18 +316,17 @@ fn request_translation_maps_fields() {
         temperature: Some(0.7),
         top_p: Some(0.9),
         stop_sequences: Some(vec!["END".to_string()]),
+        tools: None,
+        tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.model, "claude-sonnet-4-20250514");
     assert_eq!(openai.max_tokens, Some(2048));
     assert_eq!(openai.stream, Some(true));
     assert_eq!(openai.temperature, Some(0.7));
     assert_eq!(openai.top_p, Some(0.9));
-    assert_eq!(
-        openai.stop,
-        Some(serde_json::json!(["END"]))
-    );
+    assert_eq!(openai.stop, Some(serde_json::json!(["END"])));
 }
 
 #[test]
@@ -323,9 +353,11 @@ fn request_translation_multiple_messages() {
         temperature: None,
         top_p: None,
         stop_sequences: None,
+        tools: None,
+        tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages.len(), 4);
     assert_eq!(openai.messages[0].role, "system");
     assert_eq!(openai.messages[0].content.as_text(), "Be concise.");
@@ -351,6 +383,8 @@ fn response_translation_maps_stop_reason_stop() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hello!".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -379,6 +413,8 @@ fn response_translation_maps_stop_reason_length() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Truncated...".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("length".to_string()),
         }],
@@ -407,6 +443,8 @@ fn response_translation_wraps_content_in_blocks() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hello from Copilot!".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -422,8 +460,8 @@ fn response_translation_wraps_content_in_blocks() {
     assert_eq!(anthropic.response_type, "message");
     assert_eq!(anthropic.role, "assistant");
     assert_eq!(anthropic.content.len(), 1);
-    assert_eq!(anthropic.content[0].block_type, "text");
-    assert_eq!(anthropic.content[0].text, "Hello from Copilot!");
+    assert_eq!(anthropic.content[0].block_type(), "text");
+    assert_eq!(anthropic.content[0].text_content(), "Hello from Copilot!");
 }
 
 #[test]
@@ -439,6 +477,8 @@ fn response_translation_maps_usage() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hi".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -468,6 +508,8 @@ fn response_translation_id_format() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hi".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -496,6 +538,8 @@ fn response_translation_no_usage_defaults_to_zero() {
                 role: "assistant".to_string(),
                 content: MessageContent::Text("Hello".to_string()),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: Some("stop".to_string()),
         }],
@@ -536,4 +580,210 @@ fn map_stop_reason_values() {
         Some("content_filter".to_string())
     );
     assert_eq!(map_stop_reason(None), None);
+}
+
+// ---------------------------------------------------------------------------
+// Native tools: assistant message with tool_use blocks
+// ---------------------------------------------------------------------------
+
+#[test]
+fn native_tools_assistant_message_with_tool_use_gets_tool_calls() {
+    // When native_tools=true, assistant messages with tool_use blocks should
+    // be translated with proper OpenAI tool_calls format.
+    let req = AnthropicRequest {
+        model: "claude-3".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Search for files".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Text {
+                        text: "I'll search for that.".to_string(),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_01ABC".to_string(),
+                        name: "search_files".to_string(),
+                        input: serde_json::json!({"query": "test"}),
+                        cache_control: None,
+                    },
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "toolu_01ABC".to_string(),
+                    content: ToolResultContent::Text("Found 3 files".to_string()),
+                    cache_control: None,
+                }]),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+    };
+
+    // With native_tools=true
+    let openai = req.to_chat_completion_request(true);
+
+    // Should have: user, assistant (with tool_calls), tool
+    assert_eq!(openai.messages.len(), 3);
+    assert_eq!(openai.messages[0].role, "user");
+    assert_eq!(openai.messages[1].role, "assistant");
+    assert_eq!(openai.messages[2].role, "tool");
+
+    // Assistant message should have tool_calls
+    let tool_calls = openai.messages[1].tool_calls.as_ref().unwrap();
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].id, Some("toolu_01ABC".to_string()));
+    assert_eq!(
+        tool_calls[0].function.name,
+        Some("search_files".to_string())
+    );
+    assert_eq!(
+        tool_calls[0].function.arguments,
+        Some(r#"{"query":"test"}"#.to_string())
+    );
+
+    // Tool message should reference the same ID
+    assert_eq!(
+        openai.messages[2].tool_call_id,
+        Some("toolu_01ABC".to_string())
+    );
+}
+
+#[test]
+fn non_native_tools_assistant_message_with_tool_use_no_tool_calls() {
+    // When native_tools=false (XML injection mode), assistant messages with
+    // tool_use blocks should NOT have tool_calls (the tool_use is embedded in text).
+    let req = AnthropicRequest {
+        model: "claude-3".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Search for files".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Text {
+                        text: "I'll search for that.".to_string(),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_01ABC".to_string(),
+                        name: "search_files".to_string(),
+                        input: serde_json::json!({"query": "test"}),
+                        cache_control: None,
+                    },
+                ]),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+    };
+
+    // With native_tools=false
+    let openai = req.to_chat_completion_request(false);
+
+    // Assistant message should NOT have tool_calls
+    assert!(openai.messages[1].tool_calls.is_none());
+    // Should only have text content
+    assert_eq!(
+        openai.messages[1].content.as_text(),
+        "I'll search for that."
+    );
+}
+
+#[test]
+fn native_tools_multiple_tool_use_blocks() {
+    // Test with multiple tool_use blocks in one assistant message
+    let req = AnthropicRequest {
+        model: "claude-3".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Search and read".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Text {
+                        text: "I'll do both.".to_string(),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_01ABC".to_string(),
+                        name: "search_files".to_string(),
+                        input: serde_json::json!({"query": "test"}),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_02XYZ".to_string(),
+                        name: "read_file".to_string(),
+                        input: serde_json::json!({"path": "/tmp/file.txt"}),
+                        cache_control: None,
+                    },
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::ToolResult {
+                        tool_use_id: "toolu_01ABC".to_string(),
+                        content: ToolResultContent::Text("Found files".to_string()),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolResult {
+                        tool_use_id: "toolu_02XYZ".to_string(),
+                        content: ToolResultContent::Text("File contents".to_string()),
+                        cache_control: None,
+                    },
+                ]),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+    };
+
+    let openai = req.to_chat_completion_request(true);
+
+    // Should have: user, assistant (with 2 tool_calls), tool, tool
+    assert_eq!(openai.messages.len(), 4);
+
+    // Assistant message should have 2 tool_calls
+    let tool_calls = openai.messages[1].tool_calls.as_ref().unwrap();
+    assert_eq!(tool_calls.len(), 2);
+    assert_eq!(tool_calls[0].id, Some("toolu_01ABC".to_string()));
+    assert_eq!(tool_calls[1].id, Some("toolu_02XYZ".to_string()));
+
+    // Both tool messages should have correct IDs
+    assert_eq!(
+        openai.messages[2].tool_call_id,
+        Some("toolu_01ABC".to_string())
+    );
+    assert_eq!(
+        openai.messages[3].tool_call_id,
+        Some("toolu_02XYZ".to_string())
+    );
 }

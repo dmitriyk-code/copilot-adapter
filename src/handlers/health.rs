@@ -4,3 +4,9 @@ use serde_json::{json, Value};
 pub async fn health() -> Json<Value> {
     Json(json!({"status": "ok"}))
 }
+
+/// Handler for GET / and HEAD /
+/// Returns simple status for health probes (e.g. Claude Code sends HEAD /).
+pub async fn root() -> Json<Value> {
+    Json(json!({"status": "ok"}))
+}

@@ -215,7 +215,10 @@ async fn poll_handles_pending_then_success() {
         format!("http://{addr}/copilot_internal/v2/token"),
     );
 
-    let token = auth.poll_for_token("test_device_code_123", 1, 30).await.unwrap();
+    let token = auth
+        .poll_for_token("test_device_code_123", 1, 30)
+        .await
+        .unwrap();
     assert_eq!(token, "gho_after_pending");
     assert!(counter.load(Ordering::SeqCst) >= 3);
 }
