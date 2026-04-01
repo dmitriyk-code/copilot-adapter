@@ -3,7 +3,8 @@
 **Status:** Not Started
 **Date:** 2026-04-01
 **Based on:** [BACKLOG.md](./BACKLOG.md), individual design documents
-**Estimated Time:** 5–8 days (4 phases)
+**Prerequisite:** None — Epics 1, 2, and 3 can start immediately
+**Estimated Time:** 5–8 days (10 epics)
 
 ---
 
@@ -21,7 +22,7 @@ This plan consolidates the four outstanding backlog items into a single, sequenc
 - Build the `~/.copilot-adapter/` directory structure once, with profiles in mind from the start
 - Design parameterized APIs (`write_status_to(path)`, `FileStorage::with_path()`) from day one instead of creating them and then refactoring
 - Single documentation update at the end covering all changes
-- Phased testing: unit tests per phase, one integration/E2E pass at the end
+- Phased testing: unit tests per epic, one integration/E2E pass at the end
 
 **Design documents** (unchanged, for reference):
 - [DAEMON-AUTH.design.md](./DAEMON-AUTH.design.md)
@@ -48,20 +49,51 @@ This plan consolidates the four outstanding backlog items into a single, sequenc
 
 ---
 
-## Implementation Phases
+## Goals and Non-Goals
 
-The plan is organized into 4 phases with clear dependency boundaries. Each phase is independently shippable.
+### Goals
 
-| Phase | Items Covered | Est. Days | Dependencies |
-|-------|--------------|-----------|--------------|
-| Phase 1 | DAEMON-AUTH bug fix | 0.5 | None |
-| Phase 2 | HOME-DIR-STATUS + HOME-DIR-TOKEN | 2–3 | None (parallel with Phase 1) |
-| Phase 3 | MULTI-INSTANCE-PROFILES | 2–3 | Phase 2 |
-| Phase 4 | Integration testing + Documentation | 1 | Phases 1–3 |
+| ID | Goal | Success Criteria |
+|----|------|------------------|
+| G1 | Fix daemon auth gate — `start --daemon` triggers interactive auth when no credentials | `start --daemon` without credentials opens device flow instead of exiting |
+| G2 | Move runtime status to `~/.copilot-adapter/status.json` | `status.json` created on start with PID, port, version, started_at; legacy temp files auto-detected |
+| G3 | Move credentials to `~/.copilot-adapter/credentials.json` (file-first) | Default storage is file-based; `--use-keyring` opts into OS keyring; migration from old paths is seamless |
+| G4 | Support multiple concurrent instances via named profiles | `start -P work -p 8080` runs a second instance; `status --all` shows all profiles |
+| G5 | 100% backward compatibility with no-flag usage | All commands work without flags using "default" profile on port 6767 |
+
+### Non-Goals
+
+| ID | Non-Goal | Rationale |
+|----|----------|-----------|
+| NG1 | Remote/network-accessible multi-instance coordination | Localhost-only security model; profiles are local file-based |
+| NG2 | Automatic profile switching based on Git context | Too complex for initial implementation; can be added later |
+| NG3 | Credential encryption changes | Current AES-256-GCM encryption is sufficient; only path changes |
+| NG4 | Keyring removal | Keyring remains available via `--use-keyring`; just no longer default |
 
 ---
 
-## Phase 1: Daemon Authentication Fix (0.5 days)
+## Implementation Plan
+
+The plan is organized into 10 epics with clear dependency boundaries.
+
+| Epic | Name | Est. Days | Dependencies |
+|------|------|-----------|--------------|
+| Epic 1 | Daemon Authentication Fix | 0.5 | None |
+| Epic 2 | Status File Module | 1–1.5 | None |
+| Epic 3 | File-First Credential Storage | 1–1.5 | None |
+| Epic 4 | Profile Data Model | 1 | Epics 2–3 |
+| Epic 5 | Profile-Scoped Storage and Status | 0.5 | Epics 2–4 |
+| Epic 6 | CLI Changes | 1 | Epics 4–5 |
+| Epic 7 | Migration | 0.5 | Epics 2–4 |
+| Epic 8 | Integration Tests | 0.5 | Epics 1–7 |
+| Epic 9 | Manual E2E Tests | 0.25 | Epics 1–7 |
+| Epic 10 | Documentation | 0.25 | Epics 1–7 |
+
+---
+
+## Epic 1: Daemon Authentication Fix (0.5 days)
+
+**Status:** Not Started
 
 **Objective:** Remove daemon-specific auth gates so `start --daemon` triggers interactive auth.
 
@@ -130,17 +162,17 @@ cargo clippy
 
 ---
 
-## Phase 2: Home Directory Storage (2–3 days)
+## Epic 2: Status File Module (1–1.5 days)
 
-**Objective:** Move status and credentials to `~/.copilot-adapter/`, designing APIs that are profile-aware from the start (accepting path parameters) to avoid rework in Phase 3.
+**Status:** Not Started
 
-### Epic 2A: Status File Module
+**Objective:** Create `~/.copilot-adapter/status.json` with parameterized APIs designed for profile support from the start.
 
-#### Task 2A.1: Create status module with parameterized API
+### Task 2.1: Create status module with parameterized API
 
 **File:** `src/daemon/status.rs` (NEW)
 
-Design the API to accept paths from the start. The convenience functions (no-path variants) will use a default path that Phase 3 replaces with profile resolution.
+Design the API to accept paths from the start. The convenience functions (no-path variants) will use a default path that Epic 4 replaces with profile resolution.
 
 ```rust
 use anyhow::Result;
@@ -172,7 +204,7 @@ pub fn get_default_status_path() -> PathBuf {
     get_base_dir().join("status.json")
 }
 
-// --- Parameterized API (used directly in Phase 3) ---
+// --- Parameterized API (used directly in Epic 4+) ---
 
 pub fn write_status_to(path: &Path, port: u16) -> Result<()> {
     let status = StatusFile {
@@ -197,7 +229,7 @@ pub fn remove_status_from(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
-// --- Convenience wrappers (default path, used until Phase 3) ---
+// --- Convenience wrappers (default path, used until Epic 4) ---
 
 pub fn write_status(port: u16) -> Result<()> {
     write_status_to(&get_default_status_path(), port)
@@ -243,11 +275,11 @@ pub fn is_running_from_status() -> Option<StatusFile> {
 
 **Acceptance Criteria:**
 - [ ] StatusFile struct with serde derives
-- [ ] Parameterized `*_to()` / `*_from()` API for Phase 3
+- [ ] Parameterized `*_to()` / `*_from()` API for Epic 4+
 - [ ] Convenience wrappers using default path
 - [ ] Legacy backward compatibility in `is_running_from_status()`
 
-#### Task 2A.2: Register module and update daemon/mod.rs
+### Task 2.2: Register module and update daemon/mod.rs
 
 **File:** `src/daemon/mod.rs` (MODIFIED)
 
@@ -256,26 +288,26 @@ pub fn is_running_from_status() -> Option<StatusFile> {
 - Update `read_port()` to check `read_status().map(|s| s.port)` first, then legacy
 - Add `remove_all_status_files()` that cleans new + legacy files
 
-#### Task 2A.3: Update daemon stop functions
+### Task 2.3: Update daemon stop functions
 
 **Files:** `src/daemon/unix.rs`, `src/daemon/windows.rs` (MODIFIED)
 
 Replace `remove_pid_file(); remove_port_file();` with `super::remove_all_status_files();`
 
-#### Task 2A.4: Update server.rs
+### Task 2.4: Update server.rs
 
 **File:** `src/server.rs` (MODIFIED)
 
 Replace `write_pid_file()` + `write_port_file(port)` with `write_status(port)`.
 Replace cleanup calls with `remove_all_status_files()`.
 
-#### Task 2A.5: Update main.rs Status command
+### Task 2.5: Update main.rs Status command
 
 **File:** `src/main.rs` (MODIFIED)
 
 Use `is_running_from_status()` for richer output (PID, port, version, start time).
 
-#### Task 2A.6: Unit tests for StatusFile
+### Task 2.6: Unit tests for StatusFile
 
 - Serialization/deserialization round-trip
 - Directory resolution (home dir + fallback)
@@ -285,15 +317,19 @@ Use `is_running_from_status()` for richer output (PID, port, version, start time
 
 ---
 
-### Epic 2B: File-First Credential Storage
+## Epic 3: File-First Credential Storage (1–1.5 days)
 
-#### Task 2B.1: Update FileStorage path and add migration
+**Status:** Not Started
+
+**Objective:** Move credentials to `~/.copilot-adapter/credentials.json` as the default, with keyring as opt-in.
+
+### Task 3.1: Update FileStorage path and add migration
 
 **File:** `src/storage/file.rs` (MODIFIED)
 
 Change default path to `~/.copilot-adapter/credentials.json`. Add `get_legacy_credentials_path()` for old platform-specific paths. Add `migrate_if_needed()` that copies from old to new on first access.
 
-Add `with_path(path: PathBuf)` constructor for Phase 3 profile support:
+Add `with_path(path: PathBuf)` constructor for profile support in Epic 5:
 
 ```rust
 impl FileStorage {
@@ -309,7 +345,7 @@ impl FileStorage {
 }
 ```
 
-#### Task 2B.2: Flip storage priority
+### Task 3.2: Flip storage priority
 
 **File:** `src/storage/mod.rs` (MODIFIED)
 
@@ -340,19 +376,19 @@ pub fn create_storage_with_path(
 }
 ```
 
-#### Task 2B.3: Add --use-keyring CLI flag
+### Task 3.3: Add --use-keyring CLI flag
 
 **File:** `src/cli.rs` (MODIFIED)
 
 Add `--use-keyring` to `Start` and `Auth` commands.
 
-#### Task 2B.4: Wire through main.rs
+### Task 3.4: Wire through main.rs
 
 **File:** `src/main.rs` (MODIFIED)
 
 Update all `create_storage()` calls to pass `use_keyring`.
 
-#### Task 2B.5: Unit tests for credential storage
+### Task 3.5: Unit tests for credential storage
 
 - Path resolution returns `~/.copilot-adapter/credentials.json`
 - Migration from old path
@@ -362,13 +398,13 @@ Update all `create_storage()` calls to pass `use_keyring`.
 
 ---
 
-## Phase 3: Multi-Instance Profiles (2–3 days)
+## Epic 4: Profile Data Model (1 day)
 
-**Objective:** Introduce profile concept. Builds on the parameterized APIs from Phase 2.
+**Status:** Not Started
 
-### Epic 3A: Profile Data Model
+**Objective:** Introduce profile types and ProfileManager. Builds on the parameterized APIs from Epics 2–3.
 
-#### Task 3A.1: Create profile types
+### Task 4.1: Create profile types
 
 **File:** `src/profile/types.rs` (NEW)
 
@@ -398,7 +434,7 @@ pub fn validate_profile_name(name: &str) -> Result<()> {
 }
 ```
 
-#### Task 3A.2: Create ProfileManager
+### Task 4.2: Create ProfileManager
 
 **File:** `src/profile/mod.rs` (NEW)
 
@@ -406,11 +442,11 @@ Implement `new()`, `get()`, `list()`, `create()`, `delete()`, `find_by_port()`, 
 
 Uses `get_base_dir()` from `daemon::status` for the `~/.copilot-adapter/` root.
 
-#### Task 3A.3: Register module
+### Task 4.3: Register module
 
 **File:** `src/lib.rs` (MODIFIED) — Add `pub mod profile;`
 
-#### Task 3A.4: Unit tests for profile model
+### Task 4.4: Unit tests for profile model
 
 - Name validation (valid, invalid, empty, 65 chars, special chars)
 - ProfileManager CRUD
@@ -419,9 +455,13 @@ Uses `get_base_dir()` from `daemon::status` for the `~/.copilot-adapter/` root.
 
 ---
 
-### Epic 3B: Profile-Scoped Storage and Status
+## Epic 5: Profile-Scoped Storage and Status (0.5 days)
 
-#### Task 3B.1: Wire ProfileManager into storage
+**Status:** Not Started
+
+**Objective:** Wire ProfileManager into the storage and status APIs built in Epics 2–3.
+
+### Task 5.1: Wire ProfileManager into storage
 
 **File:** `src/storage/mod.rs` (MODIFIED)
 
@@ -436,17 +476,21 @@ pub fn create_storage_for_profile(
 }
 ```
 
-No API churn — `create_storage_with_path()` was built in Phase 2.
+No API churn — `create_storage_with_path()` was built in Epic 3.
 
-#### Task 3B.2: Wire ProfileManager into status
+### Task 5.2: Wire ProfileManager into status
 
 No changes to `daemon/status.rs` — the `write_status_to()`, `read_status_from()`, `remove_status_from()` functions already accept paths. Callers just pass `profile.status_path()`.
 
 ---
 
-### Epic 3C: CLI Changes
+## Epic 6: CLI Changes (1 day)
 
-#### Task 3C.1: Add --profile and --all flags
+**Status:** Not Started
+
+**Objective:** Add `--profile`, `--all`, and `profiles` subcommand to the CLI.
+
+### Task 6.1: Add --profile and --all flags
 
 **File:** `src/cli.rs` (MODIFIED)
 
@@ -454,7 +498,7 @@ No changes to `daemon/status.rs` — the `write_status_to()`, `read_status_from(
 - Add `--all` to Stop and Status
 - Add `Profiles` subcommand with `List`, `Create { name }`, `Delete { name }`
 
-#### Task 3C.2: Update main.rs — Profile resolution
+### Task 6.2: Update main.rs — Profile resolution
 
 **File:** `src/main.rs` (MODIFIED)
 
@@ -464,72 +508,80 @@ let pm = ProfileManager::new();
 let profile = pm.get(&profile_name)?;
 ```
 
-#### Task 3C.3: Update main.rs — Profile-scoped start
+### Task 6.3: Update main.rs — Profile-scoped start
 
 Use `create_storage_for_profile(&profile, use_keyring)` for auth.
 Use `write_status_to(&profile.status_path(), port)` for status.
 Check port conflicts via `pm.check_port_conflict(port, &profile.name)`.
 
-#### Task 3C.4: Update main.rs — Profile-scoped stop/status
+### Task 6.4: Update main.rs — Profile-scoped stop/status
 
 `--all` iterates `pm.list()` and operates on each. Single profile uses named profile.
 
-#### Task 3C.5: Update main.rs — Profiles subcommand handler
+### Task 6.5: Update main.rs — Profiles subcommand handler
 
 Handle `profiles list`, `profiles create <name>`, `profiles delete <name>`.
 
 ---
 
-### Epic 3D: Migration
+## Epic 7: Migration (0.5 days)
 
-#### Task 3D.1: Auto-migration on first run
+**Status:** Not Started
+
+**Objective:** Auto-migrate from flat directory and legacy temp files to profile-based layout.
+
+### Task 7.1: Auto-migration on first run
 
 If `~/.copilot-adapter/profiles/` doesn't exist but `~/.copilot-adapter/status.json` or `~/.copilot-adapter/credentials.json` does:
 1. Create `~/.copilot-adapter/profiles/default/`
 2. Move `status.json` and `credentials.json` into it
 3. Log the migration
 
-#### Task 3D.2: Legacy temp dir migration
+### Task 7.2: Legacy temp dir migration
 
 Check temp dir PID file and migrate to default profile status. Remove legacy convenience wrappers that are no longer needed (or keep as thin delegates for backward compat in tests).
 
 ---
 
-## Phase 4: Testing and Documentation (1 day)
+## Epic 8: Integration Tests (0.5 days)
 
-**Objective:** Comprehensive integration testing and unified documentation update.
+**Status:** Not Started
 
-### Epic 4A: Integration Tests
+**Objective:** Automated integration tests covering all new functionality.
 
-#### Task 4A.1: Daemon auth integration test
+### Task 8.1: Daemon auth integration test
 
 Verify `start --daemon` without credentials doesn't exit.
 
-#### Task 4A.2: Status file lifecycle test
+### Task 8.2: Status file lifecycle test
 
 Write → is_running → remove → not running. Verify `~/.copilot-adapter/status.json`.
 
-#### Task 4A.3: Credential storage lifecycle test
+### Task 8.3: Credential storage lifecycle test
 
 Auth → store → restart → load from new path. Migration from old path.
 
-#### Task 4A.4: Profile lifecycle test
+### Task 8.4: Profile lifecycle test
 
 Create profile → auth → start → status → stop → delete.
 
-#### Task 4A.5: Multi-instance test
+### Task 8.5: Multi-instance test
 
 Two profiles simultaneously on different ports. Port conflict rejection. `--all` operations.
 
-#### Task 4A.6: Migration test
+### Task 8.6: Migration test
 
 Single-instance data → default profile migration. Legacy temp dir PID file handling.
 
 ---
 
-### Epic 4B: Manual E2E Tests
+## Epic 9: Manual E2E Tests (0.25 days)
 
-#### Task 4B.1: Daemon auth E2E
+**Status:** Not Started
+
+**Objective:** Document and execute manual end-to-end test procedures.
+
+### Task 9.1: Daemon auth E2E
 
 ```bash
 copilot-adapter logout
@@ -538,7 +590,7 @@ copilot-adapter status           # Should show running
 copilot-adapter stop
 ```
 
-#### Task 4B.2: Home directory storage E2E
+### Task 9.2: Home directory storage E2E
 
 ```bash
 copilot-adapter auth
@@ -549,7 +601,7 @@ copilot-adapter status  # Shows rich output
 copilot-adapter stop
 ```
 
-#### Task 4B.3: Multi-instance E2E
+### Task 9.3: Multi-instance E2E
 
 ```bash
 copilot-adapter profiles create work
@@ -562,19 +614,23 @@ copilot-adapter profiles delete work
 
 ---
 
-### Epic 4C: Documentation (single pass)
+## Epic 10: Documentation (0.25 days)
 
-#### Task 4C.1: Update CLAUDE.md
+**Status:** Not Started
+
+**Objective:** Update all relevant documentation in a single pass.
+
+### Task 10.1: Update CLAUDE.md
 
 - Add `src/daemon/status.rs` and `src/profile/` to project structure
 - Add development notes for: daemon auth, home directory storage, profiles, `--use-keyring`
 - Update CLI commands table with `--profile`, `--use-keyring`, `profiles` subcommand
 
-#### Task 4C.2: Update docs/e2e-testing.md
+### Task 10.2: Update docs/e2e-testing.md
 
 Add test procedures for daemon auth, home dir storage, and multi-instance profiles.
 
-#### Task 4C.3: Update BACKLOG.md
+### Task 10.3: Update BACKLOG.md
 
 Move all four items from "ToDo" to "Done":
 ```markdown
@@ -591,89 +647,209 @@ Move all four items from "ToDo" to "Done":
 
 ---
 
+## Requirements
+
+### Functional Requirements
+
+| ID | Requirement | Source | Epic |
+|----|-------------|--------|------|
+| FR1 | `start --daemon` triggers interactive auth when no credentials exist | DAEMON-AUTH.design.md | Epic 1 |
+| FR2 | `start --daemon` triggers re-auth when stored token is invalid/expired | DAEMON-AUTH.design.md | Epic 1 |
+| FR3 | `--skip-auth` bypasses auth in both foreground and daemon modes | DAEMON-AUTH.design.md | Epic 1 |
+| FR4 | Runtime status written to `~/.copilot-adapter/status.json` with PID, port, version, started_at | HOME-DIR-STATUS.design.md | Epic 2 |
+| FR5 | Legacy temp dir PID files detected and used as fallback | HOME-DIR-STATUS.design.md | Epic 2 |
+| FR6 | `status` command shows rich output (PID, port, version, start time) | HOME-DIR-STATUS.design.md | Epic 2 |
+| FR7 | Credentials stored in `~/.copilot-adapter/credentials.json` by default | HOME-DIR-TOKEN.design.md | Epic 3 |
+| FR8 | `--use-keyring` flag opts into OS keyring storage | HOME-DIR-TOKEN.design.md | Epic 3 |
+| FR9 | Migration from old platform-specific credential paths on first access | HOME-DIR-TOKEN.design.md | Epic 3 |
+| FR10 | `--profile` / `-P` flag selects a named profile (default: "default") | MULTI-INSTANCE-PROFILES.design.md | Epic 6 |
+| FR11 | Multiple concurrent instances on different ports via profiles | MULTI-INSTANCE-PROFILES.design.md | Epic 6 |
+| FR12 | `profiles list/create/delete` subcommand for profile management | MULTI-INSTANCE-PROFILES.design.md | Epic 6 |
+| FR13 | `--all` flag on stop/status operates on all profiles | MULTI-INSTANCE-PROFILES.design.md | Epic 6 |
+| FR14 | Port conflict detection across profiles at startup | MULTI-INSTANCE-PROFILES.design.md | Epic 4 |
+| FR15 | Auto-migration from flat `~/.copilot-adapter/` to `profiles/default/` | MULTI-INSTANCE-PROFILES.design.md | Epic 7 |
+
+### Non-Functional Requirements
+
+| ID | Requirement | Target | Epic |
+|----|-------------|--------|------|
+| NFR1 | Backward compatibility | All commands work without flags using "default" profile on port 6767 | All |
+| NFR2 | Graceful degradation on unwritable home dir | Fall back to temp dir | Epic 2 |
+| NFR3 | Seamless credential migration | Zero user intervention; old credentials discovered automatically | Epic 3 |
+| NFR4 | Profile name validation | 1-64 chars, alphanumeric + dash + underscore | Epic 4 |
+| NFR5 | Idempotent migration operations | Safe to run multiple times without data loss | Epic 7 |
+
+---
+
 ## File Changes Summary
 
-| File | Change | Phase | Description |
-|------|--------|-------|-------------|
-| `src/main.rs` | Modified | 1, 2, 3 | Remove daemon auth gates; richer status; profile resolution |
+| File | Change | Epic | Description |
+|------|--------|------|-------------|
+| `src/main.rs` | Modified | 1, 2, 3, 6 | Remove daemon auth gates; richer status; profile resolution |
 | `src/daemon/status.rs` | **New** | 2 | StatusFile struct, parameterized read/write/remove, legacy compat |
 | `src/daemon/mod.rs` | Modified | 2 | Register status module, delegate to new functions |
 | `src/daemon/unix.rs` | Modified | 2 | Use remove_all_status_files() |
 | `src/daemon/windows.rs` | Modified | 2 | Use remove_all_status_files() |
 | `src/server.rs` | Modified | 2 | Use write_status()/remove_all_status_files() |
-| `src/storage/file.rs` | Modified | 2 | New default path, migration, with_path() constructor |
-| `src/storage/mod.rs` | Modified | 2, 3 | use_keyring param, create_storage_with_path(), profile helper |
-| `src/cli.rs` | Modified | 2, 3 | --use-keyring, --profile, --all, Profiles subcommand |
-| `src/profile/mod.rs` | **New** | 3 | ProfileManager |
-| `src/profile/types.rs` | **New** | 3 | Profile struct, name validation |
-| `src/lib.rs` | Modified | 3 | Add `pub mod profile;` |
-| `CLAUDE.md` | Modified | 4 | Project structure, dev notes, CLI table |
-| `docs/design/BACKLOG.md` | Modified | 4 | Move all items to Done |
-| `docs/e2e-testing.md` | Modified | 4 | New test procedures |
+| `src/storage/file.rs` | Modified | 3 | New default path, migration, with_path() constructor |
+| `src/storage/mod.rs` | Modified | 3, 5 | use_keyring param, create_storage_with_path(), profile helper |
+| `src/cli.rs` | Modified | 3, 6 | --use-keyring, --profile, --all, Profiles subcommand |
+| `src/profile/mod.rs` | **New** | 4 | ProfileManager |
+| `src/profile/types.rs` | **New** | 4 | Profile struct, name validation |
+| `src/lib.rs` | Modified | 4 | Add `pub mod profile;` |
+| `CLAUDE.md` | Modified | 10 | Project structure, dev notes, CLI table |
+| `docs/design/BACKLOG.md` | Modified | 10 | Move all items to Done |
+| `docs/e2e-testing.md` | Modified | 10 | New test procedures |
 | `tests/unit/status_tests.rs` | **New** | 2 | Status file unit tests |
-| `tests/unit/storage_tests.rs` | Modified | 2 | Credential storage tests |
-| `tests/unit/profile_tests.rs` | **New** | 3 | Profile model unit tests |
-| `tests/integration/daemon_tests.rs` | Modified | 4 | Updated for new APIs |
-| `tests/integration/profile_tests.rs` | **New** | 4 | Profile lifecycle + multi-instance tests |
+| `tests/unit/storage_tests.rs` | Modified | 3 | Credential storage tests |
+| `tests/unit/profile_tests.rs` | **New** | 4 | Profile model unit tests |
+| `tests/integration/daemon_tests.rs` | Modified | 8 | Updated for new APIs |
+| `tests/integration/profile_tests.rs` | **New** | 8 | Profile lifecycle + multi-instance tests |
 
 ---
 
-## Overlap Eliminated
+## Testing Strategy
 
-The following redundancies from the individual plans are resolved:
+### Test Coverage
 
-| Redundancy | Individual Plans | Consolidated Approach |
-|------------|-----------------|----------------------|
-| Create `~/.copilot-adapter/` directory | HOME-DIR-STATUS + HOME-DIR-TOKEN both create it | Created once in `get_base_dir()` (Phase 2A) |
-| `create_storage()` API change | HOME-DIR-TOKEN adds `use_keyring` param; MULTI-INSTANCE-PROFILES adds `for_profile()` | Build `create_storage_with_path(path, use_keyring)` once (Phase 2B), add `for_profile()` wrapper (Phase 3B) |
-| Status functions API | HOME-DIR-STATUS creates fixed-path functions; MULTI-INSTANCE-PROFILES refactors to accept paths | Build parameterized `*_to()`/`*_from()` API from day one (Phase 2A) |
-| `remove_all_status_files()` | HOME-DIR-STATUS creates it; MULTI-INSTANCE-PROFILES changes to profile-scoped | Build cleanup that handles both legacy and profile paths |
-| Documentation updates | Each plan has "Update CLAUDE.md", "Update BACKLOG.md", "Update e2e-testing.md" | Single documentation pass at the end (Phase 4C) |
-| Testing epics | 4 separate testing epics | Phased: unit tests with each phase, integration + E2E once at end |
+| Component | Unit Tests | Integration Tests | E2E Tests |
+|-----------|------------|-------------------|-----------|
+| Daemon auth fix | N/A | Epic 8 (Task 8.1) | Epic 9 (Task 9.1) |
+| StatusFile module | Epic 2 (Task 2.6) | Epic 8 (Task 8.2) | Epic 9 (Task 9.2) |
+| Credential storage | Epic 3 (Task 3.5) | Epic 8 (Task 8.3) | Epic 9 (Task 9.2) |
+| Profile model | Epic 4 (Task 4.4) | Epic 8 (Task 8.4) | Epic 9 (Task 9.3) |
+| Multi-instance | N/A | Epic 8 (Task 8.5) | Epic 9 (Task 9.3) |
+| Migration | N/A | Epic 8 (Task 8.6) | N/A |
+
+### Test Files
+
+| File | Type | Coverage |
+|------|------|----------|
+| `tests/unit/status_tests.rs` | Unit | StatusFile CRUD, directory resolution, legacy fallback |
+| `tests/unit/storage_tests.rs` | Unit | Credential path, migration, storage factory |
+| `tests/unit/profile_tests.rs` | Unit | Profile name validation, CRUD, port conflicts |
+| `tests/integration/daemon_tests.rs` | Integration | Daemon auth, status lifecycle, credential lifecycle |
+| `tests/integration/profile_tests.rs` | Integration | Profile lifecycle, multi-instance, migration |
+| `docs/e2e-testing.md` | Manual E2E | Daemon auth, home dir storage, multi-instance workflows |
 
 ---
 
 ## Dependencies
 
-### New Dependencies
-- `chrono` — already in Cargo.toml (for `started_at` timestamp)
-- `dirs` — already in Cargo.toml (for home directory resolution)
+### External Dependencies
+
+| Dependency | Version | Purpose | Epic |
+|------------|---------|---------|------|
+| `chrono` | (existing) | ISO 8601 timestamp for `started_at` in StatusFile | Epic 2 |
+| `dirs` | (existing) | Home directory resolution for `~/.copilot-adapter/` | Epic 2 |
+| `serde` / `serde_json` | (existing) | StatusFile serialization/deserialization | Epic 2 |
+| `clap` | (existing) | CLI flags: `--use-keyring`, `--profile`, `--all`, `profiles` subcommand | Epics 3, 6 |
+
+**Cargo.toml changes:** None — all dependencies already in Cargo.toml.
+
+### Internal Dependencies
+
+| Module | Required By | Status |
+|--------|-------------|--------|
+| `src/daemon/mod.rs` | Epic 2 (status module registration) | ✅ Exists |
+| `src/daemon/status.rs` | Epics 2, 5 (status file management) | 🚧 Will create |
+| `src/storage/file.rs` | Epic 3 (path change + migration) | ✅ Exists |
+| `src/storage/mod.rs` | Epics 3, 5 (storage factory) | ✅ Exists |
+| `src/profile/types.rs` | Epic 4 (profile data model) | 🚧 Will create |
+| `src/profile/mod.rs` | Epics 4–7 (profile manager) | 🚧 Will create |
+| `src/cli.rs` | Epics 3, 6 (new CLI flags) | ✅ Exists |
+| `src/main.rs` | Epics 1–3, 6 (wiring changes) | ✅ Exists |
 
 ### Sequencing
 
 ```
-Phase 1 (daemon auth)  ──────────────────────────┐
-                                                   ├──→ Phase 4 (testing + docs)
-Phase 2 (home dir storage) ──→ Phase 3 (profiles) ┘
+Epic 1 (daemon auth)  ──────────────────────────────────────┐
+                                                              ├──→ Epics 8–10 (testing + docs)
+Epics 2–3 (home dir storage) ──→ Epics 4–7 (profiles) ──────┘
 ```
 
-Phases 1 and 2 can run in parallel. Phase 3 depends on Phase 2. Phase 4 depends on all.
+Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 8–10 depend on all.
 
 ---
 
 ## Risk Assessment
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| Home dir not writable | Medium | Low | Fallback to temp dir in get_base_dir() |
-| Existing keyring users lose credentials | Medium | Medium | Migration logic; keyring fallback if file empty |
-| Breaking backward compat with profiles | High | Low | Default profile = existing behavior; extensive testing |
-| Port conflicts between profiles | Medium | Medium | Explicit check at startup with clear error |
-| Legacy PID files left behind | Low | Medium | Backward compat in is_running_from_status() |
-| Auth blocking daemon in cron/CI | Low | Low | --skip-auth flag available |
-| Migration race condition | Low | Very Low | Idempotent copy operations |
+| Risk | Impact | Probability | Mitigation | Epic |
+|------|--------|-------------|------------|------|
+| Home dir not writable | Medium | Low | Fallback to temp dir in get_base_dir() | Epic 2 |
+| Existing keyring users lose credentials | Medium | Medium | Migration logic; keyring fallback if file empty | Epic 3 |
+| Breaking backward compat with profiles | High | Low | Default profile = existing behavior; extensive testing | Epic 6 |
+| Port conflicts between profiles | Medium | Medium | Explicit check at startup with clear error | Epic 4 |
+| Legacy PID files left behind | Low | Medium | Backward compat in is_running_from_status() | Epic 2 |
+| Auth blocking daemon in cron/CI | Low | Low | --skip-auth flag available | Epic 1 |
+| Migration race condition | Low | Very Low | Idempotent copy operations | Epic 7 |
 
 ---
 
 ## Success Criteria
 
-1. **Daemon auth works** — `start --daemon` without credentials triggers interactive auth
-2. **Status in home dir** — `~/.copilot-adapter/status.json` created on start with PID, port, version, started_at
-3. **Credentials in home dir** — `~/.copilot-adapter/credentials.json` as default; `--use-keyring` for OS keyring
-4. **Profiles work** — `start -P work -p 8080` runs a second instance; `status --all` shows both
-5. **Backward compatible** — All commands work without any flags (default profile on port 6767)
-6. **Migration seamless** — Old temp dir PID files and platform-specific credential files auto-discovered
-7. **All tests pass** — `cargo test` succeeds with zero failures
+1. **Daemon auth works** — `start --daemon` without credentials triggers interactive auth (Epic 1)
+2. **Status in home dir** — `~/.copilot-adapter/status.json` created on start with PID, port, version, started_at (Epic 2)
+3. **Credentials in home dir** — `~/.copilot-adapter/credentials.json` as default; `--use-keyring` for OS keyring (Epic 3)
+4. **Profiles work** — `start -P work -p 8080` runs a second instance; `status --all` shows both (Epics 4–6)
+5. **Backward compatible** — All commands work without any flags (default profile on port 6767) (All)
+6. **Migration seamless** — Old temp dir PID files and platform-specific credential files auto-discovered (Epics 2, 3, 7)
+7. **All tests pass** — Unit, integration, and E2E tests pass with zero failures (Epic 8)
+8. **Documentation complete** — CLAUDE.md, e2e-testing.md, and BACKLOG.md updated (Epic 10)
+
+---
+
+## Rollout / Migration Plan
+
+### Epics 1–3: Core Changes
+- [ ] Remove daemon auth gates in `src/main.rs`
+- [ ] Implement StatusFile module with parameterized API
+- [ ] Implement file-first credential storage with migration
+- [ ] Unit tests for status and credential storage
+- [ ] Code review
+
+### Epics 4–7: Profiles
+- [ ] Implement Profile data model and ProfileManager
+- [ ] Wire profile-scoped storage and status
+- [ ] Add CLI flags and subcommand
+- [ ] Implement auto-migration to profile directories
+- [ ] Unit tests for profile model
+- [ ] Code review
+
+### Epics 8–10: Testing and Documentation
+- [ ] Integration tests complete
+- [ ] Manual E2E verification
+- [ ] CLAUDE.md, e2e-testing.md, BACKLOG.md updated
+- [ ] Final review
+- [ ] Merge to main
+- [ ] Archive design/plan docs
+
+---
+
+## Epic Status Tracking
+
+| Epic | Status | Start Date | End Date | Notes |
+|------|--------|------------|----------|-------|
+| Epic 1 (Daemon Auth) | Not Started | - | - | |
+| Epic 2 (Status File) | Not Started | - | - | |
+| Epic 3 (Credential Storage) | Not Started | - | - | |
+| Epic 4 (Profile Model) | Not Started | - | - | Blocked by Epics 2–3 |
+| Epic 5 (Profile Storage) | Not Started | - | - | Blocked by Epics 2–4 |
+| Epic 6 (CLI Changes) | Not Started | - | - | Blocked by Epics 4–5 |
+| Epic 7 (Migration) | Not Started | - | - | Blocked by Epics 2–4 |
+| Epic 8 (Integration Tests) | Not Started | - | - | Blocked by Epics 1–7 |
+| Epic 9 (Manual E2E Tests) | Not Started | - | - | Blocked by Epics 1–7 |
+| Epic 10 (Documentation) | Not Started | - | - | Blocked by Epics 1–7 |
+
+---
+
+## Open Questions
+
+| # | Question | Status | Blocker For |
+|---|----------|--------|-------------|
+| 1 | Should `--use-keyring` also apply to `logout` command? | Open | Epic 3 |
+| 2 | Should profile deletion require the instance to be stopped first? | Open | Epic 6 |
+| 3 | Should migration log to stderr or to a log file? | Deferred | Epic 7 |
 
 ---
 
@@ -684,3 +860,32 @@ Phases 1 and 2 can run in parallel. Phase 3 depends on Phase 2. Phase 4 depends 
 - [HOME-DIR-TOKEN.design.md](./HOME-DIR-TOKEN.design.md)
 - [MULTI-INSTANCE-PROFILES.design.md](./MULTI-INSTANCE-PROFILES.design.md)
 - [BACKLOG.md](./BACKLOG.md)
+
+---
+
+## Overlap Eliminated
+
+The following redundancies from the individual plans are resolved:
+
+| Redundancy | Individual Plans | Consolidated Approach |
+|------------|-----------------|----------------------|
+| Create `~/.copilot-adapter/` directory | HOME-DIR-STATUS + HOME-DIR-TOKEN both create it | Created once in `get_base_dir()` (Epic 2) |
+| `create_storage()` API change | HOME-DIR-TOKEN adds `use_keyring` param; MULTI-INSTANCE-PROFILES adds `for_profile()` | Build `create_storage_with_path(path, use_keyring)` once (Epic 3), add `for_profile()` wrapper (Epic 5) |
+| Status functions API | HOME-DIR-STATUS creates fixed-path functions; MULTI-INSTANCE-PROFILES refactors to accept paths | Build parameterized `*_to()`/`*_from()` API from day one (Epic 2) |
+| `remove_all_status_files()` | HOME-DIR-STATUS creates it; MULTI-INSTANCE-PROFILES changes to profile-scoped | Build cleanup that handles both legacy and profile paths |
+| Documentation updates | Each plan has "Update CLAUDE.md", "Update BACKLOG.md", "Update e2e-testing.md" | Single documentation pass at the end (Epic 10) |
+| Testing epics | 4 separate testing epics | Unit tests per epic, integration + E2E once at end |
+
+---
+
+## Notes
+
+### Development Notes
+- [Notes added during implementation]
+
+### Review Notes
+- [Code review feedback]
+
+### Testing Notes
+- [Test failures and fixes]
+- [Edge cases discovered]
