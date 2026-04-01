@@ -1372,6 +1372,249 @@ Start the adapter without `--native-tools` and run the same request. Compare:
 
 ---
 
+## Test 28: Root Path Handler
+
+**Purpose:** Verify `GET /` and `HEAD /` return 200 OK (eliminates 404 log noise from Claude Code health probes).
+
+### Steps
+
+1. **Start the adapter:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Test GET / returns JSON body:**
+   ```bash
+   curl -v http://127.0.0.1:6767/
+   ```
+
+3. **Expected response:**
+   ```
+   < HTTP/1.1 200 OK
+   < content-type: application/json
+   {"status":"ok"}
+   ```
+
+4. **Test HEAD / returns 200 with empty body:**
+   ```bash
+   curl -I http://127.0.0.1:6767/
+   ```
+
+5. **Expected response:**
+   ```
+   HTTP/1.1 200 OK
+   content-type: application/json
+   ```
+   (No body content for HEAD request.)
+
+6. **Test unsupported methods return 405:**
+   ```bash
+   curl -X POST http://127.0.0.1:6767/
+   curl -X PUT http://127.0.0.1:6767/
+   ```
+
+7. **Expected:** `405 Method Not Allowed` for both.
+
+### Verification
+
+- Check adapter logs show `status=200` for root path requests (not `status=404`).
+- No authentication header is required.
+- Response time should be <1ms (NFR1).
+
+---
+
+## Test 29: Token Counting Endpoint
+
+**Purpose:** Verify `POST /v1/messages/count_tokens` returns accurate token counts for various request formats.
+
+### Steps
+
+1. **Start the adapter** (if not already running).
+
+2. **Simple text message:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "claude-sonnet-4-20250514",
+       "messages": [{"role": "user", "content": "Hello!"}]
+     }'
+   ```
+
+3. **Expected response:**
+   ```json
+   {"input_tokens": N}
+   ```
+   where `N` is approximately 4–8 (a simple greeting plus per-message overhead). The exact value depends on the tokenizer.
+
+4. **With system prompt:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "claude-sonnet-4-20250514",
+       "messages": [{"role": "user", "content": "Hello!"}],
+       "system": "You are a helpful assistant."
+     }'
+   ```
+
+5. **Expected:** Token count should be higher than simple message (system prompt tokens added). Approximately 10-20 tokens.
+
+6. **With tool definitions:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "claude-sonnet-4-20250514",
+       "messages": [{"role": "user", "content": "Search for foo"}],
+       "tools": [{
+         "name": "Grep",
+         "description": "Search files",
+         "input_schema": {
+           "type": "object",
+           "properties": {"pattern": {"type": "string"}}
+         }
+       }]
+     }'
+   ```
+
+7. **Expected:** Token count should include tool definition overhead. Approximately 40-80 tokens.
+
+### Error Cases
+
+8. **Missing messages field (invalid JSON structure):**
+   ```bash
+   curl -s -w "\nHTTP Status: %{http_code}\n" \
+     -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d '{"model": "claude-sonnet-4-20250514"}'
+   ```
+
+9. **Expected:** `400 Bad Request` or `422 Unprocessable Entity`.
+
+10. **Missing model field:**
+    ```bash
+    curl -s -w "\nHTTP Status: %{http_code}\n" \
+      -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+      -H "Content-Type: application/json" \
+      -d '{"messages": [{"role": "user", "content": "test"}]}'
+    ```
+
+11. **Expected:** `400 Bad Request` or `422 Unprocessable Entity` (model is a required field per FR8).
+
+12. **Invalid JSON:**
+    ```bash
+    curl -s -w "\nHTTP Status: %{http_code}\n" \
+      -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+      -H "Content-Type: application/json" \
+      -d 'not valid json'
+    ```
+
+13. **Expected:** `400 Bad Request` or `422 Unprocessable Entity`.
+
+### Verification
+
+- Token counts are consistent across repeated calls for the same input.
+- Counts increase proportionally with message length.
+- No authentication header is required (similar to `/health` — this is a utility endpoint that does not proxy to the upstream API).
+
+---
+
+## Test 30: Token Counting — Performance
+
+**Purpose:** Verify token counting meets the <10ms response time target (NFR2).
+
+### Steps
+
+1. **Start the adapter** (if not already running).
+
+2. **Warm up the tokenizer** (first request initializes the BPE encoder):
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "warmup"}]}'
+   ```
+
+3. **Time a typical request:**
+   ```bash
+   # Linux/macOS
+   time curl -s -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hello, how are you doing today?"}]}'
+
+   # Windows (PowerShell)
+   Measure-Command {
+     Invoke-WebRequest -Uri http://127.0.0.1:6767/v1/messages/count_tokens `
+       -Method POST -ContentType "application/json" `
+       -Body '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hello, how are you doing today?"}]}'
+   } | Select-Object TotalMilliseconds
+   ```
+
+4. **Expected:** Total response time <10ms (excluding network overhead for localhost, the actual computation should be well under 10ms).
+
+5. **Test with larger payload (~10KB text):**
+   ```bash
+   # Linux/macOS
+   LARGE_TEXT=$(python3 -c "print('x' * 10000)")
+   time curl -s -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+     -H "Content-Type: application/json" \
+     -d "{\"model\": \"claude-sonnet-4-20250514\", \"messages\": [{\"role\": \"user\", \"content\": \"$LARGE_TEXT\"}]}"
+
+   # Windows (PowerShell)
+   $largeText = "x" * 10000
+   $body = @{model="claude-sonnet-4-20250514"; messages=@(@{role="user"; content=$largeText})} | ConvertTo-Json -Depth 3
+   Measure-Command {
+     Invoke-WebRequest -Uri http://127.0.0.1:6767/v1/messages/count_tokens `
+       -Method POST -ContentType "application/json" -Body $body
+   } | Select-Object TotalMilliseconds
+   ```
+
+6. **Expected:** Should still complete in <50ms even for large payloads.
+
+### Verification
+
+- Typical requests (1-50 tokens): <10ms
+- Large requests (~10,000 characters): <50ms
+- Results are deterministic (same input → same count)
+
+---
+
+## Test 31: Token Counting — Claude Code Integration
+
+**Purpose:** Verify that Claude Code can use the token counting endpoint when configured with the adapter.
+
+### Steps
+
+1. **Start the adapter:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Configure Claude Code:**
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:6767
+   export ANTHROPIC_API_KEY=dummy
+   ```
+
+3. **Run Claude Code:**
+   ```bash
+   claude
+   ```
+
+4. **Send a message and observe:**
+   - Claude Code may call `/v1/messages/count_tokens` for context window management
+   - Check adapter logs for `POST /v1/messages/count_tokens` requests
+   - If visible, verify the response is `200 OK` with `{"input_tokens": N}`
+
+5. **Note:** Claude Code may not always call this endpoint — it depends on the version and internal logic. The key verification is that the endpoint responds correctly when called.
+
+6. **Clean up:**
+   ```bash
+   copilot-adapter stop
+   ```
+
+---
+
 ## Test Summary Checklist
 
 | # | Test Name | Category |
@@ -1404,3 +1647,7 @@ Start the adapter without `--native-tools` and run the same request. Compare:
 | 25 | XML Fallback — Parameter Type Coercion | Native Tools |
 | 26 | Native Tools — Mutual Exclusivity of Flags | Native Tools |
 | 27 | Native Tools — Claude Code Integration | Native Tools |
+| 28 | Root Path Handler | Health / Compatibility |
+| 29 | Token Counting Endpoint | API |
+| 30 | Token Counting — Performance | API |
+| 31 | Token Counting — Claude Code Integration | Integration |

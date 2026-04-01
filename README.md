@@ -6,6 +6,7 @@ A standalone Rust binary that acts as an **Anthropic-to-Copilot proxy**. This ad
 
 - **GitHub OAuth device flow** — authenticate through your browser in seconds
 - **Anthropic-compatible API** — `POST /v1/messages` for native Claude Code integration
+- **Token counting** — `POST /v1/messages/count_tokens` for pre-flight token estimation (tiktoken-rs)
 - **Model discovery** — `GET /v1/models` with dynamic fetching and caching
 - **SSE streaming** — real-time token-by-token responses
 - **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
@@ -125,6 +126,20 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 
 ## API Endpoints
 
+### `GET /` and `HEAD /`
+
+Root path handler for health probes. Claude Code sends `HEAD /` requests to check if the adapter is reachable. This endpoint requires no authentication.
+
+```bash
+# GET returns JSON body
+curl http://127.0.0.1:6767/
+# {"status": "ok"}
+
+# HEAD returns 200 OK with empty body
+curl -I http://127.0.0.1:6767/
+# HTTP/1.1 200 OK
+```
+
 ### `GET /health`
 
 Health check endpoint.
@@ -133,6 +148,68 @@ Health check endpoint.
 curl http://127.0.0.1:6767/health
 # {"status": "ok"}
 ```
+
+### `POST /v1/messages/count_tokens`
+
+Pre-flight token counting endpoint. Counts the number of input tokens in a request without sending it to the upstream API. Uses [tiktoken-rs](https://docs.rs/tiktoken-rs) with the `cl100k_base` encoding for accurate BPE tokenization.
+
+This is useful for context window management and cost estimation before making a full `/v1/messages` request.
+
+```bash
+# Simple message
+curl -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+# {"input_tokens": 5}
+```
+
+**With system prompt and tools:**
+
+```bash
+curl -X POST http://127.0.0.1:6767/v1/messages/count_tokens \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "messages": [{"role": "user", "content": "Search for foo"}],
+    "system": "You are a helpful assistant.",
+    "tools": [{
+      "name": "Grep",
+      "description": "Search files",
+      "input_schema": {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}}
+      }
+    }]
+  }'
+# {"input_tokens": 57}
+```
+
+**Supported request parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `model` | string | Yes | Model identifier (used for request validation; counting uses cl100k_base) |
+| `messages` | array | Yes | Array of message objects (`role` + `content`) |
+| `system` | string or array | No | System prompt (string or content blocks) |
+| `tools` | array | No | Tool definitions (counted as JSON tokens) |
+
+**Token counting details:**
+
+| Content Type | Counting Method |
+|-------------|-----------------|
+| Text | Full BPE tokenization (cl100k_base) |
+| Images | Fixed estimate (~85 tokens per image) |
+| Documents | Fixed estimate (~85 tokens per document) |
+| Tool definitions | JSON-serialized and tokenized |
+| Per-message overhead | 4 tokens per message |
+
+**Error responses:**
+
+- `400 Bad Request` — Missing required fields (`model`, `messages`)
+- `422 Unprocessable Entity` — Invalid JSON structure
 
 ### `POST /v1/messages`
 

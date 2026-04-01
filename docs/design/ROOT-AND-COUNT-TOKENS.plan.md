@@ -1,6 +1,6 @@
 # Root Path and Token Counting — Implementation Plan
 
-**Status:** In Progress
+**Status:** ✅ Complete
 **Date:** 2026-03-31
 **Based on:** [ROOT-AND-COUNT-TOKENS.design.md](./ROOT-AND-COUNT-TOKENS.design.md)
 **Prerequisite:** Core adapter implementation — COMPLETE
@@ -366,7 +366,7 @@ pub async fn count_tokens(
 
 ---
 
-### Epic 5: Testing and Documentation
+### Epic 5: Testing and Documentation — ✅ COMPLETE
 
 **Goal:** Comprehensive testing and documentation updates.
 
@@ -376,23 +376,23 @@ pub async fn count_tokens(
 
 **Tasks:**
 
-| Task ID | Type | Description | Files | Est. |
-|---------|------|-------------|-------|------|
-| E5-T1 | TEST | E2E test: root path with curl | Manual | 5m |
-| E5-T2 | TEST | E2E test: count_tokens with curl | Manual | 10m |
-| E5-T3 | TEST | E2E test: count_tokens with Claude Code (if possible) | Manual | 15m |
-| E5-T4 | TEST | Performance test: count_tokens <10ms | Manual | 10m |
-| E5-T5 | DOC | Update README with count_tokens endpoint | `README.md` | 15m |
-| E5-T6 | DOC | Update CLAUDE.md with feature notes | `CLAUDE.md` | 10m |
-| E5-T7 | DOC | Add to docs/e2e-testing.md | `docs/e2e-testing.md` | 15m |
-| E5-T8 | DOC | Update MISSING-FEATURES.md status | `docs/design/MISSING-FEATURES.md` | 5m |
+| Task ID | Type | Description | Files | Status |
+|---------|------|-------------|-------|--------|
+| E5-T1 | TEST | E2E test: root path with curl | Manual | ✅ DONE |
+| E5-T2 | TEST | E2E test: count_tokens with curl | Manual | ✅ DONE |
+| E5-T3 | TEST | E2E test: count_tokens with Claude Code (if possible) | Manual | ✅ DONE |
+| E5-T4 | TEST | Performance test: count_tokens <10ms | Manual | ✅ DONE |
+| E5-T5 | DOC | Update README with count_tokens endpoint | `README.md` | ✅ DONE |
+| E5-T6 | DOC | Update CLAUDE.md with feature notes | `CLAUDE.md` | ✅ DONE |
+| E5-T7 | DOC | Add to docs/development/e2e-testing.md | `docs/development/e2e-testing.md` | ✅ DONE |
+| E5-T8 | DOC | Update MISSING-FEATURES.md status | `docs/design/MISSING-FEATURES.md` | ✅ DONE |
 
 **Acceptance Criteria:**
-- [ ] All E2E tests pass
-- [ ] Performance meets NFR2 (<10ms)
-- [ ] README documents new endpoints
-- [ ] CLAUDE.md updated
-- [ ] E2E testing procedures documented
+- [x] All E2E tests pass
+- [x] Performance meets NFR2 (<10ms)
+- [x] README documents new endpoints
+- [x] CLAUDE.md updated
+- [x] E2E testing procedures documented
 
 ---
 
@@ -486,7 +486,7 @@ time curl -X POST http://localhost:6767/v1/messages/count_tokens \
 | `src/anthropic/types.rs` | Add `CountTokensRequest`, `CountTokensResponse` |
 | `README.md` | Document new endpoints |
 | `CLAUDE.md` | Add feature notes |
-| `docs/e2e-testing.md` | Add test procedures |
+| `docs/development/e2e-testing.md` | Add test procedures |
 | `docs/design/MISSING-FEATURES.md` | Update status |
 
 ---
@@ -521,12 +521,12 @@ time curl -X POST http://localhost:6767/v1/messages/count_tokens \
 ### Phase 4: Handler and Route (Day 2)
 - [x] Implement Epic 4 (handler)
 - [x] Integration tests pass
-- [ ] E2E verification
+- [x] E2E verification
 
 ### Phase 5: Documentation (Day 2)
-- [ ] Complete Epic 5 (testing/docs)
-- [ ] Update README, CLAUDE.md
-- [ ] Update design doc status to "Implemented"
+- [x] Complete Epic 5 (testing/docs)
+- [x] Update README, CLAUDE.md
+- [x] Update design doc status to "Implemented"
 
 ---
 
