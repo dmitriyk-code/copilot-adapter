@@ -236,7 +236,7 @@ mod tests {
             expires_at: future_ts,
         };
         let secs = token.seconds_until_expiry();
-        assert!(secs >= 299 && secs <= 301);
+        assert!((299..=301).contains(&secs));
     }
 
     #[test]
