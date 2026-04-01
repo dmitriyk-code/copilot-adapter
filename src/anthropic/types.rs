@@ -252,6 +252,27 @@ pub struct AnthropicRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Token counting types
+// ---------------------------------------------------------------------------
+
+/// Request body for POST /v1/messages/count_tokens
+#[derive(Debug, Clone, Deserialize)]
+pub struct CountTokensRequest {
+    pub model: String,
+    pub messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemInput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
+}
+
+/// Response body for POST /v1/messages/count_tokens
+#[derive(Debug, Clone, Serialize)]
+pub struct CountTokensResponse {
+    pub input_tokens: u32,
+}
+
+// ---------------------------------------------------------------------------
 // Anthropic response types
 // ---------------------------------------------------------------------------
 

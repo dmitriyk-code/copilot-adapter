@@ -164,7 +164,7 @@ Router::new()
 
 ---
 
-### Epic 2: Token Counting Types
+### Epic 2: Token Counting Types — ✅ COMPLETE
 
 **Goal:** Define request and response types for token counting.
 
@@ -174,17 +174,17 @@ Router::new()
 
 **Tasks:**
 
-| Task ID | Type | Description | Files | Est. |
-|---------|------|-------------|-------|------|
-| E2-T1 | IMPL | Add `CountTokensRequest` struct | `src/anthropic/types.rs` | 10m |
-| E2-T2 | IMPL | Add `CountTokensResponse` struct | `src/anthropic/types.rs` | 5m |
-| E2-T3 | TEST | Unit test: deserialize valid request | `tests/unit/` | 10m |
-| E2-T4 | TEST | Unit test: deserialize request with optional fields | `tests/unit/` | 5m |
+| Task ID | Type | Description | Files | Status |
+|---------|------|-------------|-------|--------|
+| E2-T1 | IMPL | Add `CountTokensRequest` struct | `src/anthropic/types.rs` | ✅ DONE |
+| E2-T2 | IMPL | Add `CountTokensResponse` struct | `src/anthropic/types.rs` | ✅ DONE |
+| E2-T3 | TEST | Unit test: deserialize valid request | `tests/unit/count_tokens_types_tests.rs` | ✅ DONE |
+| E2-T4 | TEST | Unit test: deserialize request with optional fields | `tests/unit/count_tokens_types_tests.rs` | ✅ DONE |
 
 **Acceptance Criteria:**
-- [ ] `CountTokensRequest` deserializes from JSON
-- [ ] All fields (model, messages, system, tools) handled correctly
-- [ ] `CountTokensResponse` serializes to `{"input_tokens": N}`
+- [x] `CountTokensRequest` deserializes from JSON
+- [x] All fields (model, messages, system, tools) handled correctly
+- [x] `CountTokensResponse` serializes to `{"input_tokens": N}`
 
 **Implementation Details:**
 
@@ -510,8 +510,8 @@ time curl -X POST http://localhost:6767/v1/messages/count_tokens \
 - [x] Verify logs show 200
 
 ### Phase 2: Token Counting Types (Day 1)
-- [ ] Implement Epic 2 (types)
-- [ ] Unit tests pass
+- [x] Implement Epic 2 (types)
+- [x] Unit tests pass
 
 ### Phase 3: Token Counter Module (Day 1-2)
 - [ ] Add tiktoken-rs dependency
