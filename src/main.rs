@@ -46,13 +46,7 @@ async fn main() -> anyhow::Result<()> {
                 let has_token = store.get_github_token().is_ok();
 
                 if !has_token {
-                    if is_daemon {
-                        eprintln!("No authentication credentials found.");
-                        eprintln!("Please run 'copilot-adapter auth' first, or use --skip-auth to bypass.");
-                        std::process::exit(1);
-                    }
-
-                    // Foreground mode: offer to authenticate now
+                    // Auth check runs before daemonization — parent has terminal access.
                     eprintln!("No authentication credentials found.");
                     eprintln!("Starting authentication flow...\n");
                     run_auth(false).await?;
@@ -70,13 +64,8 @@ async fn main() -> anyhow::Result<()> {
                     match manager.get_valid_token().await {
                         Ok(_) => Some(manager),
                         Err(e) => {
-                            if is_daemon {
-                                eprintln!("Stored token is invalid or expired: {e}");
-                                eprintln!("Please run 'copilot-adapter auth --force' first, or use --skip-auth to bypass.");
-                                std::process::exit(1);
-                            }
-
                             eprintln!("Stored token is invalid or expired: {e}");
+                            // Re-auth runs before daemonization — parent has terminal access.
                             eprintln!("Starting re-authentication...\n");
                             run_auth(true).await?;
                             None

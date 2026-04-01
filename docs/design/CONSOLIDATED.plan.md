@@ -93,7 +93,7 @@ The plan is organized into 10 epics with clear dependency boundaries.
 
 ## Epic 1: Daemon Authentication Fix (0.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Remove daemon-specific auth gates so `start --daemon` triggers interactive auth.
 
@@ -155,10 +155,10 @@ cargo clippy
 ```
 
 **Acceptance Criteria:**
-- [ ] No `if is_daemon { exit(1) }` in auth validation path
-- [ ] `start --daemon` triggers device flow when no credentials
-- [ ] `--skip-auth` still bypasses auth in both modes
-- [ ] All existing tests pass, no clippy warnings
+- [x] No `if is_daemon { exit(1) }` in auth validation path
+- [x] `start --daemon` triggers device flow when no credentials
+- [x] `--skip-auth` still bypasses auth in both modes
+- [x] All existing tests pass, no clippy warnings
 
 ---
 
