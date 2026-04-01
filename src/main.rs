@@ -199,12 +199,18 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         },
-        Command::Status => match daemon::is_running() {
-            Some(pid) => {
-                let port_info = daemon::read_port()
-                    .map(|p| format!(", port {p}"))
-                    .unwrap_or_default();
-                println!("Adapter running on PID {pid}{port_info}");
+        Command::Status => match daemon::is_running_from_status() {
+            Some(status) => {
+                println!("Adapter running on PID {}", status.pid);
+                if status.port > 0 {
+                    println!("  Port:       {}", status.port);
+                }
+                if let Some(ref version) = status.version {
+                    println!("  Version:    {}", version);
+                }
+                if let Some(ref started_at) = status.started_at {
+                    println!("  Started at: {}", started_at);
+                }
             }
             None => {
                 println!("Adapter is not running.");

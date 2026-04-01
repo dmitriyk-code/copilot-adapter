@@ -167,6 +167,8 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     if write_pid {
+        crate::daemon::write_status(port)?;
+        // Also write legacy PID/port files for backward compatibility
         crate::daemon::write_pid_file()?;
         crate::daemon::write_port_file(port)?;
     }
@@ -177,10 +179,9 @@ pub async fn run(
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    // Clean up PID/port files on graceful shutdown
+    // Clean up all status files on graceful shutdown
     if write_pid {
-        crate::daemon::remove_pid_file();
-        crate::daemon::remove_port_file();
+        crate::daemon::remove_all_status_files();
     }
 
     tracing::info!("Server stopped");

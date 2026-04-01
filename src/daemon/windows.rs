@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 
-use super::{is_running, remove_pid_file, remove_port_file};
+use super::{is_running, remove_all_status_files};
 
 // Windows process creation flags
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -76,8 +76,7 @@ pub fn stop_daemon() -> Result<u32> {
             anyhow::bail!("Process {pid} did not exit within timeout after termination");
         }
 
-        remove_pid_file();
-        remove_port_file();
+        remove_all_status_files();
         Ok(pid)
     } else {
         anyhow::bail!("Adapter is not running")

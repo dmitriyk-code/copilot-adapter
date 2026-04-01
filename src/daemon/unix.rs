@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 
-use super::{is_running, remove_pid_file, remove_port_file};
+use super::{is_running, remove_all_status_files};
 
 /// Daemonize the current process using a double-fork pattern.
 ///
@@ -58,8 +58,7 @@ pub fn stop_daemon() -> Result<u32> {
             anyhow::bail!("Process {pid} did not exit within timeout after SIGTERM");
         }
 
-        remove_pid_file();
-        remove_port_file();
+        remove_all_status_files();
         Ok(pid)
     } else {
         anyhow::bail!("Adapter is not running")

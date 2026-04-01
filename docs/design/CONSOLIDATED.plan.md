@@ -164,7 +164,7 @@ cargo clippy
 
 ## Epic 2: Status File Module (1–1.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Create `~/.copilot-adapter/status.json` with parameterized APIs designed for profile support from the start.
 
@@ -274,10 +274,10 @@ pub fn is_running_from_status() -> Option<StatusFile> {
 ```
 
 **Acceptance Criteria:**
-- [ ] StatusFile struct with serde derives
-- [ ] Parameterized `*_to()` / `*_from()` API for Epic 4+
-- [ ] Convenience wrappers using default path
-- [ ] Legacy backward compatibility in `is_running_from_status()`
+- [x] StatusFile struct with serde derives
+- [x] Parameterized `*_to()` / `*_from()` API for Epic 4+
+- [x] Convenience wrappers using default path
+- [x] Legacy backward compatibility in `is_running_from_status()`
 
 ### Task 2.2: Register module and update daemon/mod.rs
 
@@ -831,7 +831,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
 | Epic 1 (Daemon Auth) | Not Started | - | - | |
-| Epic 2 (Status File) | Not Started | - | - | |
+| Epic 2 (Status File) | DONE | 2026-04-01 | 2026-04-01 | |
 | Epic 3 (Credential Storage) | Not Started | - | - | |
 | Epic 4 (Profile Model) | Not Started | - | - | Blocked by Epics 2–3 |
 | Epic 5 (Profile Storage) | Not Started | - | - | Blocked by Epics 2–4 |

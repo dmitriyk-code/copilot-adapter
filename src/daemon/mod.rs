@@ -3,6 +3,12 @@
 //! Provides PID file management, process lifecycle checks, and platform-specific
 //! daemonization (Unix) or background spawning (Windows).
 
+pub mod status;
+pub use status::{
+    get_base_dir, get_default_status_path, is_running_from_status, read_status, read_status_from,
+    remove_status, remove_status_from, write_status, write_status_to, StatusFile,
+};
+
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -28,27 +34,10 @@ pub fn get_pid_path() -> PathBuf {
 
 /// Checks whether the daemon process is currently running.
 ///
-/// Returns `Some(pid)` if a PID file exists and the process is alive,
-/// or `None` if not running (also cleans up stale PID files).
+/// Delegates to `is_running_from_status()` which checks the new status file
+/// first, then falls back to legacy PID files.
 pub fn is_running() -> Option<u32> {
-    let pid_path = get_pid_path();
-    if !pid_path.exists() {
-        return None;
-    }
-
-    let pid: u32 = std::fs::read_to_string(&pid_path)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()?;
-
-    if process_exists(pid) {
-        Some(pid)
-    } else {
-        // Stale PID file — clean it up
-        let _ = std::fs::remove_file(&pid_path);
-        None
-    }
+    is_running_from_status().map(|s| s.pid)
 }
 
 /// Writes the current process PID to the PID file.
@@ -89,8 +78,16 @@ pub fn process_exists(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-/// Reads the port number from the PID file's sibling port file, if available.
+/// Reads the port number, checking the new status file first, then legacy port file.
+///
+/// **Note:** Does not verify that the process owning the port is still alive.
+/// Use [`is_running_from_status()`] if liveness is required.
 pub fn read_port() -> Option<u16> {
+    // Check new status file first
+    if let Some(status) = read_status() {
+        return Some(status.port);
+    }
+    // Legacy fallback
     let port_path = get_pid_path().with_extension("port");
     std::fs::read_to_string(&port_path)
         .ok()?
@@ -110,6 +107,13 @@ pub fn write_port_file(port: u16) -> anyhow::Result<()> {
 pub fn remove_port_file() {
     let port_path = get_pid_path().with_extension("port");
     let _ = std::fs::remove_file(port_path);
+}
+
+/// Remove all status files: new status.json and legacy PID/port files.
+pub fn remove_all_status_files() {
+    remove_status();
+    remove_pid_file();
+    remove_port_file();
 }
 
 #[cfg(test)]
