@@ -31,12 +31,8 @@ pub struct AdapterConfig {
     pub debug_tools: bool,
     /// When `true`, use native OpenAI function calling instead of XML prompt
     /// injection. Falls back to XML injection if the upstream API returns a
-    /// tools-not-supported error.
+    /// tools-not-supported error. This is now the default behaviour.
     pub native_tools: bool,
-    /// When `true`, the user explicitly requested XML tool injection mode via
-    /// `--xml-tools`. This is the default behaviour but the flag allows
-    /// scripts/documentation to be explicit about the choice.
-    pub xml_tools: bool,
 }
 
 impl Default for AdapterConfig {
@@ -47,8 +43,7 @@ impl Default for AdapterConfig {
             conversation_log_path: None,
             conversation_log_max_size: 10_485_760,
             debug_tools: false,
-            native_tools: false,
-            xml_tools: false,
+            native_tools: true,
         }
     }
 }

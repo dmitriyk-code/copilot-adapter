@@ -62,27 +62,17 @@ pub enum Command {
         #[arg(long)]
         skip_auth: bool,
 
-        /// Use native OpenAI function calling instead of XML prompt injection for tools.
+        /// Disable native OpenAI function calling and force XML prompt injection for tools.
         ///
-        /// When enabled, tool definitions are forwarded natively to the Copilot API
-        /// and tool call responses stream progressively. Falls back to XML injection
-        /// if the upstream API does not support native tools.
+        /// By default, tool definitions are forwarded natively to the Copilot API
+        /// and tool call responses stream progressively, with automatic fallback to
+        /// XML injection if the upstream API does not support native tools.
         ///
-        /// Cannot be used together with --xml-tools.
-        #[arg(long, conflicts_with = "xml_tools")]
-        native_tools: bool,
-
-        /// Force XML-based tool injection (disables native tools).
-        ///
-        /// Tools are injected into the system prompt using XML format and parsed
-        /// from the model's text response. This is the default behavior.
-        /// Use this flag explicitly when you want to ensure XML mode is used,
-        /// for example to override environment-level defaults or if native tools
-        /// cause issues.
-        ///
-        /// Cannot be used together with --native-tools.
-        #[arg(long, conflicts_with = "native_tools")]
-        xml_tools: bool,
+        /// Use this flag to always use XML-based tool injection, where tools are
+        /// injected into the system prompt using XML format and parsed from the
+        /// model's text response. This may be useful if native tools cause issues.
+        #[arg(long)]
+        disable_native_tools: bool,
 
         /// Suppress startup guidance messages
         #[arg(short = 'q', long)]

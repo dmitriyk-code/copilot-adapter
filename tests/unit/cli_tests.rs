@@ -18,8 +18,7 @@ fn parse_start_defaults() {
             debug_tools,
             skip_auth,
             quiet,
-            native_tools,
-            xml_tools,
+            disable_native_tools,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -33,8 +32,7 @@ fn parse_start_defaults() {
             assert!(!debug_tools);
             assert!(!skip_auth);
             assert!(!quiet);
-            assert!(!native_tools);
-            assert!(!xml_tools);
+            assert!(!disable_native_tools);
         }
         _ => panic!("Expected Start command"),
     }
@@ -387,67 +385,33 @@ fn parse_start_quiet_with_daemon() {
 }
 
 #[test]
-fn parse_start_native_tools_flag() {
-    let cli = Cli::parse_from(["copilot-adapter", "start", "--native-tools"]);
-    match cli.command {
-        Command::Start { native_tools, .. } => assert!(native_tools),
-        _ => panic!("Expected Start command"),
-    }
-}
-
-#[test]
-fn parse_start_native_tools_default_false() {
+fn parse_start_native_tools_default_true() {
     let cli = Cli::parse_from(["copilot-adapter", "start"]);
     match cli.command {
-        Command::Start { native_tools, .. } => assert!(!native_tools),
+        Command::Start { disable_native_tools, .. } => assert!(!disable_native_tools),
         _ => panic!("Expected Start command"),
     }
 }
 
 #[test]
-fn parse_start_xml_tools_flag() {
-    let cli = Cli::parse_from(["copilot-adapter", "start", "--xml-tools"]);
+fn parse_start_disable_native_tools_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--disable-native-tools"]);
     match cli.command {
         Command::Start {
-            xml_tools,
-            native_tools,
+            disable_native_tools,
             ..
         } => {
-            assert!(xml_tools);
-            assert!(!native_tools);
+            assert!(disable_native_tools);
         }
         _ => panic!("Expected Start command"),
     }
 }
 
 #[test]
-fn parse_start_xml_tools_default_false() {
+fn parse_start_disable_native_tools_default_false() {
     let cli = Cli::parse_from(["copilot-adapter", "start"]);
     match cli.command {
-        Command::Start { xml_tools, .. } => assert!(!xml_tools),
+        Command::Start { disable_native_tools, .. } => assert!(!disable_native_tools),
         _ => panic!("Expected Start command"),
     }
-}
-
-#[test]
-fn parse_start_native_and_xml_tools_mutually_exclusive() {
-    let result = Cli::try_parse_from(["copilot-adapter", "start", "--native-tools", "--xml-tools"]);
-    assert!(
-        result.is_err(),
-        "Should error when both --native-tools and --xml-tools are specified"
-    );
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("native-tools") || err_msg.contains("xml-tools"),
-        "Error message should mention the conflicting flags: {err_msg}"
-    );
-}
-
-#[test]
-fn parse_start_xml_tools_order_reversed_still_conflicts() {
-    let result = Cli::try_parse_from(["copilot-adapter", "start", "--xml-tools", "--native-tools"]);
-    assert!(
-        result.is_err(),
-        "Should error when both flags specified in any order"
-    );
 }

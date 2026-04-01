@@ -9,7 +9,7 @@ A standalone Rust binary that acts as an **Anthropic-to-Copilot proxy**. This ad
 - **Model discovery** — `GET /v1/models` with dynamic fetching and caching
 - **SSE streaming** — real-time token-by-token responses
 - **Vision / image support** — image uploads translated to OpenAI multimodal format (base64 and URL)
-- **Tool/function support** — prompt injection for tool calling, with native OpenAI tools mode (experimental)
+- **Tool/function support** — native OpenAI function calling with automatic XML fallback
 - **Dynamic model discovery** — fetches available models from Copilot API with caching and fallback
 - **Automatic token management** — Copilot tokens refreshed 5 min before expiry
 - **Secure credential storage** — OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service) with encrypted file fallback
@@ -118,8 +118,7 @@ Claude Code will automatically route requests through the adapter to GitHub Copi
 | `copilot-adapter start --log-file /tmp/adapter.log` | Log to a file |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds, default: 300) |
 | `copilot-adapter start --static-models` | Use static model list (skip API fetch) |
-| `copilot-adapter start --native-tools` | Enable native OpenAI tools (progressive streaming, experimental) |
-| `copilot-adapter start --xml-tools` | Force XML-based tool injection (default behavior) |
+| `copilot-adapter start --disable-native-tools` | Disable native OpenAI tools and force XML-based tool injection |
 | `copilot-adapter status` | Check if the adapter is running |
 | `copilot-adapter stop` | Stop the running daemon |
 | `copilot-adapter logout` | Clear stored credentials |
@@ -293,26 +292,11 @@ curl -s -X POST http://127.0.0.1:6767/v1/messages \
 
 ## Tool/Function Support
 
-The adapter supports **tool/function calling** via two modes:
+The adapter supports **tool/function calling** with native OpenAI function calling enabled by default, with automatic fallback to XML prompt injection.
 
-### Mode 1: XML Prompt Injection (default)
+### Mode 1: Native OpenAI Tools (default)
 
-Since GitHub Copilot's upstream API does not natively support the Anthropic `tools` parameter in all configurations, the adapter works around this by:
-
-1. **Injecting** tool definitions into the system prompt as XML (following the Anthropic Cookbook format)
-2. **Instructing** the model to respond with structured XML when it wants to call a tool
-3. **Parsing** tool calls from `<function_calls>` XML blocks in the model's text response
-4. **Returning** them as `tool_use` content blocks (Anthropic format)
-
-This mode buffers the entire response before emitting SSE events.
-
-### Mode 2: Native OpenAI Tools (experimental)
-
-When started with `--native-tools`, the adapter passes tool definitions natively to the Copilot API in OpenAI function calling format:
-
-```bash
-copilot-adapter start --native-tools
-```
+By default, the adapter passes tool definitions natively to the Copilot API in OpenAI function calling format:
 
 Benefits:
 - **Progressive streaming** — text and tool calls appear as they are generated
@@ -321,19 +305,28 @@ Benefits:
 
 The adapter automatically falls back to XML injection if the upstream API does not support native tools.
 
-Use `--xml-tools` to explicitly force XML mode:
+### Mode 2: XML Prompt Injection (fallback)
+
+If native tools are disabled or not supported by the upstream API, the adapter uses XML prompt injection:
+
+1. **Injecting** tool definitions into the system prompt as XML (following the Anthropic Cookbook format)
+2. **Instructing** the model to respond with structured XML when it wants to call a tool
+3. **Parsing** tool calls from `<function_calls>` XML blocks in the model's text response
+4. **Returning** them as `tool_use` content blocks (Anthropic format)
+
+This mode buffers the entire response before emitting SSE events.
+
+### Disabling Native Tools
+
+To force XML-only mode (disable native tools), use the `--disable-native-tools` flag:
 
 ```bash
-copilot-adapter start --xml-tools
+copilot-adapter start --disable-native-tools
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--native-tools` | Enable native OpenAI function calling (experimental) |
-| `--xml-tools` | Force XML-based tool injection |
-| *(neither)* | Default: XML injection |
+This may be useful if native tools cause issues with your specific Copilot API configuration.
 
-> **Note:** `--native-tools` and `--xml-tools` are mutually exclusive.
+> **Note:** `--native-tools` is now the default behavior, so this flag is no longer needed.
 
 ### Tool Name Truncation
 
@@ -380,19 +373,19 @@ curl -X POST http://127.0.0.1:6767/v1/messages \
   }'
 ```
 
-### Limitations (XML Mode)
+### Limitations
 
+**Native Tools Mode (default):**
+- **`tool_choice` limited:** Only `"auto"` behavior is supported.
+- **No `parallel_tool_calls`:** Not explicitly supported.
+- **Fallback behavior:** Automatically falls back to XML mode if the upstream API does not support native tools.
+
+**XML Mode (fallback or when `--disable-native-tools` is used):**
 - **Best-effort parsing:** Tool call parsing is based on XML extraction from text. The model may not always respond in the expected format. When parsing fails, the response gracefully degrades to a plain text message.
 - **`tool_choice` limited:** Only `"auto"` behavior is supported. The `tool_choice` field is accepted but not enforced.
 - **No `parallel_tool_calls`:** The `parallel_tool_calls` parameter is not supported.
 - **Increased token usage:** Tool definitions are injected into the system prompt, increasing the token count.
 - **Streaming support:** Tool calls in streaming responses are detected via buffering — the adapter buffers the full response, parses tool calls, then replays modified chunks.
-
-### Limitations (Native Tools Mode)
-
-- **Experimental:** Native tools mode is experimental and may not work with all Copilot API configurations.
-- **`tool_choice` limited:** Only `"auto"` behavior is supported.
-- **No `parallel_tool_calls`:** Not explicitly supported.
 
 ### Debugging Tool Issues
 
