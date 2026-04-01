@@ -457,7 +457,7 @@ Uses `get_base_dir()` from `daemon::status` for the `~/.copilot-adapter/` root.
 
 ## Epic 5: Profile-Scoped Storage and Status (0.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Wire ProfileManager into the storage and status APIs built in Epics 2–3.
 
@@ -834,7 +834,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic 2 (Status File) | DONE | 2026-04-01 | 2026-04-01 | |
 | Epic 3 (Credential Storage) | DONE | 2026-04-01 | 2026-04-01 | File-first default, --use-keyring opt-in, migrate_from_to() extraction, dual-backend logout |
 | Epic 4 (Profile Model) | DONE | 2026-04-01 | 2026-04-01 | Profile struct, ProfileManager CRUD, port conflict detection, ASCII-only name validation |
-| Epic 5 (Profile Storage) | Not Started | - | - | Blocked by Epics 2–4 |
+| Epic 5 (Profile Storage) | DONE | 2026-04-01 | 2026-04-01 | create_storage_for_profile() convenience wrapper added |
 | Epic 6 (CLI Changes) | Not Started | - | - | Blocked by Epics 4–5 |
 | Epic 7 (Migration) | Not Started | - | - | Blocked by Epics 2–4 |
 | Epic 8 (Integration Tests) | Not Started | - | - | Blocked by Epics 1–7 |

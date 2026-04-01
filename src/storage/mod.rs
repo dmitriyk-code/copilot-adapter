@@ -4,6 +4,7 @@ pub mod keyring;
 #[cfg(target_os = "windows")]
 pub mod windows_credential;
 
+use crate::profile::types::Profile;
 use std::path::PathBuf;
 
 /// Trait for persisting the GitHub OAuth access token.
@@ -70,4 +71,15 @@ pub fn create_storage_with_path(
 
     tracing::info!(path = %path.display(), "Using file-based credential storage");
     Box::new(file::FileStorage::with_path(path))
+}
+
+/// Create a storage backend for a named profile.
+///
+/// Delegates to [`create_storage_with_path`] using `profile.credentials_path()`.
+/// This is the convenience entry point used by CLI commands when `--profile` is specified.
+pub fn create_storage_for_profile(
+    profile: &Profile,
+    use_keyring: bool,
+) -> Box<dyn TokenStorage + Send + Sync> {
+    create_storage_with_path(profile.credentials_path(), use_keyring)
 }
