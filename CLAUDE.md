@@ -131,7 +131,6 @@ cargo test
 - `GET /v1/models/:model` - Get model details
 
 ## Important Files
-
 - `DESIGN.md` - Full design document (architecture, API research, implementation details)
 - `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
 - `DYNAMIC-MODELS.design.md` - Design document for dynamic models list feature (implemented)
@@ -144,6 +143,14 @@ cargo test
 - `NATIVE-TOOLS-STREAMING.plan.md` - Implementation plan for native tools and schema-aware parsing
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
 - `docs/known-issues.md` - Known issues and workarounds
+
+## Major changes development process (features and bug fixes that introduce new concepts or touch multiple files / components)
+
+- Create a design document first under docs/design
+  - Use docs/design/DESIGN.template.md
+- Create an implementation plan
+  - Use docs/design/PLAN.template.md
+- If the feature is in the docs/design/backlog.md, update the backlog file
 
 ## Notes for Development
 
