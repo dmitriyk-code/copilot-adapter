@@ -1,6 +1,6 @@
 # Root Path and Token Counting — Implementation Plan
 
-**Status:** Proposed
+**Status:** In Progress
 **Date:** 2026-03-31
 **Based on:** [ROOT-AND-COUNT-TOKENS.design.md](./ROOT-AND-COUNT-TOKENS.design.md)
 **Prerequisite:** Core adapter implementation — COMPLETE
@@ -116,7 +116,7 @@ Both features improve Claude Code compatibility with minimal effort. The root pa
 
 ## Implementation Plan
 
-### Epic 1: Root Path Handler
+### Epic 1: Root Path Handler — ✅ COMPLETE
 
 **Goal:** Add `/` route returning 200 OK for GET and HEAD requests.
 
@@ -135,9 +135,9 @@ Both features improve Claude Code compatibility with minimal effort. The root pa
 | E1-T5 | TEST | Manual test: verify log shows 200 not 404 | Manual | 5m |
 
 **Acceptance Criteria:**
-- [ ] `curl http://localhost:6767/` returns `{"status":"ok"}`
-- [ ] `curl -I http://localhost:6767/` returns 200 OK
-- [ ] Logs show `status=200` for root path requests
+- [x] `curl http://localhost:6767/` returns `{"status":"ok"}`
+- [x] `curl -I http://localhost:6767/` returns 200 OK
+- [x] Logs show `status=200` for root path requests
 
 **Implementation Details:**
 
@@ -505,9 +505,9 @@ time curl -X POST http://localhost:6767/v1/messages/count_tokens \
 ## Rollout Plan
 
 ### Phase 1: Root Path Handler (Day 1)
-- [ ] Implement Epic 1 (root path)
-- [ ] Verify with curl
-- [ ] Verify logs show 200
+- [x] Implement Epic 1 (root path)
+- [x] Verify with curl
+- [x] Verify logs show 200
 
 ### Phase 2: Token Counting Types (Day 1)
 - [ ] Implement Epic 2 (types)

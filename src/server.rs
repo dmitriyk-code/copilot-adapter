@@ -100,6 +100,7 @@ async fn request_tracing(req: Request<Body>, next: middleware::Next) -> Response
 /// Build the axum Router with all routes and middleware layers.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route("/", get(handlers::health::root).head(handlers::health::root))
         .route("/health", get(handlers::health::health))
         .route(
             "/v1/messages",

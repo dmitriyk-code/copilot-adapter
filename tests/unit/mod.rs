@@ -1,4 +1,5 @@
 mod anthropic_image_tests;
+mod health_tests;
 mod anthropic_types_tests;
 mod browser_tests;
 mod cli_tests;
