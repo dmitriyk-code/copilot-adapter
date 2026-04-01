@@ -30,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
             skip_auth,
             quiet,
             disable_native_tools,
+            use_keyring,
         } => {
             // Check if another instance is already running
             if let Some(pid) = daemon::is_running() {
@@ -42,14 +43,14 @@ async fn main() -> anyhow::Result<()> {
             // with a cached Copilot token, we keep it and reuse it for the server
             // to avoid a redundant token-exchange network call on startup.
             let pre_validated_manager: Option<std::sync::Arc<TokenManager>> = if !skip_auth {
-                let store = storage::create_storage();
+                let store = storage::create_storage(use_keyring);
                 let has_token = store.get_github_token().is_ok();
 
                 if !has_token {
                     // Auth check runs before daemonization — parent has terminal access.
                     eprintln!("No authentication credentials found.");
                     eprintln!("Starting authentication flow...\n");
-                    run_auth(false).await?;
+                    run_auth(false, use_keyring).await?;
                     // run_auth uses its own TokenManager; create a fresh one for the server later.
                     None
                 } else {
@@ -67,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
                             eprintln!("Stored token is invalid or expired: {e}");
                             // Re-auth runs before daemonization — parent has terminal access.
                             eprintln!("Starting re-authentication...\n");
-                            run_auth(true).await?;
+                            run_auth(true, use_keyring).await?;
                             None
                         }
                     }
@@ -122,6 +123,9 @@ async fn main() -> anyhow::Result<()> {
                     if disable_native_tools {
                         args.push("--disable-native-tools".to_string());
                     }
+                    if use_keyring {
+                        args.push("--use-keyring".to_string());
+                    }
                     // Always pass --skip-auth and --quiet to the daemon child process.
                     // The parent has already validated credentials above; the child
                     // runs without a terminal (stdin/stdout/stderr are null) and
@@ -146,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
             let manager = match pre_validated_manager {
                 Some(m) => m,
                 None => {
-                    let store = storage::create_storage();
+                    let store = storage::create_storage(use_keyring);
                     let auth_client = DeviceFlowAuth::new();
                     std::sync::Arc::new(TokenManager::new(store, auth_client).await?)
                 }
@@ -216,9 +220,9 @@ async fn main() -> anyhow::Result<()> {
                 println!("Adapter is not running.");
             }
         },
-        Command::Auth { force } => {
+        Command::Auth { force, use_keyring } => {
             init_tracing("info");
-            run_auth(force).await?;
+            run_auth(force, use_keyring).await?;
         }
         Command::Logout => {
             init_tracing("info");
@@ -230,8 +234,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Run the GitHub OAuth device flow and store the resulting tokens.
-async fn run_auth(force: bool) -> anyhow::Result<()> {
-    let store = storage::create_storage();
+async fn run_auth(force: bool, use_keyring: bool) -> anyhow::Result<()> {
+    let store = storage::create_storage(use_keyring);
     let auth_client = DeviceFlowAuth::new();
     let manager = TokenManager::new(store, auth_client).await?;
 
@@ -316,12 +320,23 @@ async fn run_auth(force: bool) -> anyhow::Result<()> {
 }
 
 /// Clear all stored credentials.
+///
+/// Note: Logout clears both file and keyring storage to ensure credentials are
+/// fully removed regardless of which backend was used previously.
 async fn run_logout() -> anyhow::Result<()> {
-    let store = storage::create_storage();
+    // Clear file-based storage
+    let file_store = storage::create_storage(false);
     let auth_client = DeviceFlowAuth::new();
-    let manager = TokenManager::new(store, auth_client).await?;
-
+    let manager = TokenManager::new(file_store, auth_client).await?;
     manager.clear_tokens().await?;
+
+    // Also attempt to clear keyring storage (best-effort)
+    let keyring_store = storage::create_storage(true);
+    let auth_client2 = DeviceFlowAuth::new();
+    if let Ok(kr_manager) = TokenManager::new(keyring_store, auth_client2).await {
+        let _ = kr_manager.clear_tokens().await;
+    }
+
     println!("Logged out. All stored credentials have been removed.");
 
     Ok(())

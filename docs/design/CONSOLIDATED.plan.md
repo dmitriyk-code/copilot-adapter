@@ -319,7 +319,7 @@ Use `is_running_from_status()` for richer output (PID, port, version, start time
 
 ## Epic 3: File-First Credential Storage (1–1.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Move credentials to `~/.copilot-adapter/credentials.json` as the default, with keyring as opt-in.
 
@@ -832,7 +832,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 |------|--------|------------|----------|-------|
 | Epic 1 (Daemon Auth) | Not Started | - | - | |
 | Epic 2 (Status File) | DONE | 2026-04-01 | 2026-04-01 | |
-| Epic 3 (Credential Storage) | Not Started | - | - | |
+| Epic 3 (Credential Storage) | DONE | 2026-04-01 | 2026-04-01 | File-first default, --use-keyring opt-in, migrate_from_to() extraction, dual-backend logout |
 | Epic 4 (Profile Model) | Not Started | - | - | Blocked by Epics 2–3 |
 | Epic 5 (Profile Storage) | Not Started | - | - | Blocked by Epics 2–4 |
 | Epic 6 (CLI Changes) | Not Started | - | - | Blocked by Epics 4–5 |

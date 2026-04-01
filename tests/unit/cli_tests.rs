@@ -19,6 +19,7 @@ fn parse_start_defaults() {
             skip_auth,
             quiet,
             disable_native_tools,
+            use_keyring,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -33,6 +34,7 @@ fn parse_start_defaults() {
             assert!(!skip_auth);
             assert!(!quiet);
             assert!(!disable_native_tools);
+            assert!(!use_keyring);
         }
         _ => panic!("Expected Start command"),
     }
@@ -157,7 +159,10 @@ fn parse_status() {
 fn parse_auth() {
     let cli = Cli::parse_from(["copilot-adapter", "auth"]);
     match cli.command {
-        Command::Auth { force } => assert!(!force),
+        Command::Auth { force, use_keyring } => {
+            assert!(!force);
+            assert!(!use_keyring);
+        }
         _ => panic!("Expected Auth command"),
     }
 }
@@ -166,7 +171,10 @@ fn parse_auth() {
 fn parse_auth_force() {
     let cli = Cli::parse_from(["copilot-adapter", "auth", "--force"]);
     match cli.command {
-        Command::Auth { force } => assert!(force),
+        Command::Auth { force, use_keyring } => {
+            assert!(force);
+            assert!(!use_keyring);
+        }
         _ => panic!("Expected Auth command"),
     }
 }
@@ -413,5 +421,74 @@ fn parse_start_disable_native_tools_default_false() {
     match cli.command {
         Command::Start { disable_native_tools, .. } => assert!(!disable_native_tools),
         _ => panic!("Expected Start command"),
+    }
+}
+
+// --- Epic 3: --use-keyring flag tests ---
+
+#[test]
+fn parse_start_use_keyring_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--use-keyring"]);
+    match cli.command {
+        Command::Start { use_keyring, .. } => assert!(use_keyring),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_use_keyring_default_false() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start { use_keyring, .. } => assert!(!use_keyring),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_use_keyring_with_daemon() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--daemon", "--use-keyring"]);
+    match cli.command {
+        Command::Start {
+            daemon,
+            use_keyring,
+            ..
+        } => {
+            assert!(daemon);
+            assert!(use_keyring);
+        }
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_auth_use_keyring_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "auth", "--use-keyring"]);
+    match cli.command {
+        Command::Auth { force, use_keyring } => {
+            assert!(!force);
+            assert!(use_keyring);
+        }
+        _ => panic!("Expected Auth command"),
+    }
+}
+
+#[test]
+fn parse_auth_force_and_use_keyring() {
+    let cli = Cli::parse_from(["copilot-adapter", "auth", "--force", "--use-keyring"]);
+    match cli.command {
+        Command::Auth { force, use_keyring } => {
+            assert!(force);
+            assert!(use_keyring);
+        }
+        _ => panic!("Expected Auth command"),
+    }
+}
+
+#[test]
+fn parse_auth_use_keyring_default_false() {
+    let cli = Cli::parse_from(["copilot-adapter", "auth"]);
+    match cli.command {
+        Command::Auth { use_keyring, .. } => assert!(!use_keyring),
+        _ => panic!("Expected Auth command"),
     }
 }

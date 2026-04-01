@@ -99,3 +99,119 @@ fn keyring_storage_round_trip() {
     // Delete again (idempotent)
     ks.delete_github_token().unwrap();
 }
+
+// --- Epic 3: File-First Credential Storage tests ---
+
+#[test]
+fn get_credentials_path_is_under_copilot_adapter_dir() {
+    let path = copilot_adapter::storage::file::get_credentials_path();
+    assert_eq!(path.file_name().unwrap(), "credentials.json");
+    let parent = path.parent().unwrap();
+    assert!(
+        parent.ends_with(".copilot-adapter"),
+        "Expected credentials path parent to end with .copilot-adapter, got: {}",
+        parent.display()
+    );
+}
+
+#[test]
+fn create_storage_false_returns_file_storage() {
+    // create_storage(false) should always return a file-based storage,
+    // not try the keyring at all.
+    let _store = copilot_adapter::storage::create_storage(false);
+    // Verify it's a FileStorage by checking that store/retrieve works
+    // via a temp directory.
+    let dir = std::env::temp_dir().join(format!(
+        "copilot-adapter-create-storage-test-{}",
+        std::process::id()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("creds.json");
+
+    let store = copilot_adapter::storage::create_storage_with_path(path.clone(), false);
+    store.store_github_token("ghp_file_test").unwrap();
+    assert_eq!(store.get_github_token().unwrap(), "ghp_file_test");
+
+    // Verify it's actually file-based (the file should exist on disk)
+    assert!(path.exists(), "File should exist on disk for file-based storage");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn create_storage_with_path_uses_custom_path() {
+    let dir = std::env::temp_dir().join(format!(
+        "copilot-adapter-custom-path-test-{}",
+        std::process::id()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("custom_creds.json");
+
+    let store = copilot_adapter::storage::create_storage_with_path(path.clone(), false);
+    store.store_github_token("ghp_custom").unwrap();
+
+    // Verify the token is in the custom file
+    assert!(path.exists());
+    let retrieved = store.get_github_token().unwrap();
+    assert_eq!(retrieved, "ghp_custom");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn create_storage_true_tries_keyring() {
+    // create_storage(true) should try keyring first.
+    // On systems without a keyring, it falls back to file storage.
+    // Either way, the returned storage should be functional.
+    let dir = std::env::temp_dir().join(format!(
+        "copilot-adapter-keyring-fallback-test-{}",
+        std::process::id()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("creds.json");
+
+    let store = copilot_adapter::storage::create_storage_with_path(path.clone(), true);
+    store.store_github_token("ghp_keyring_or_file").unwrap();
+    let token = store.get_github_token().unwrap();
+    assert_eq!(token, "ghp_keyring_or_file");
+
+    // Clean up: delete the token and the temp dir
+    store.delete_github_token().unwrap();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn migration_copies_legacy_credentials() {
+    let dir = std::env::temp_dir().join(format!(
+        "copilot-adapter-migration-test-{}",
+        std::process::id()
+    ));
+    let legacy_dir = dir.join("legacy");
+    let new_dir = dir.join("new");
+    let _ = fs::create_dir_all(&legacy_dir);
+    // Deliberately do NOT create new_dir — migrate_from_to should handle it
+
+    let legacy_path = legacy_dir.join("credentials.json");
+    let new_path = new_dir.join("credentials.json");
+
+    // Create a credentials file at the "legacy" location
+    let legacy_storage = copilot_adapter::storage::file::FileStorage::with_path(legacy_path.clone());
+    legacy_storage.store_github_token("ghp_migration_token").unwrap();
+    assert!(legacy_path.exists());
+
+    // Run the actual migration function (not a manual fs::copy)
+    copilot_adapter::storage::file::migrate_from_to(&legacy_path, &new_path);
+
+    // Verify the new directory was created and the file was copied
+    assert!(new_path.exists(), "migrate_from_to should create the destination file");
+
+    // Verify the new location has the token
+    let new_storage = copilot_adapter::storage::file::FileStorage::with_path(new_path.clone());
+    let token = new_storage.get_github_token().unwrap();
+    assert_eq!(token, "ghp_migration_token");
+
+    // Legacy file should still exist (copy, not move)
+    assert!(legacy_path.exists());
+
+    let _ = fs::remove_dir_all(&dir);
+}

@@ -74,6 +74,15 @@ pub enum Command {
         #[arg(long)]
         disable_native_tools: bool,
 
+        /// Use the OS keyring for credential storage instead of the default file-based storage.
+        ///
+        /// By default, credentials are stored in ~/.copilot-adapter/credentials.json.
+        /// With this flag, the adapter will try to use the OS keyring (macOS Keychain,
+        /// Windows Credential Manager, or Linux Secret Service) and fall back to
+        /// file storage if the keyring is unavailable.
+        #[arg(long)]
+        use_keyring: bool,
+
         /// Suppress startup guidance messages
         #[arg(short = 'q', long)]
         quiet: bool,
@@ -90,8 +99,15 @@ pub enum Command {
         /// Force re-authentication
         #[arg(long)]
         force: bool,
+
+        /// Use the OS keyring for credential storage instead of the default file-based storage
+        #[arg(long)]
+        use_keyring: bool,
     },
 
     /// Remove stored credentials
+    ///
+    /// Clears stored credentials from both file storage and the OS keyring,
+    /// regardless of which backend was used previously.
     Logout,
 }

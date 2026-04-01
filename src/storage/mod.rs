@@ -4,6 +4,8 @@ pub mod keyring;
 #[cfg(target_os = "windows")]
 pub mod windows_credential;
 
+use std::path::PathBuf;
+
 /// Trait for persisting the GitHub OAuth access token.
 pub trait TokenStorage {
     /// Store the GitHub access token.
@@ -17,37 +19,55 @@ pub trait TokenStorage {
 }
 
 /// Create the best available storage backend.
-/// Tries OS keyring first, falls back to encrypted file storage.
-pub fn create_storage() -> Box<dyn TokenStorage + Send + Sync> {
-    match keyring::KeyringStorage::new() {
-        Ok(ks) => {
-            // Verify keyring works with a round-trip test
-            match ks.verify_available() {
+///
+/// When `use_keyring` is false (the default), uses file-based storage at
+/// `~/.copilot-adapter/credentials.json`. When `use_keyring` is true, tries
+/// the OS keyring first and falls back to file storage if unavailable.
+pub fn create_storage(use_keyring: bool) -> Box<dyn TokenStorage + Send + Sync> {
+    create_storage_with_path(file::get_credentials_path(), use_keyring)
+}
+
+/// Create a storage backend with a specific file path.
+///
+/// This is the parameterized version used by profile support (Epic 5+).
+/// The `path` is used for file-based storage; keyring storage ignores it.
+///
+/// **Note:** When `use_keyring` is true and the keyring is available, the `path`
+/// parameter is not used — all keyring entries share the service name
+/// `"copilot-adapter"`. Profile isolation via keyring would require separate
+/// service names, not paths.
+pub fn create_storage_with_path(
+    path: PathBuf,
+    use_keyring: bool,
+) -> Box<dyn TokenStorage + Send + Sync> {
+    if use_keyring {
+        match keyring::KeyringStorage::new() {
+            Ok(ks) => match ks.verify_available() {
                 Ok(true) => {
-                    tracing::debug!("Using OS keyring for token storage");
-                    Box::new(ks)
+                    tracing::info!("Using OS keyring for credential storage");
+                    return Box::new(ks);
                 }
                 Ok(false) => {
-                    tracing::info!(
-                        "OS keyring verification failed, falling back to encrypted file storage"
+                    tracing::warn!(
+                        "OS keyring verification failed, falling back to file storage"
                     );
-                    Box::new(file::FileStorage::new())
                 }
                 Err(e) => {
-                    tracing::info!(
+                    tracing::warn!(
                         error = %e,
-                        "OS keyring verification error, falling back to encrypted file storage"
+                        "OS keyring verification error, falling back to file storage"
                     );
-                    Box::new(file::FileStorage::new())
                 }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "OS keyring not available, falling back to file storage"
+                );
             }
         }
-        Err(e) => {
-            tracing::info!(
-                error = %e,
-                "OS keyring not available, falling back to encrypted file storage"
-            );
-            Box::new(file::FileStorage::new())
-        }
     }
+
+    tracing::info!(path = %path.display(), "Using file-based credential storage");
+    Box::new(file::FileStorage::with_path(path))
 }
