@@ -400,7 +400,7 @@ Update all `create_storage()` calls to pass `use_keyring`.
 
 ## Epic 4: Profile Data Model (1 day)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Introduce profile types and ProfileManager. Builds on the parameterized APIs from Epics 2–3.
 
@@ -802,19 +802,19 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 ## Rollout / Migration Plan
 
 ### Epics 1–3: Core Changes
-- [ ] Remove daemon auth gates in `src/main.rs`
-- [ ] Implement StatusFile module with parameterized API
-- [ ] Implement file-first credential storage with migration
-- [ ] Unit tests for status and credential storage
-- [ ] Code review
+- [x] Remove daemon auth gates in `src/main.rs`
+- [x] Implement StatusFile module with parameterized API
+- [x] Implement file-first credential storage with migration
+- [x] Unit tests for status and credential storage
+- [x] Code review
 
 ### Epics 4–7: Profiles
-- [ ] Implement Profile data model and ProfileManager
+- [x] Implement Profile data model and ProfileManager
 - [ ] Wire profile-scoped storage and status
 - [ ] Add CLI flags and subcommand
 - [ ] Implement auto-migration to profile directories
-- [ ] Unit tests for profile model
-- [ ] Code review
+- [x] Unit tests for profile model
+- [x] Code review
 
 ### Epics 8–10: Testing and Documentation
 - [ ] Integration tests complete
@@ -830,10 +830,10 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
-| Epic 1 (Daemon Auth) | Not Started | - | - | |
+| Epic 1 (Daemon Auth) | DONE | 2026-04-01 | 2026-04-01 | Removed is_daemon guard in auth validation path |
 | Epic 2 (Status File) | DONE | 2026-04-01 | 2026-04-01 | |
 | Epic 3 (Credential Storage) | DONE | 2026-04-01 | 2026-04-01 | File-first default, --use-keyring opt-in, migrate_from_to() extraction, dual-backend logout |
-| Epic 4 (Profile Model) | Not Started | - | - | Blocked by Epics 2–3 |
+| Epic 4 (Profile Model) | DONE | 2026-04-01 | 2026-04-01 | Profile struct, ProfileManager CRUD, port conflict detection, ASCII-only name validation |
 | Epic 5 (Profile Storage) | Not Started | - | - | Blocked by Epics 2–4 |
 | Epic 6 (CLI Changes) | Not Started | - | - | Blocked by Epics 4–5 |
 | Epic 7 (Migration) | Not Started | - | - | Blocked by Epics 2–4 |

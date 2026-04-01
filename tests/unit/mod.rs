@@ -15,6 +15,7 @@ mod guidance_tests;
 mod input_tests;
 mod models_cache_tests;
 mod native_tools_verification_tests;
+mod profile_tests;
 mod registry_tests;
 mod sse_tests;
 mod storage_tests;

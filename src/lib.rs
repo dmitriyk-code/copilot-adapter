@@ -8,6 +8,7 @@ pub mod error;
 pub mod guidance;
 pub mod handlers;
 pub mod model_mapper;
+pub mod profile;
 pub mod server;
 pub mod storage;
 pub mod streaming;
