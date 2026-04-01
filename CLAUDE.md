@@ -123,8 +123,10 @@ cargo test
 
 ## API Endpoints
 
+- `GET /` - Root path (health probe, returns 200 OK)
 - `GET /health` - Health check
 - `POST /v1/messages` - Anthropic-format messages (Claude Code native)
+- `POST /v1/messages/count_tokens` - Pre-flight token counting (tiktoken-rs)
 - `GET /v1/models` - List available models
 - `GET /v1/models/:model` - Get model details
 

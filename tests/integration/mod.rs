@@ -1,6 +1,7 @@
 mod auth_tests;
 #[path = "../common/mod.rs"]
 mod common;
+mod count_tokens_tests;
 mod daemon_tests;
 mod error_tests;
 mod messages_multimodal_tests;

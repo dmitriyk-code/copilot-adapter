@@ -298,7 +298,7 @@ pub fn count_tokens(request: &CountTokensRequest) -> Result<u32, TokenCountError
 
 ---
 
-### Epic 4: Count Tokens Handler
+### Epic 4: Count Tokens Handler ✅ COMPLETE
 
 **Goal:** Implement HTTP handler and route for `/v1/messages/count_tokens`.
 
@@ -308,22 +308,22 @@ pub fn count_tokens(request: &CountTokensRequest) -> Result<u32, TokenCountError
 
 **Tasks:**
 
-| Task ID | Type | Description | Files | Est. |
-|---------|------|-------------|-------|------|
-| E4-T1 | IMPL | Create `src/handlers/count_tokens.rs` | `src/handlers/count_tokens.rs` | 15m |
-| E4-T2 | IMPL | Implement `count_tokens()` handler | `src/handlers/count_tokens.rs` | 15m |
-| E4-T3 | IMPL | Add error handling (400 for bad requests) | `src/handlers/count_tokens.rs` | 10m |
-| E4-T4 | IMPL | Export module from `handlers/mod.rs` | `src/handlers/mod.rs` | 5m |
-| E4-T5 | IMPL | Register route in `build_router()` | `src/server.rs` | 5m |
-| E4-T6 | TEST | Integration test: valid request returns count | `tests/integration/` | 10m |
-| E4-T7 | TEST | Integration test: missing model returns 400 | `tests/integration/` | 5m |
-| E4-T8 | TEST | Integration test: empty messages returns count | `tests/integration/` | 5m |
+| Task ID | Type | Description | Files | Est. | Status |
+|---------|------|-------------|-------|------|--------|
+| E4-T1 | IMPL | Create `src/handlers/count_tokens.rs` | `src/handlers/count_tokens.rs` | 15m | ✅ DONE |
+| E4-T2 | IMPL | Implement `count_tokens()` handler | `src/handlers/count_tokens.rs` | 15m | ✅ DONE |
+| E4-T3 | IMPL | Add error handling (400 for bad requests) | `src/handlers/count_tokens.rs` | 10m | ✅ DONE |
+| E4-T4 | IMPL | Export module from `handlers/mod.rs` | `src/handlers/mod.rs` | 5m | ✅ DONE |
+| E4-T5 | IMPL | Register route in `build_router()` | `src/server.rs` | 5m | ✅ DONE |
+| E4-T6 | TEST | Integration test: valid request returns count | `tests/integration/` | 10m | ✅ DONE |
+| E4-T7 | TEST | Integration test: missing model returns 400 | `tests/integration/` | 5m | ✅ DONE |
+| E4-T8 | TEST | Integration test: empty messages returns count | `tests/integration/` | 5m | ✅ DONE |
 
 **Acceptance Criteria:**
-- [ ] `POST /v1/messages/count_tokens` responds with 200
-- [ ] Response format is `{"input_tokens": N}`
-- [ ] Invalid requests return 400 with error message
-- [ ] All integration tests pass
+- [x] `POST /v1/messages/count_tokens` responds with 200
+- [x] Response format is `{"input_tokens": N}`
+- [x] Invalid requests return 400 with error message
+- [x] All integration tests pass
 
 **Implementation Details:**
 
@@ -519,8 +519,8 @@ time curl -X POST http://localhost:6767/v1/messages/count_tokens \
 - [x] Unit tests pass
 
 ### Phase 4: Handler and Route (Day 2)
-- [ ] Implement Epic 4 (handler)
-- [ ] Integration tests pass
+- [x] Implement Epic 4 (handler)
+- [x] Integration tests pass
 - [ ] E2E verification
 
 ### Phase 5: Documentation (Day 2)

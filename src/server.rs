@@ -106,6 +106,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/v1/messages",
             axum::routing::post(handlers::messages::messages),
         )
+        .route(
+            "/v1/messages/count_tokens",
+            axum::routing::post(handlers::count_tokens::count_tokens),
+        )
         .route("/v1/models", get(handlers::models::list_models))
         .route("/v1/models/:model", get(handlers::models::get_model))
         .with_state(state)
