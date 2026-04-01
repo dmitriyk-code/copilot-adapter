@@ -517,6 +517,46 @@ fn has_tool_result_blocks(content: &ContentBlockInput) -> bool {
     }
 }
 
+/// Check if the content blocks contain any `tool_use` blocks.
+fn has_tool_use_blocks(content: &ContentBlockInput) -> bool {
+    match content {
+        ContentBlockInput::Text(_) => false,
+        ContentBlockInput::Blocks(blocks) => blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolUse { .. })),
+    }
+}
+
+/// Extract `tool_use` blocks from content and return them as OpenAI `ToolCall` objects.
+///
+/// Used in native tools mode to properly represent assistant tool calls in the
+/// OpenAI API format.
+fn extract_tool_calls(content: &ContentBlockInput) -> Vec<crate::tools::types::ToolCall> {
+    use crate::tools::types::{FunctionCall, ToolCall};
+
+    match content {
+        ContentBlockInput::Text(_) => vec![],
+        ContentBlockInput::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolUse { id, name, input, .. } => {
+                    // Convert `input` (serde_json::Value) to a JSON string for `arguments`
+                    let arguments = serde_json::to_string(input).ok();
+                    Some(ToolCall {
+                        id: Some(id.clone()),
+                        call_type: Some("function".to_string()),
+                        function: FunctionCall {
+                            name: Some(name.clone()),
+                            arguments,
+                        },
+                    })
+                }
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
 /// Extract `tool_result` blocks from content and return them as
 /// OpenAI-format `tool` role messages.
 fn extract_tool_result_messages(content: &ContentBlockInput) -> Vec<Message> {
@@ -563,7 +603,11 @@ impl AnthropicRequest {
     /// - Content blocks are flattened to plain text.
     /// - `tool_result` content blocks are translated to `tool` role messages.
     /// - `stop_sequences` maps to the OpenAI `stop` field.
-    pub fn to_chat_completion_request(&self) -> ChatCompletionRequest {
+    ///
+    /// When `native_tools` is true, assistant messages containing `tool_use`
+    /// blocks are translated with proper OpenAI `tool_calls` format, which is
+    /// required for subsequent `tool` role messages to be valid.
+    pub fn to_chat_completion_request(&self, native_tools: bool) -> ChatCompletionRequest {
         let mut messages = Vec::new();
 
         // Prepend system prompt as a system message
@@ -617,6 +661,27 @@ impl AnthropicRequest {
                         });
                     }
                 }
+            } else if native_tools && msg.role == "assistant" && has_tool_use_blocks(&msg.content) {
+                // Native tools mode: assistant messages with tool_use blocks must be
+                // translated with proper OpenAI `tool_calls` format. This is required
+                // for subsequent `tool` role messages to have valid `tool_call_id`
+                // references.
+                let tool_calls = extract_tool_calls(&msg.content);
+                let text = extract_text(&msg.content);
+
+                // OpenAI API expects content to be null or empty when there are tool_calls
+                // but some models handle non-empty content. We include the text if present.
+                messages.push(Message {
+                    role: msg.role.clone(),
+                    content: MessageContent::Text(text),
+                    name: None,
+                    tool_calls: if tool_calls.is_empty() {
+                        None
+                    } else {
+                        Some(tool_calls)
+                    },
+                    tool_call_id: None,
+                });
             } else {
                 // Known limitation: assistant messages containing `ToolUse` content
                 // blocks (from a prior turn's tool invocation) are reduced to

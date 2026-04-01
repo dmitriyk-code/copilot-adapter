@@ -150,7 +150,8 @@ pub async fn messages(
         .map(|t| ToolRegistry::from_tools(t));
 
     // Translate to Copilot API format (OpenAI-compatible)
-    let mut openai_request = request.to_chat_completion_request();
+    // XML injection path does not need native tool_calls translation
+    let mut openai_request = request.to_chat_completion_request(false);
 
     // Log model normalization if it happened
     if openai_request.model != request.model {
@@ -932,7 +933,8 @@ async fn handle_with_native_tools(
     }
 
     // Build OpenAI request with native tools attached.
-    let mut openai_request = request.to_chat_completion_request();
+    // Native tools mode: translate assistant tool_use blocks to proper tool_calls format
+    let mut openai_request = request.to_chat_completion_request(true);
     openai_request.tools = Some(translation.tools);
     openai_request.tool_choice = Some(serde_json::json!("auto"));
 

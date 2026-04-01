@@ -265,7 +265,7 @@ fn extract_text_with_image_block() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // Multimodal messages are now translated to Blocks; as_text() returns only text blocks
     assert_eq!(
         openai.messages[0].content.as_text(),
@@ -295,7 +295,7 @@ fn extract_text_with_document_block_titled() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // Document blocks are skipped in multimodal translation; only text remains
     assert_eq!(openai.messages[0].content.as_text(), "Summarize: ");
 }
@@ -313,7 +313,7 @@ fn extract_text_with_document_block_untitled() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // Document-only messages result in all blocks being skipped, so the message is omitted
     assert_eq!(openai.messages.len(), 0);
 }
@@ -392,7 +392,7 @@ fn mixed_content_blocks_in_message_deserialize() {
         }
         _ => panic!("Expected Blocks variant"),
     }
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // Multimodal path: image is translated to ImageUrl, document is skipped → 3 blocks
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -545,7 +545,7 @@ fn translate_text_block_to_openai() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // Text-only message should remain as MessageContent::Text (backward compatible)
     match &openai.messages[0].content {
         openai::MessageContent::Text(t) => assert_eq!(t, "Hello, world!"),
@@ -567,7 +567,7 @@ fn translate_text_block_in_array_without_images() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // Text-only blocks (no images) should still use Text path
     match &openai.messages[0].content {
         openai::MessageContent::Text(t) => assert_eq!(t, "Hello world"),
@@ -600,7 +600,7 @@ fn translate_image_base64_to_data_uri() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -645,7 +645,7 @@ fn translate_image_base64_jpeg() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -685,7 +685,7 @@ fn translate_image_url_passthrough() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -728,7 +728,7 @@ fn translate_document_block_skipped() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     // Document blocks are skipped; only the text block remains
     match &openai.messages[0].content {
@@ -767,7 +767,7 @@ fn translate_document_only_message() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     // All blocks were skipped → no message emitted
     assert!(openai.messages.is_empty());
 }
@@ -805,7 +805,7 @@ fn translate_mixed_text_and_images() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -866,7 +866,7 @@ fn translate_mixed_text_image_document() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {
@@ -924,7 +924,7 @@ fn full_request_translation_with_images() {
         "stream": true
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     // Verify request-level fields
     assert_eq!(openai.model, "gpt-4o");
@@ -1005,7 +1005,7 @@ fn full_request_translation_preserves_tool_result_path() {
         ]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     // Tool result should be translated to tool role message
     assert_eq!(openai.messages.len(), 1);
@@ -1039,7 +1039,7 @@ fn image_with_cache_control_translates_correctly() {
         }]
     });
     let req: AnthropicRequest = serde_json::from_value(json).unwrap();
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
 
     match &openai.messages[0].content {
         openai::MessageContent::Blocks(blocks) => {

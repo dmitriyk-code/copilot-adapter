@@ -237,7 +237,7 @@ fn request_translation_with_system_prepends_system_message() {
         tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages.len(), 2);
     assert_eq!(openai.messages[0].role, "system");
     assert_eq!(
@@ -266,7 +266,7 @@ fn request_translation_without_system_no_extra_message() {
         tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages.len(), 1);
     assert_eq!(openai.messages[0].role, "user");
 }
@@ -298,7 +298,7 @@ fn request_translation_extracts_text_from_content_blocks() {
         tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages[0].content.as_text(), "Hello world!");
 }
 
@@ -320,7 +320,7 @@ fn request_translation_maps_fields() {
         tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.model, "claude-sonnet-4-20250514");
     assert_eq!(openai.max_tokens, Some(2048));
     assert_eq!(openai.stream, Some(true));
@@ -357,7 +357,7 @@ fn request_translation_multiple_messages() {
         tool_choice: None,
     };
 
-    let openai = req.to_chat_completion_request();
+    let openai = req.to_chat_completion_request(false);
     assert_eq!(openai.messages.len(), 4);
     assert_eq!(openai.messages[0].role, "system");
     assert_eq!(openai.messages[0].content.as_text(), "Be concise.");
@@ -580,4 +580,210 @@ fn map_stop_reason_values() {
         Some("content_filter".to_string())
     );
     assert_eq!(map_stop_reason(None), None);
+}
+
+// ---------------------------------------------------------------------------
+// Native tools: assistant message with tool_use blocks
+// ---------------------------------------------------------------------------
+
+#[test]
+fn native_tools_assistant_message_with_tool_use_gets_tool_calls() {
+    // When native_tools=true, assistant messages with tool_use blocks should
+    // be translated with proper OpenAI tool_calls format.
+    let req = AnthropicRequest {
+        model: "claude-3".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Search for files".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Text {
+                        text: "I'll search for that.".to_string(),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_01ABC".to_string(),
+                        name: "search_files".to_string(),
+                        input: serde_json::json!({"query": "test"}),
+                        cache_control: None,
+                    },
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "toolu_01ABC".to_string(),
+                    content: ToolResultContent::Text("Found 3 files".to_string()),
+                    cache_control: None,
+                }]),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+    };
+
+    // With native_tools=true
+    let openai = req.to_chat_completion_request(true);
+
+    // Should have: user, assistant (with tool_calls), tool
+    assert_eq!(openai.messages.len(), 3);
+    assert_eq!(openai.messages[0].role, "user");
+    assert_eq!(openai.messages[1].role, "assistant");
+    assert_eq!(openai.messages[2].role, "tool");
+
+    // Assistant message should have tool_calls
+    let tool_calls = openai.messages[1].tool_calls.as_ref().unwrap();
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].id, Some("toolu_01ABC".to_string()));
+    assert_eq!(
+        tool_calls[0].function.name,
+        Some("search_files".to_string())
+    );
+    assert_eq!(
+        tool_calls[0].function.arguments,
+        Some(r#"{"query":"test"}"#.to_string())
+    );
+
+    // Tool message should reference the same ID
+    assert_eq!(
+        openai.messages[2].tool_call_id,
+        Some("toolu_01ABC".to_string())
+    );
+}
+
+#[test]
+fn non_native_tools_assistant_message_with_tool_use_no_tool_calls() {
+    // When native_tools=false (XML injection mode), assistant messages with
+    // tool_use blocks should NOT have tool_calls (the tool_use is embedded in text).
+    let req = AnthropicRequest {
+        model: "claude-3".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Search for files".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Text {
+                        text: "I'll search for that.".to_string(),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_01ABC".to_string(),
+                        name: "search_files".to_string(),
+                        input: serde_json::json!({"query": "test"}),
+                        cache_control: None,
+                    },
+                ]),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+    };
+
+    // With native_tools=false
+    let openai = req.to_chat_completion_request(false);
+
+    // Assistant message should NOT have tool_calls
+    assert!(openai.messages[1].tool_calls.is_none());
+    // Should only have text content
+    assert_eq!(
+        openai.messages[1].content.as_text(),
+        "I'll search for that."
+    );
+}
+
+#[test]
+fn native_tools_multiple_tool_use_blocks() {
+    // Test with multiple tool_use blocks in one assistant message
+    let req = AnthropicRequest {
+        model: "claude-3".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Search and read".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Text {
+                        text: "I'll do both.".to_string(),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_01ABC".to_string(),
+                        name: "search_files".to_string(),
+                        input: serde_json::json!({"query": "test"}),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "toolu_02XYZ".to_string(),
+                        name: "read_file".to_string(),
+                        input: serde_json::json!({"path": "/tmp/file.txt"}),
+                        cache_control: None,
+                    },
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::ToolResult {
+                        tool_use_id: "toolu_01ABC".to_string(),
+                        content: ToolResultContent::Text("Found files".to_string()),
+                        cache_control: None,
+                    },
+                    ContentBlock::ToolResult {
+                        tool_use_id: "toolu_02XYZ".to_string(),
+                        content: ToolResultContent::Text("File contents".to_string()),
+                        cache_control: None,
+                    },
+                ]),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+    };
+
+    let openai = req.to_chat_completion_request(true);
+
+    // Should have: user, assistant (with 2 tool_calls), tool, tool
+    assert_eq!(openai.messages.len(), 4);
+
+    // Assistant message should have 2 tool_calls
+    let tool_calls = openai.messages[1].tool_calls.as_ref().unwrap();
+    assert_eq!(tool_calls.len(), 2);
+    assert_eq!(tool_calls[0].id, Some("toolu_01ABC".to_string()));
+    assert_eq!(tool_calls[1].id, Some("toolu_02XYZ".to_string()));
+
+    // Both tool messages should have correct IDs
+    assert_eq!(
+        openai.messages[2].tool_call_id,
+        Some("toolu_01ABC".to_string())
+    );
+    assert_eq!(
+        openai.messages[3].tool_call_id,
+        Some("toolu_02XYZ".to_string())
+    );
 }
