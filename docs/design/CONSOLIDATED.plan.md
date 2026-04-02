@@ -545,7 +545,7 @@ Check temp dir PID file and migrate to default profile status. Remove legacy con
 
 ## Epic 8: Integration Tests (0.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Automated integration tests covering all new functionality.
 
@@ -810,14 +810,14 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 
 ### Epics 4–7: Profiles
 - [x] Implement Profile data model and ProfileManager
-- [ ] Wire profile-scoped storage and status
-- [ ] Add CLI flags and subcommand
-- [ ] Implement auto-migration to profile directories
+- [x] Wire profile-scoped storage and status
+- [x] Add CLI flags and subcommand
+- [x] Implement auto-migration to profile directories
 - [x] Unit tests for profile model
 - [x] Code review
 
 ### Epics 8–10: Testing and Documentation
-- [ ] Integration tests complete
+- [x] Integration tests complete
 - [ ] Manual E2E verification
 - [ ] CLAUDE.md, e2e-testing.md, BACKLOG.md updated
 - [ ] Final review
@@ -837,7 +837,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic 5 (Profile Storage) | DONE | 2026-04-01 | 2026-04-01 | create_storage_for_profile() convenience wrapper added |
 | Epic 6 (CLI Changes) | DONE | 2026-04-01 | 2026-04-02 | Added --profile/-P, --all, profiles subcommand; profile-scoped start/stop/status/auth/logout; review fixes: stale status liveness check, stop --all error reporting, --all+--profile warning, Windows taskkill docs, keyring isolation warning; review round 2: replaced string-based error discrimination in stop --all with typed StopOutcome enum, added liveness check to find_by_port for consistency with check_port_conflict |
 | Epic 7 (Migration) | DONE | 2026-04-02 | 2026-04-02 | Auto-migration at startup: flat-dir status.json/credentials.json → profiles/default/, legacy temp dir PID file synthesis, idempotent via profiles/ existence check, 15 unit tests. Fix-up: migrate_legacy_pid_file() invalid-PID-content path now removes both PID and port files (all four cleanup branches are now symmetric); test updated to create companion .port file and assert both removed. |
-| Epic 8 (Integration Tests) | Not Started | - | - | Blocked by Epics 1–7 |
+| Epic 8 (Integration Tests) | DONE | 2026-04-02 | 2026-04-02 | 44 tests: daemon auth (2), status lifecycle (5), credential storage (5), profile lifecycle (8), multi-instance (5), migration (11); all in daemon_tests.rs and profile_tests.rs |
 | Epic 9 (Manual E2E Tests) | Not Started | - | - | Blocked by Epics 1–7 |
 | Epic 10 (Documentation) | Not Started | - | - | Blocked by Epics 1–7 |
 
