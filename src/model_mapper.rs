@@ -4,16 +4,16 @@
 /// Claude Code uses versioned model identifiers like:
 /// - `claude-haiku-4-5-20251001` (with datestamp)
 /// - `claude-sonnet-4-5-20251022`
-/// - `claude-opus-4-6-1m-20251120` (with context size marker)
+/// - `claude-opus-4-6-1m-20251120` (with context size marker + datestamp)
 ///
-/// GitHub Copilot expects simple model names like:
+/// GitHub Copilot expects model names like:
 /// - `claude-haiku-4.5`
 /// - `claude-sonnet-4.5`
-/// - `claude-opus-4.6`
+/// - `claude-opus-4.6-1m` (preserves context marker)
 ///
 /// This function normalizes the model names by:
 /// 1. Stripping datestamp suffixes (e.g., `-20251001`)
-/// 2. Removing context size markers (e.g., `-1m`)
+/// 2. Preserving context size markers (e.g., `-1m`)
 /// 3. Converting dashes to dots in version numbers (e.g., `4-5` → `4.5`)
 pub fn normalize_model_name(model: &str) -> String {
     // If already in correct format, return as-is
@@ -26,13 +26,19 @@ pub fn normalize_model_name(model: &str) -> String {
 
     // Handle Claude models with versioned format
     if model.starts_with("claude-") {
+        // Check if already normalized (contains dots in version)
+        if model.contains('.') {
+            // Already normalized, return as-is
+            return model.to_string();
+        }
+
         // Split by dashes
         let parts: Vec<&str> = model.split('-').collect();
 
         // Expected format: claude-{family}-{major}-{minor}[-{context}][-{datestamp}]
         // Examples:
         // - claude-haiku-4-5-20251001 → claude-haiku-4.5
-        // - claude-opus-4-6-1m-20251120 → claude-opus-4.6
+        // - claude-opus-4-6-1m-20251120 → claude-opus-4.6-1m
         // - claude-sonnet-4-5 → claude-sonnet-4.5 (already normalized, no date)
 
         if parts.len() < 4 {
@@ -50,12 +56,37 @@ pub fn normalize_model_name(model: &str) -> String {
             return model.to_string();
         }
 
+        // Check for context marker and datestamp in remaining parts
+        let mut context_marker = None;
+
+        if parts.len() > 4 {
+            // Look for context marker (e.g., "1m", "200k") - non-datestamp numeric suffixes
+            for part in &parts[4..] {
+                if !part.is_empty()
+                    && !is_datestamp(part)
+                    && (part.ends_with('m') || part.ends_with('k') || part.chars().all(|c| c.is_ascii_digit()))
+                {
+                    context_marker = Some(*part);
+                    break;
+                }
+            }
+        }
+
         // Construct normalized model name
-        format!("claude-{}-{}.{}", family, major, minor)
+        if let Some(marker) = context_marker {
+            format!("claude-{}-{}.{}-{}", family, major, minor, marker)
+        } else {
+            format!("claude-{}-{}.{}", family, major, minor)
+        }
     } else {
         // Unknown format, return as-is
         model.to_string()
     }
+}
+
+/// Helper function to check if a string looks like a datestamp (8 digits)
+fn is_datestamp(s: &str) -> bool {
+    s.len() == 8 && s.chars().all(|c| c.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -74,7 +105,7 @@ mod tests {
     fn test_normalize_claude_opus_with_context_and_date() {
         assert_eq!(
             normalize_model_name("claude-opus-4-6-1m-20251120"),
-            "claude-opus-4.6"
+            "claude-opus-4.6-1m"
         );
     }
 
@@ -122,6 +153,42 @@ mod tests {
         assert_eq!(
             normalize_model_name("claude-opus-4-20250514"),
             "claude-opus-4-20250514"
+        );
+    }
+
+    #[test]
+    fn test_normalize_claude_with_context_marker_only() {
+        // claude-opus-4-6-1m → claude-opus-4.6-1m
+        assert_eq!(
+            normalize_model_name("claude-opus-4-6-1m"),
+            "claude-opus-4.6-1m"
+        );
+    }
+
+    #[test]
+    fn test_normalize_claude_with_200k_context() {
+        // claude-sonnet-4-5-200k → claude-sonnet-4.5-200k
+        assert_eq!(
+            normalize_model_name("claude-sonnet-4-5-200k"),
+            "claude-sonnet-4.5-200k"
+        );
+    }
+
+    #[test]
+    fn test_normalize_claude_with_context_and_multiple_parts() {
+        // claude-haiku-4-5-200k-20251001 → claude-haiku-4.5-200k
+        assert_eq!(
+            normalize_model_name("claude-haiku-4-5-200k-20251001"),
+            "claude-haiku-4.5-200k"
+        );
+    }
+
+    #[test]
+    fn test_normalize_claude_already_normalized_with_context() {
+        // Already normalized with context marker
+        assert_eq!(
+            normalize_model_name("claude-opus-4.6-1m"),
+            "claude-opus-4.6-1m"
         );
     }
 }

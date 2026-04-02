@@ -13,6 +13,7 @@ Claude Code uses **versioned model identifiers** with datestamps that don't matc
 - `claude-haiku-4.5` (simple name, dots instead of dashes)
 - `claude-sonnet-4.5`
 - `claude-opus-4.6`
+- `claude-opus-4.6-1m` (with context marker preserved)
 
 When the adapter passed these versioned names directly to Copilot, the API either rejected them or used a fallback model.
 
@@ -21,7 +22,7 @@ When the adapter passed these versioned names directly to Copilot, the API eithe
 Added automatic model name normalization in `src/model_mapper.rs` that:
 
 1. **Strips datestamp suffixes** (e.g., `-20251001`)
-2. **Removes context size markers** (e.g., `-1m`)
+2. **Preserves context size markers** (e.g., `-1m`, `-200k`)
 3. **Converts dashes to dots** in version numbers (e.g., `4-5` → `4.5`)
 
 The normalization is applied at the `/v1/messages` endpoint (Anthropic format) in `src/anthropic/types.rs`.
@@ -33,14 +34,30 @@ pub fn normalize_model_name(model: &str) -> String {
     // Handle Claude models with versioned format
     if model.starts_with("claude-") {
         // claude-haiku-4-5-20251001 → claude-haiku-4.5
-        // claude-opus-4-6-1m-20251120 → claude-opus-4.6
+        // claude-opus-4-6-1m-20251120 → claude-opus-4.6-1m
+        
+        // Check if already normalized (contains dots)
+        if model.contains('.') {
+            return model.to_string();
+        }
 
         let parts: Vec<&str> = model.split('-').collect();
         let family = parts[1]; // haiku, sonnet, opus
         let major = parts[2];  // 4
         let minor = parts[3];  // 5
 
-        format!("claude-{}-{}.{}", family, major, minor)
+        // Look for context marker (e.g., "1m", "200k") in remaining parts
+        // Skip datestamps (8-digit numbers)
+        let context_marker = parts[4..]
+            .iter()
+            .find(|part| !is_datestamp(part) && 
+                         (part.ends_with('m') || part.ends_with('k')));
+
+        if let Some(marker) = context_marker {
+            format!("claude-{}-{}.{}-{}", family, major, minor, marker)
+        } else {
+            format!("claude-{}-{}.{}", family, major, minor)
+        }
     } else {
         // GPT and other models pass through unchanged
         model.to_string()
@@ -71,7 +88,9 @@ cargo test model_mapper
 Tests cover:
 - Claude models with datestamps
 - Claude models with context size markers + dates
-- Claude models already normalized
+- Claude models with context markers only (e.g., `claude-opus-4-6-1m`)
+- Claude models with various context sizes (e.g., `200k`)
+- Claude models already normalized (with dots)
 - GPT models (pass-through)
 - Gemini models (pass-through)
 
