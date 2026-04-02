@@ -88,7 +88,7 @@ pub trait TokenStorage: Send + Sync {
 | G2 | Remove `--use-keyring` flag | CLI simplified; `Start` and `Auth` commands lose the flag |
 | G3 | Human-readable credential file | `github-copilot.json` is valid JSON with `version`, `storage`, and optional `github_token` fields |
 | G4 | Profile-scoped keyring entries | Each profile stores credentials independently in the OS keyring |
-| G5 | Transparent migration | Old `credentials.json` (XOR format) auto-migrated on first access |
+| G5 | Transparent migration with security priority | Old `credentials.json` (XOR format) auto-deleted on first access; migration best-effort; **priority is removing insecure storage**, not preserving credentials; re-authentication if migration fails is acceptable |
 | G6 | Refuse insecure storage | If no native encryption is available, refuse to save credentials and show a clear error guiding the user |
 
 ### Non-Goals
@@ -294,10 +294,215 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 2. Old keyring entry (`copilot-adapter` / `github_token`) on macOS/Linux
 
 **Process:**
-1. Read old token from source
-2. Store via `NativeStorage` (creates `github-copilot.json`)
-3. Rename old `credentials.json` → `credentials.json.bak` (preserves rollback option)
+1. Read old token from source (best-effort)
+2. Store via `NativeStorage` (creates `github-copilot.json`) if read succeeds
+3. **Delete** old `credentials.json` (removes insecure XOR format)
 4. Delete old keyring entry if migrated from there
+
+**Important**: If migration fails (corrupted file, username changed, etc.), the old file is still deleted and the user is prompted to re-authenticate. The goal is to **stop storing tokens in XOR format**, not to preserve backward compatibility at all costs.
+
+### Backward Compatibility — Detailed Specification
+
+#### Migration Trigger Conditions
+
+The migration logic is invoked in `NativeStorage::new()` and checks the following conditions in order:
+
+1. **Primary check**: `github-copilot.json` does NOT exist in the profile directory
+2. **Secondary check**: `credentials.json` (old XOR format) DOES exist in the same directory
+3. **Edge case**: Both files exist → remove old `credentials.json`, use new format (no migration)
+
+#### Old XOR Format Detection
+
+The old format is detected by:
+- **Filename**: `credentials.json` (same name, different content format)
+- **Content**: Opaque binary data (XOR-obfuscated JSON, despite `.json` extension)
+- **Structure when decrypted**: `{"github_token": "ghp_..."}`
+
+**Key characteristics:**
+- No `version` field (implicit version 1)
+- Binary file, not human-readable
+- Key derived from fixed string + OS username
+- Symmetric XOR transform for encryption/decryption
+
+#### Legacy Module (`src/storage/legacy.rs`)
+
+Extract XOR read functions from current `src/storage/file.rs` for migration use:
+
+```rust
+/// Read a GitHub token from an old XOR-obfuscated credentials.json file.
+///
+/// Returns:
+/// - `Ok(token)` if the token was successfully read
+/// - `Err(...)` with descriptive error if:
+///   - File doesn't exist
+///   - File is corrupted
+///   - OS username has changed (XOR key mismatch)
+pub fn read_xor_token(path: &Path) -> Result<String> {
+    // 1. Read raw binary file
+    // 2. Generate XOR key from username
+    // 3. XOR transform (reverses encryption)
+    // 4. Deserialize JSON
+    // 5. Extract github_token field
+}
+
+// Internal helpers (not public)
+fn obfuscation_key() -> Vec<u8>
+fn xor_transform(data: &[u8], key: &[u8]) -> Vec<u8>
+```
+
+**Important**: This module is **read-only** and used only for migration. Do not use for new credential storage.
+
+#### Migration Implementation (`src/storage/native.rs`)
+
+```rust
+impl NativeStorage {
+    pub fn new(file_path: PathBuf) -> Result<Self> {
+        let method = detect_method();
+        
+        // Migration: Check if we need to migrate from old XOR format
+        if !file_path.exists() {
+            let old_path = file_path.with_file_name("credentials.json");
+            if old_path.exists() {
+                migrate_from_xor(&old_path, &file_path, method);
+                // Note: migrate_from_xor always deletes old file, even on failure
+            }
+        }
+        
+        // Edge case: Both old and new exist → remove old one
+        let old_path = file_path.with_file_name("credentials.json");
+        if file_path.exists() && old_path.exists() {
+            if let Err(e) = std::fs::remove_file(&old_path) {
+                tracing::warn!(
+                    error = %e,
+                    path = %old_path.display(),
+                    "Failed to remove old credentials file (new format already exists)"
+                );
+            } else {
+                tracing::info!("Removed old XOR credentials file (new format already exists)");
+            }
+        }
+        
+        Ok(Self { file_path, method })
+    }
+}
+
+fn migrate_from_xor(old_path: &Path, new_path: &Path, method: StorageMethod) {
+    tracing::info!(
+        old = %old_path.display(),
+        new = %new_path.display(),
+        method = ?method,
+        "Migrating credentials from XOR format to native encryption"
+    );
+    
+    // 1. Try to read token from old XOR format (best-effort)
+    let token_result = legacy::read_xor_token(old_path);
+    
+    // 2. If successful, write in new format
+    if let Ok(token) = token_result {
+        match NativeStorage {
+            file_path: new_path.to_path_buf(),
+            method,
+        }.store_github_token(&token) {
+            Ok(_) => {
+                tracing::info!("Successfully migrated credentials to new format");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to store credentials in new format. \
+                     Please run `copilot-adapter auth` to re-authenticate."
+                );
+            }
+        }
+    } else {
+        tracing::warn!(
+            error = %token_result.unwrap_err(),
+            "Failed to read old XOR credentials. \
+             Please run `copilot-adapter auth` to re-authenticate."
+        );
+    }
+    
+    // 3. ALWAYS delete old file (removes insecure XOR format)
+    if let Err(e) = std::fs::remove_file(old_path) {
+        tracing::warn!(
+            error = %e,
+            path = %old_path.display(),
+            "Failed to delete old XOR credentials file"
+        );
+    } else {
+        tracing::info!("Deleted old XOR credentials file");
+    }
+}
+```
+
+#### Migration Behavior Matrix
+
+| Scenario | `github-copilot.json` | `credentials.json` | Action |
+|----------|----------------------|--------------------|--------|
+| **First run (new user)** | Not exists | Not exists | Normal flow: create new format on first auth |
+| **Migration needed** | Not exists | Exists (XOR) | Read XOR → Write new format → **Delete old file** |
+| **Already migrated** | Exists | Not exists | Normal flow: use new format |
+| **Both exist** | Exists | Exists | Delete old file, use new format (no migration) |
+| **Migration failed** | Not exists | Exists (corrupt) | Log warning, prompt re-auth, **delete old file anyway** |
+
+#### Edge Cases and Error Handling
+
+| Edge Case | Detection | Behavior |
+|-----------|-----------|----------|
+| **Corrupted XOR file** | `serde_json` deserialization fails | Log warning with clear message; prompt re-authentication; **delete old file** (stops insecure storage) |
+| **Username changed** | XOR decrypt produces invalid JSON | Same as corrupted file (log + prompt re-auth + **delete old file**) |
+| **Both files exist** | Both paths exist on entry | Delete old file without migration; log info message; use new format |
+| **New format write fails** | `store_github_token()` returns error | Log error; prompt re-authentication; **delete old file anyway** |
+| **Old file missing** | `old_path.exists()` returns false | No migration needed; normal flow |
+| **Old file deletion fails** | `std::fs::remove_file()` returns error | Log warning; migration may have succeeded; user should manually delete |
+| **Permission denied (read)** | `std::fs::read()` fails with permission error | Log error; prompt re-authentication; **attempt to delete old file anyway** |
+
+#### Idempotency Guarantees
+
+1. **Primary idempotency**: If `github-copilot.json` exists, skip migration entirely (checked at entry)
+2. **Secondary idempotency**: If migration runs twice (race condition), second run skips because new file exists
+3. **Edge case idempotency**: If both files exist, only removal is attempted (safe, no data loss)
+
+#### Logging Strategy
+
+**Info-level logs** (successful migration):
+```
+INFO  Migrating credentials from XOR format to native encryption old=/path/credentials.json new=/path/github-copilot.json method=Dpapi
+INFO  Successfully migrated credentials to new format
+INFO  Deleted old XOR credentials file
+```
+
+**Warning-level logs** (migration failures):
+```
+WARN  Failed to read old XOR credentials. Please run `copilot-adapter auth` to re-authenticate. error="Failed to parse credentials file. This can happen if your OS username changed..."
+WARN  Failed to store credentials in new format. Please run `copilot-adapter auth` to re-authenticate. error="..."
+WARN  Failed to delete old XOR credentials file error="Permission denied" path=/path/credentials.json
+```
+
+**Info-level logs** (edge case: both files exist):
+```
+INFO  Removed old XOR credentials file (new format already exists)
+```
+
+#### Testing Requirements
+
+Add to unit tests (see Testing Strategy section):
+
+1. **Migration success**: Create old XOR file → construct `NativeStorage` → verify new file created with correct format → verify old file deleted
+2. **Migration idempotent**: Run migration twice → verify second run is no-op
+3. **Edge case both files**: Create both formats → construct `NativeStorage` → verify old file deleted
+4. **Corrupted XOR**: Create invalid XOR file → verify graceful failure with warning → verify old file deleted anyway
+5. **Username changed**: Mock username change → verify XOR decrypt fails gracefully → verify old file deleted
+6. **Old file deletion fails**: Mock filesystem error on delete → verify migration proceeds with warning
+7. **Permission denied**: Mock permission error → verify clear error message → verify deletion attempted
+
+#### Profile Isolation
+
+Each profile migrates independently:
+- Profile `default`: `~/.copilot-adapter/profiles/default/credentials.json` → `github-copilot.json`
+- Profile `work`: `~/.copilot-adapter/profiles/work/credentials.json` → `github-copilot.json`
+
+Migration state is per-profile (no shared migration marker file).
 
 ---
 
@@ -315,7 +520,11 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 | Rename to `github-copilot.json` | Less provocative filename; signals the file is not raw credentials |
 | `version: 2` field | Enables future format changes without ambiguity |
 | `base64` encoding for encrypted blob | Binary data in JSON requires encoding; base64 is standard and human-recognizable |
-| Keep old file as `.bak` | Allows rollback if user needs to downgrade to older adapter version |
+| **Delete old file, don't backup** | Priority is removing insecure XOR storage; if migration fails, prompt re-auth; simpler than managing backups |
+| Migration in constructor | Automatic and transparent; no user action needed; happens on first access per profile |
+| Extract XOR code to `legacy.rs` | Clean separation: read-only migration helpers vs. active storage implementation |
+| Remove old file if both exist | Clear intent: new format takes precedence; prevents confusion; logged clearly |
+| Graceful failure on corrupted XOR | Never crash on bad data; log warning and prompt re-auth; **always delete old file**; user-friendly error messages |
 
 ---
 
@@ -325,9 +534,9 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 |------|--------|-------------|
 | `src/storage/dpapi.rs` | **New** | Windows DPAPI encrypt/decrypt FFI |
 | `src/storage/native.rs` | **New** | Unified `NativeStorage` implementing `TokenStorage` |
-| `src/storage/legacy.rs` | **New** (from `file.rs`) | XOR migration helpers only |
-| `src/storage/mod.rs` | Modified | Simplified factory functions, new module declarations |
-| `src/storage/file.rs` | **Deleted** → `legacy.rs` | `FileStorage` struct removed |
+| `src/storage/legacy.rs` | **New** | XOR read functions extracted from `file.rs` for migration; read-only, not for new code |
+| `src/storage/mod.rs` | Modified | Simplified factory functions, export `legacy` module |
+| `src/storage/file.rs` | **Deleted** | `FileStorage` struct removed; XOR functions moved to `legacy.rs` |
 | `src/storage/keyring.rs` | **Deleted** | Merged into `native.rs` |
 | `src/storage/windows_credential.rs` | **Deleted** | Replaced by DPAPI |
 | `src/cli.rs` | Modified | Remove `use_keyring` from `Start` and `Auth` |
@@ -336,7 +545,7 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 | `src/profile/migration.rs` | Modified | Update `credentials.json` references |
 | `Cargo.toml` | Modified | Add `base64`; change `windows-sys` features |
 | `tests/windows_credential_test.rs` | **Deleted** | Dead code |
-| Test files | Modified | Rewrite for `NativeStorage`, remove `use_keyring` tests |
+| Test files | Modified | Rewrite for `NativeStorage`, remove `use_keyring` tests, add migration tests |
 | `CLAUDE.md` | Modified | Update storage documentation |
 
 ---
@@ -351,6 +560,12 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 5. **Retrieval by storage field**: write file with `"storage": "dpapi"`, verify read dispatches correctly
 6. **Unavailable storage**: mock no-keyring environment → verify `store_github_token()` returns clear error
 7. **Migration from XOR**: create old format file → construct `NativeStorage` → verify auto-migration
+8. **Migration idempotent**: run migration twice → verify second run is no-op
+9. **Edge case both files**: create both old and new files → construct `NativeStorage` → verify old file removed
+10. **Corrupted XOR file**: create invalid XOR credentials → verify graceful failure with warning
+11. **Username changed**: mock username change → verify XOR decrypt fails gracefully
+12. **Backup failure**: mock filesystem error on rename → verify migration succeeds anyway
+13. **Permission denied**: mock permission error → verify clear error message
 
 ### Integration Tests
 1. **Auth flow → credential persistence**: authenticate → restart → token loaded
@@ -360,7 +575,10 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 ### Manual E2E Tests
 1. Windows: `auth` → verify `github-copilot.json` contains `"storage": "dpapi"` with base64 blob
 2. macOS/Linux: `auth` → verify `github-copilot.json` contains `"storage": "keyring"`
-3. Migration: place old XOR `credentials.json`, start → verify auto-migration creates `github-copilot.json` and `credentials.json.bak`
+3. Migration: place old XOR `credentials.json`, start → verify auto-migration creates `github-copilot.json` and **deletes** `credentials.json`
+4. Edge case both files: create both `credentials.json` and `github-copilot.json` → start → verify `credentials.json` deleted
+5. Corrupted migration: create corrupted `credentials.json` → start → verify warning logged, prompt for re-auth, **old file deleted**
+6. New user flow: fresh install → `auth` → verify only `github-copilot.json` created
 
 ---
 
@@ -371,8 +589,12 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 | DPAPI fails on unusual Windows configurations | Medium | Very Low | DPAPI is available on all Windows since 2000; no known failure modes |
 | Windows user profile reset makes DPAPI data unreadable | Low | Low | Clear error message prompting re-authentication |
 | Keyring unavailable on headless Linux | Medium | Medium | Clear error message with instructions to install Secret Service provider; adapter still usable with `--skip-auth` for external token management |
-| Old XOR migration fails (corrupted file, username changed) | Low | Low | Warning logged; user prompted to re-authenticate |
-| Users confused by file rename | Low | Low | Migration is transparent; old file kept as `.bak` |
+| Old XOR migration fails (corrupted file, username changed) | Low | Low | Warning logged; user prompted to re-authenticate; **old file deleted** to stop insecure storage |
+| Users confused by file rename | Low | Low | Migration is transparent; old file deleted; documentation updated |
+| Migration race condition (concurrent adapter starts) | Very Low | Very Low | Idempotent design prevents data loss; second migration attempt is no-op |
+| Old file deletion fails due to permission issues | Very Low | Low | Warning logged; user instructed to manually delete; adapter still works with new format |
+| Both old and new files exist (partial migration) | Very Low | Low | Detected as edge case; old file deleted; new file used; logged clearly |
+| User loses credentials if migration fails | Low | Medium | Acceptable trade-off; re-authentication is straightforward; priority is stopping insecure storage |
 
 ---
 
@@ -381,7 +603,12 @@ pub fn decrypt(encrypted: &[u8]) -> Result<Vec<u8>> {
 1. **Windows:** `github-copilot.json` created with `"storage": "dpapi"` after authentication
 2. **macOS/Linux:** Token stored in OS keyring, sentinel JSON created with `"storage": "keyring"`
 3. **No `--use-keyring` flag** in `copilot-adapter start --help` or `copilot-adapter auth --help`
-4. **Migration:** Old `credentials.json` automatically migrated, `.bak` preserved
+4. **Migration:** Old `credentials.json` automatically deleted after migration attempt (successful or not)
+5. **Migration idempotent:** Running adapter multiple times does not re-migrate
+6. **Edge case handled:** If both old and new files exist, old file is deleted
+7. **Graceful failure:** Corrupted XOR files log clear warning, prompt re-authentication, and **delete old file**
+8. **All tests pass:** `cargo test` on all platforms, including migration-specific tests
+9. **Security priority:** No insecure XOR credentials remain after first run with new adapter
 5. **All tests pass:** `cargo test` on all platforms
 
 ---
