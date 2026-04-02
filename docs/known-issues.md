@@ -115,3 +115,28 @@ returned inside tool results.
 Known limitation. A follow-up may unify the handling so that `Image` blocks
 inside `ToolResult` also use the fixed 85-token estimate, matching top-level
 behavior.
+
+---
+
+## Windows Stop Uses Hard Kill
+
+### Description
+On Windows, `copilot-adapter stop` uses `taskkill /F` (force kill) to terminate
+the adapter process. Unlike Unix SIGTERM, this bypasses the server's graceful
+shutdown handler, which normally drains in-flight requests before exiting.
+
+### Impact
+In-flight SSE streaming responses may be abruptly truncated when stopping on
+Windows. The adapter's status file is cleaned up externally by the stop command,
+so no stale state is left behind.
+
+### Workaround
+No workaround needed for most use cases. The status file cleanup is handled
+externally. If graceful shutdown is critical, stop the adapter when no requests
+are in flight, or use Ctrl+C in foreground mode (which triggers a clean
+shutdown via the tokio signal handler).
+
+### Status
+Known limitation. A future improvement could use a Windows named event or pipe
+to signal the adapter process for a graceful shutdown, similar to how Unix
+SIGTERM works.

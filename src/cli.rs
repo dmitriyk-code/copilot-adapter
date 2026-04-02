@@ -80,19 +80,43 @@ pub enum Command {
         /// With this flag, the adapter will try to use the OS keyring (macOS Keychain,
         /// Windows Credential Manager, or Linux Secret Service) and fall back to
         /// file storage if the keyring is unavailable.
+        ///
+        /// Note: Keyring entries are shared across profiles. Logging out with
+        /// --use-keyring from any profile clears the shared keyring credential,
+        /// affecting all profiles that use keyring storage.
         #[arg(long)]
         use_keyring: bool,
 
         /// Suppress startup guidance messages
         #[arg(short = 'q', long)]
         quiet: bool,
+
+        /// Named profile to use (allows multiple concurrent instances)
+        #[arg(short = 'P', long, default_value = "default")]
+        profile: String,
     },
 
     /// Stop the background adapter
-    Stop,
+    Stop {
+        /// Named profile to stop
+        #[arg(short = 'P', long, default_value = "default")]
+        profile: String,
+
+        /// Stop all running profiles
+        #[arg(long)]
+        all: bool,
+    },
 
     /// Show adapter status
-    Status,
+    Status {
+        /// Named profile to check
+        #[arg(short = 'P', long, default_value = "default")]
+        profile: String,
+
+        /// Show status of all profiles
+        #[arg(long)]
+        all: bool,
+    },
 
     /// Authenticate with GitHub
     Auth {
@@ -100,14 +124,48 @@ pub enum Command {
         #[arg(long)]
         force: bool,
 
-        /// Use the OS keyring for credential storage instead of the default file-based storage
+        /// Use the OS keyring for credential storage instead of the default file-based storage.
+        /// Note: Keyring entries are shared across all profiles.
         #[arg(long)]
         use_keyring: bool,
+
+        /// Named profile to authenticate
+        #[arg(short = 'P', long, default_value = "default")]
+        profile: String,
     },
 
     /// Remove stored credentials
     ///
     /// Clears stored credentials from both file storage and the OS keyring,
     /// regardless of which backend was used previously.
-    Logout,
+    Logout {
+        /// Named profile to log out
+        #[arg(short = 'P', long, default_value = "default")]
+        profile: String,
+    },
+
+    /// Manage named profiles for multi-instance support
+    Profiles {
+        #[command(subcommand)]
+        action: ProfilesAction,
+    },
+}
+
+/// Subcommands for profile management.
+#[derive(Subcommand, Debug)]
+pub enum ProfilesAction {
+    /// List all profiles
+    List,
+
+    /// Create a new named profile
+    Create {
+        /// Name of the profile to create
+        name: String,
+    },
+
+    /// Delete an existing profile
+    Delete {
+        /// Name of the profile to delete
+        name: String,
+    },
 }

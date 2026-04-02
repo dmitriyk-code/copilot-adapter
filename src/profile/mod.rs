@@ -139,9 +139,17 @@ impl ProfileManager {
     }
 
     /// Find the profile whose `status.json` reports the given port.
+    ///
+    /// Only returns a profile if the recorded process is still alive. Stale
+    /// status files (where the process has exited) are cleaned up automatically.
     pub fn find_by_port(&self, port: u16) -> Option<Profile> {
         for profile in self.list() {
             if let Some(status) = read_status_from(&profile.status_path()) {
+                if !crate::daemon::process_exists(status.pid) {
+                    // Stale status file — clean up
+                    crate::daemon::status::remove_status_from(&profile.status_path());
+                    continue;
+                }
                 if status.port == port {
                     return Some(profile);
                 }
@@ -153,13 +161,20 @@ impl ProfileManager {
     /// Check that no *other* profile is already using the given port.
     ///
     /// Returns `Ok(())` if the port is free or only used by `current_profile`.
-    /// Returns an error if another profile has a `status.json` claiming that port.
+    /// Returns an error if another live profile process has claimed that port.
+    /// Stale status files (where the process is no longer running) are ignored
+    /// and cleaned up.
     pub fn check_port_conflict(&self, port: u16, current_profile: &str) -> Result<()> {
         for profile in self.list() {
             if profile.name == current_profile {
                 continue;
             }
             if let Some(status) = read_status_from(&profile.status_path()) {
+                // Skip (and clean up) stale status files from dead processes
+                if !crate::daemon::process_exists(status.pid) {
+                    crate::daemon::status::remove_status_from(&profile.status_path());
+                    continue;
+                }
                 if status.port == port {
                     anyhow::bail!(
                         "Port {} is already in use by profile '{}'",

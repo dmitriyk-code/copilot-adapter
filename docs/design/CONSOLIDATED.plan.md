@@ -486,7 +486,7 @@ No changes to `daemon/status.rs` — the `write_status_to()`, `read_status_from(
 
 ## Epic 6: CLI Changes (1 day)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Add `--profile`, `--all`, and `profiles` subcommand to the CLI.
 
@@ -835,7 +835,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic 3 (Credential Storage) | DONE | 2026-04-01 | 2026-04-01 | File-first default, --use-keyring opt-in, migrate_from_to() extraction, dual-backend logout |
 | Epic 4 (Profile Model) | DONE | 2026-04-01 | 2026-04-01 | Profile struct, ProfileManager CRUD, port conflict detection, ASCII-only name validation |
 | Epic 5 (Profile Storage) | DONE | 2026-04-01 | 2026-04-01 | create_storage_for_profile() convenience wrapper added |
-| Epic 6 (CLI Changes) | Not Started | - | - | Blocked by Epics 4–5 |
+| Epic 6 (CLI Changes) | DONE | 2026-04-01 | 2026-04-02 | Added --profile/-P, --all, profiles subcommand; profile-scoped start/stop/status/auth/logout; review fixes: stale status liveness check, stop --all error reporting, --all+--profile warning, Windows taskkill docs, keyring isolation warning; review round 2: replaced string-based error discrimination in stop --all with typed StopOutcome enum, added liveness check to find_by_port for consistency with check_port_conflict |
 | Epic 7 (Migration) | Not Started | - | - | Blocked by Epics 2–4 |
 | Epic 8 (Integration Tests) | Not Started | - | - | Blocked by Epics 1–7 |
 | Epic 9 (Manual E2E Tests) | Not Started | - | - | Blocked by Epics 1–7 |

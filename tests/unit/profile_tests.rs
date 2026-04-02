@@ -260,6 +260,39 @@ fn check_port_conflict_ok_for_same_profile() {
 }
 
 #[test]
+fn check_port_conflict_skips_stale_status_file() {
+    use copilot_adapter::daemon::status::StatusFile;
+
+    let base = test_dir("port-stale");
+    let mgr = ProfileManager::with_base_dir(base.clone());
+
+    // Create "default" with a status.json claiming port 6767 but with a dead PID
+    let default_profile = mgr.get("default").unwrap();
+    let stale_status = StatusFile {
+        pid: 99999999, // bogus PID that doesn't exist
+        port: 6767,
+        started_at: None,
+        version: None,
+    };
+    fs::write(
+        &default_profile.status_path(),
+        serde_json::to_string_pretty(&stale_status).unwrap(),
+    )
+    .unwrap();
+
+    // Create "work" profile
+    mgr.create("work").unwrap();
+
+    // Should succeed because the process behind "default" is dead (stale)
+    assert!(mgr.check_port_conflict(6767, "work").is_ok());
+
+    // The stale status file should have been cleaned up
+    assert!(!default_profile.status_path().exists());
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn find_by_port_returns_matching_profile() {
     let base = test_dir("find-port");
     let mgr = ProfileManager::with_base_dir(base.clone());
@@ -284,6 +317,37 @@ fn find_by_port_returns_none_when_no_match() {
 
     let found = mgr.find_by_port(8080);
     assert!(found.is_none());
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn find_by_port_skips_stale_status_and_cleans_up() {
+    use copilot_adapter::daemon::status::StatusFile;
+
+    let base = test_dir("find-port-stale");
+    let mgr = ProfileManager::with_base_dir(base.clone());
+
+    let profile = mgr.create("stale-web").unwrap();
+    // Write a status file with a dead PID
+    let stale_status = StatusFile {
+        pid: 99999999,
+        port: 8080,
+        started_at: None,
+        version: None,
+    };
+    fs::write(
+        &profile.status_path(),
+        serde_json::to_string_pretty(&stale_status).unwrap(),
+    )
+    .unwrap();
+
+    // Should return None because the process is dead
+    let found = mgr.find_by_port(8080);
+    assert!(found.is_none());
+
+    // The stale status file should have been cleaned up
+    assert!(!profile.status_path().exists());
 
     let _ = fs::remove_dir_all(&base);
 }

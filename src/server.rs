@@ -120,6 +120,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 /// Start the HTTP server on the given host and port.
 ///
 /// When `write_pid` is true, writes PID and port files for daemon management.
+/// If `status_path` is provided, the status file is written to and cleaned up
+/// from that path (profile-scoped). Otherwise the default status path is used.
 /// On shutdown, PID and port files are cleaned up automatically.
 pub async fn run(
     host: &str,
@@ -127,6 +129,7 @@ pub async fn run(
     token_manager: Arc<TokenManager>,
     write_pid: bool,
     config: AdapterConfig,
+    status_path: Option<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
     let http_client = reqwest::Client::new();
     let models_cache = ModelsCache::new(config.models_cache_ttl);
@@ -167,7 +170,10 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     if write_pid {
-        crate::daemon::write_status(port)?;
+        match &status_path {
+            Some(path) => crate::daemon::write_status_to(path, port)?,
+            None => crate::daemon::write_status(port)?,
+        }
         // Also write legacy PID/port files for backward compatibility
         crate::daemon::write_pid_file()?;
         crate::daemon::write_port_file(port)?;
@@ -181,7 +187,13 @@ pub async fn run(
 
     // Clean up all status files on graceful shutdown
     if write_pid {
-        crate::daemon::remove_all_status_files();
+        if let Some(path) = &status_path {
+            crate::daemon::remove_status_from(path);
+        } else {
+            crate::daemon::remove_status();
+        }
+        crate::daemon::remove_pid_file();
+        crate::daemon::remove_port_file();
     }
 
     tracing::info!("Server stopped");

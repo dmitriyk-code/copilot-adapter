@@ -1,5 +1,5 @@
 use clap::Parser;
-use copilot_adapter::cli::{Cli, Command};
+use copilot_adapter::cli::{Cli, Command, ProfilesAction};
 
 #[test]
 fn parse_start_defaults() {
@@ -20,6 +20,7 @@ fn parse_start_defaults() {
             quiet,
             disable_native_tools,
             use_keyring,
+            profile,
         } => {
             assert!(!daemon);
             assert_eq!(port, 6767);
@@ -35,6 +36,7 @@ fn parse_start_defaults() {
             assert!(!quiet);
             assert!(!disable_native_tools);
             assert!(!use_keyring);
+            assert_eq!(profile, "default");
         }
         _ => panic!("Expected Start command"),
     }
@@ -146,22 +148,35 @@ fn parse_start_all_flags() {
 #[test]
 fn parse_stop() {
     let cli = Cli::parse_from(["copilot-adapter", "stop"]);
-    assert!(matches!(cli.command, Command::Stop));
+    match cli.command {
+        Command::Stop { profile, all } => {
+            assert_eq!(profile, "default");
+            assert!(!all);
+        }
+        _ => panic!("Expected Stop command"),
+    }
 }
 
 #[test]
 fn parse_status() {
     let cli = Cli::parse_from(["copilot-adapter", "status"]);
-    assert!(matches!(cli.command, Command::Status));
+    match cli.command {
+        Command::Status { profile, all } => {
+            assert_eq!(profile, "default");
+            assert!(!all);
+        }
+        _ => panic!("Expected Status command"),
+    }
 }
 
 #[test]
 fn parse_auth() {
     let cli = Cli::parse_from(["copilot-adapter", "auth"]);
     match cli.command {
-        Command::Auth { force, use_keyring } => {
+        Command::Auth { force, use_keyring, profile } => {
             assert!(!force);
             assert!(!use_keyring);
+            assert_eq!(profile, "default");
         }
         _ => panic!("Expected Auth command"),
     }
@@ -171,9 +186,10 @@ fn parse_auth() {
 fn parse_auth_force() {
     let cli = Cli::parse_from(["copilot-adapter", "auth", "--force"]);
     match cli.command {
-        Command::Auth { force, use_keyring } => {
+        Command::Auth { force, use_keyring, profile } => {
             assert!(force);
             assert!(!use_keyring);
+            assert_eq!(profile, "default");
         }
         _ => panic!("Expected Auth command"),
     }
@@ -182,7 +198,12 @@ fn parse_auth_force() {
 #[test]
 fn parse_logout() {
     let cli = Cli::parse_from(["copilot-adapter", "logout"]);
-    assert!(matches!(cli.command, Command::Logout));
+    match cli.command {
+        Command::Logout { profile } => {
+            assert_eq!(profile, "default");
+        }
+        _ => panic!("Expected Logout command"),
+    }
 }
 
 #[test]
@@ -464,7 +485,7 @@ fn parse_start_use_keyring_with_daemon() {
 fn parse_auth_use_keyring_flag() {
     let cli = Cli::parse_from(["copilot-adapter", "auth", "--use-keyring"]);
     match cli.command {
-        Command::Auth { force, use_keyring } => {
+        Command::Auth { force, use_keyring, .. } => {
             assert!(!force);
             assert!(use_keyring);
         }
@@ -476,7 +497,7 @@ fn parse_auth_use_keyring_flag() {
 fn parse_auth_force_and_use_keyring() {
     let cli = Cli::parse_from(["copilot-adapter", "auth", "--force", "--use-keyring"]);
     match cli.command {
-        Command::Auth { force, use_keyring } => {
+        Command::Auth { force, use_keyring, .. } => {
             assert!(force);
             assert!(use_keyring);
         }
@@ -491,4 +512,239 @@ fn parse_auth_use_keyring_default_false() {
         Command::Auth { use_keyring, .. } => assert!(!use_keyring),
         _ => panic!("Expected Auth command"),
     }
+}
+
+// --- Epic 6: --profile, --all, and profiles subcommand tests ---
+
+#[test]
+fn parse_start_profile_default() {
+    let cli = Cli::parse_from(["copilot-adapter", "start"]);
+    match cli.command {
+        Command::Start { profile, .. } => assert_eq!(profile, "default"),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_profile_custom() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "--profile", "work"]);
+    match cli.command {
+        Command::Start { profile, .. } => assert_eq!(profile, "work"),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_profile_short_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "start", "-P", "staging"]);
+    match cli.command {
+        Command::Start { profile, .. } => assert_eq!(profile, "staging"),
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_start_profile_with_port() {
+    let cli = Cli::parse_from([
+        "copilot-adapter",
+        "start",
+        "-P",
+        "work",
+        "-p",
+        "9090",
+    ]);
+    match cli.command {
+        Command::Start { profile, port, .. } => {
+            assert_eq!(profile, "work");
+            assert_eq!(port, 9090);
+        }
+        _ => panic!("Expected Start command"),
+    }
+}
+
+#[test]
+fn parse_stop_profile_default() {
+    let cli = Cli::parse_from(["copilot-adapter", "stop"]);
+    match cli.command {
+        Command::Stop { profile, all } => {
+            assert_eq!(profile, "default");
+            assert!(!all);
+        }
+        _ => panic!("Expected Stop command"),
+    }
+}
+
+#[test]
+fn parse_stop_profile_custom() {
+    let cli = Cli::parse_from(["copilot-adapter", "stop", "--profile", "work"]);
+    match cli.command {
+        Command::Stop { profile, all } => {
+            assert_eq!(profile, "work");
+            assert!(!all);
+        }
+        _ => panic!("Expected Stop command"),
+    }
+}
+
+#[test]
+fn parse_stop_all() {
+    let cli = Cli::parse_from(["copilot-adapter", "stop", "--all"]);
+    match cli.command {
+        Command::Stop { all, .. } => assert!(all),
+        _ => panic!("Expected Stop command"),
+    }
+}
+
+#[test]
+fn parse_stop_profile_short_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "stop", "-P", "dev"]);
+    match cli.command {
+        Command::Stop { profile, .. } => assert_eq!(profile, "dev"),
+        _ => panic!("Expected Stop command"),
+    }
+}
+
+#[test]
+fn parse_status_profile_default() {
+    let cli = Cli::parse_from(["copilot-adapter", "status"]);
+    match cli.command {
+        Command::Status { profile, all } => {
+            assert_eq!(profile, "default");
+            assert!(!all);
+        }
+        _ => panic!("Expected Status command"),
+    }
+}
+
+#[test]
+fn parse_status_profile_custom() {
+    let cli = Cli::parse_from(["copilot-adapter", "status", "--profile", "work"]);
+    match cli.command {
+        Command::Status { profile, all } => {
+            assert_eq!(profile, "work");
+            assert!(!all);
+        }
+        _ => panic!("Expected Status command"),
+    }
+}
+
+#[test]
+fn parse_status_all() {
+    let cli = Cli::parse_from(["copilot-adapter", "status", "--all"]);
+    match cli.command {
+        Command::Status { all, .. } => assert!(all),
+        _ => panic!("Expected Status command"),
+    }
+}
+
+#[test]
+fn parse_status_profile_short_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "status", "-P", "staging"]);
+    match cli.command {
+        Command::Status { profile, .. } => assert_eq!(profile, "staging"),
+        _ => panic!("Expected Status command"),
+    }
+}
+
+#[test]
+fn parse_auth_profile_default() {
+    let cli = Cli::parse_from(["copilot-adapter", "auth"]);
+    match cli.command {
+        Command::Auth { profile, .. } => assert_eq!(profile, "default"),
+        _ => panic!("Expected Auth command"),
+    }
+}
+
+#[test]
+fn parse_auth_profile_custom() {
+    let cli = Cli::parse_from(["copilot-adapter", "auth", "--profile", "work"]);
+    match cli.command {
+        Command::Auth { profile, .. } => assert_eq!(profile, "work"),
+        _ => panic!("Expected Auth command"),
+    }
+}
+
+#[test]
+fn parse_auth_profile_short_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "auth", "-P", "dev"]);
+    match cli.command {
+        Command::Auth { profile, .. } => assert_eq!(profile, "dev"),
+        _ => panic!("Expected Auth command"),
+    }
+}
+
+#[test]
+fn parse_logout_profile_default() {
+    let cli = Cli::parse_from(["copilot-adapter", "logout"]);
+    match cli.command {
+        Command::Logout { profile } => assert_eq!(profile, "default"),
+        _ => panic!("Expected Logout command"),
+    }
+}
+
+#[test]
+fn parse_logout_profile_custom() {
+    let cli = Cli::parse_from(["copilot-adapter", "logout", "--profile", "work"]);
+    match cli.command {
+        Command::Logout { profile } => assert_eq!(profile, "work"),
+        _ => panic!("Expected Logout command"),
+    }
+}
+
+#[test]
+fn parse_logout_profile_short_flag() {
+    let cli = Cli::parse_from(["copilot-adapter", "logout", "-P", "staging"]);
+    match cli.command {
+        Command::Logout { profile } => assert_eq!(profile, "staging"),
+        _ => panic!("Expected Logout command"),
+    }
+}
+
+#[test]
+fn parse_profiles_list() {
+    let cli = Cli::parse_from(["copilot-adapter", "profiles", "list"]);
+    match cli.command {
+        Command::Profiles { action: ProfilesAction::List } => {}
+        _ => panic!("Expected Profiles List"),
+    }
+}
+
+#[test]
+fn parse_profiles_create() {
+    let cli = Cli::parse_from(["copilot-adapter", "profiles", "create", "staging"]);
+    match cli.command {
+        Command::Profiles { action: ProfilesAction::Create { name } } => {
+            assert_eq!(name, "staging");
+        }
+        _ => panic!("Expected Profiles Create"),
+    }
+}
+
+#[test]
+fn parse_profiles_delete() {
+    let cli = Cli::parse_from(["copilot-adapter", "profiles", "delete", "old-profile"]);
+    match cli.command {
+        Command::Profiles { action: ProfilesAction::Delete { name } } => {
+            assert_eq!(name, "old-profile");
+        }
+        _ => panic!("Expected Profiles Delete"),
+    }
+}
+
+#[test]
+fn parse_profiles_no_subcommand_fails() {
+    let result = Cli::try_parse_from(["copilot-adapter", "profiles"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_profiles_create_no_name_fails() {
+    let result = Cli::try_parse_from(["copilot-adapter", "profiles", "create"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_profiles_delete_no_name_fails() {
+    let result = Cli::try_parse_from(["copilot-adapter", "profiles", "delete"]);
+    assert!(result.is_err());
 }
