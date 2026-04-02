@@ -29,12 +29,13 @@ cannot be fully automated.
 
 3. **Expected output:**
    ```
-     To authenticate, open the following URL in your browser:
+     To authenticate, visit:
 
        https://github.com/login/device
 
      And enter this code: XXXX-XXXX
 
+     Press Enter to open in browser (or wait to continue manually)...
      Waiting for authorization...
    ```
 
@@ -1615,6 +1616,391 @@ Start the adapter without `--native-tools` and run the same request. Compare:
 
 ---
 
+## Test 32: Daemon Auth E2E
+
+**Purpose:** Verify that `start --daemon` without existing credentials triggers the interactive device flow (instead of exiting with an error), then starts the daemon normally.
+
+> **Prerequisites:**
+> - The adapter binary is built and in `PATH`
+> - A GitHub account with an active Copilot subscription
+> - No credentials stored (or cleared via `logout`)
+
+### Steps
+
+1. **Clear any existing credentials:**
+   ```bash
+   copilot-adapter logout
+   ```
+
+2. **Start the adapter in daemon mode (no credentials):**
+   ```bash
+   copilot-adapter start --daemon
+   ```
+
+3. **Expected output:**
+   - The adapter detects missing credentials and prints:
+     ```
+     No authentication credentials found.
+     Starting authentication flow...
+     ```
+   - The device flow begins — you see:
+     ```
+       To authenticate, visit:
+
+         https://github.com/login/device
+
+       And enter this code: XXXX-XXXX
+
+       Press Enter to open in browser (or wait to continue manually)...
+       Waiting for authorization...
+     ```
+   - After the code display, the adapter offers to open the browser (10-second timeout).
+     Pressing Enter opens the URL; waiting proceeds without the browser.
+   - **The adapter does NOT exit with an error.** This validates Epic 1's fix.
+
+4. **Complete the device flow:**
+   - Open the URL in your browser
+   - Enter the device code
+   - Authorize the application
+
+5. **Expected:** Auth succeeds, and the daemon starts:
+   - **Unix:** Returns to prompt silently (daemonized)
+   - **Windows:** `Adapter started in background (PID XXXXX)` followed by guidance output
+
+6. **Verify the daemon is running:**
+   ```bash
+   copilot-adapter status
+   ```
+   Expected output:
+   ```
+   Adapter running on PID XXXXX
+     Port:       6767
+     Version:    X.Y.Z
+     Started at: 2026-04-02T...
+   ```
+
+7. **Verify the server responds:**
+   ```bash
+   curl http://127.0.0.1:6767/health
+   ```
+   Expected: `{"status":"ok"}`
+
+8. **Stop the daemon:**
+   ```bash
+   copilot-adapter stop
+   ```
+   Expected: `Adapter stopped (was PID XXXXX).`
+
+9. **Verify stopped:**
+   ```bash
+   copilot-adapter status
+   ```
+   Expected: `Adapter is not running.`
+
+### Re-auth Scenario
+
+Also verify that `start --daemon` with an **expired/invalid** stored token triggers re-auth:
+
+1. Manually corrupt the credentials file (or wait for the token to expire).
+2. Run `copilot-adapter start --daemon`.
+3. Expected: Prints `Stored token is invalid or expired: ...` then `Starting re-authentication...` and begins the device flow.
+
+### Failure Scenarios
+
+- **Cancel in browser:** Deny the authorization → should show error, daemon does NOT start
+- **Timeout:** Let the device code expire (~15 min) → should show timeout error
+
+---
+
+## Test 33: Home Directory Storage E2E
+
+**Purpose:** Verify that credentials and status files are stored under `~/.copilot-adapter/profiles/default/` with correct structure and content.
+
+> **Prerequisites:**
+> - The adapter binary is built and in `PATH`
+> - A GitHub account with an active Copilot subscription
+> - Run `copilot-adapter logout` first to start clean
+
+### Steps
+
+1. **Authenticate:**
+   ```bash
+   copilot-adapter auth
+   ```
+   Complete the device flow in your browser.
+
+2. **Verify credentials file exists:**
+
+   ```bash
+   # Linux/macOS
+   ls -la ~/.copilot-adapter/profiles/default/credentials.json
+
+   # Windows (PowerShell)
+   Get-Item "$env:USERPROFILE\.copilot-adapter\profiles\default\credentials.json"
+   ```
+
+   Expected: The file exists and is non-empty. On Unix, permissions should be restrictive (e.g., `600`).
+
+   > **Note:** The credentials file is XOR-obfuscated — it will not be human-readable JSON.
+
+3. **Start the adapter:**
+   ```bash
+   copilot-adapter start --daemon
+   ```
+
+4. **Verify status file exists with correct fields:**
+
+   ```bash
+   # Linux/macOS
+   cat ~/.copilot-adapter/profiles/default/status.json
+
+   # Windows (PowerShell)
+   Get-Content "$env:USERPROFILE\.copilot-adapter\profiles\default\status.json"
+   ```
+
+   Expected JSON structure:
+   ```json
+   {
+     "pid": 12345,
+     "port": 6767,
+     "started_at": "2026-04-02T01:30:45.123456789+00:00",
+     "version": "0.1.0"
+   }
+   ```
+
+   Verify:
+   - `pid` is a valid process ID (matches a running process)
+   - `port` is `6767` (default)
+   - `started_at` is a valid ISO 8601 / RFC 3339 timestamp
+   - `version` matches the adapter's cargo package version
+
+5. **Verify rich status output:**
+   ```bash
+   copilot-adapter status
+   ```
+   Expected output (with all four fields):
+   ```
+   Adapter running on PID 12345
+     Port:       6767
+     Version:    0.1.0
+     Started at: 2026-04-02T01:30:45.123456789+00:00
+   ```
+
+6. **Stop the adapter:**
+   ```bash
+   copilot-adapter stop
+   ```
+   Expected: `Adapter stopped (was PID 12345).`
+
+7. **Verify status file is removed:**
+   ```bash
+   # Linux/macOS
+   ls ~/.copilot-adapter/profiles/default/status.json
+   # Expected: No such file or directory
+
+   # Windows (PowerShell)
+   Test-Path "$env:USERPROFILE\.copilot-adapter\profiles\default\status.json"
+   # Expected: False
+   ```
+
+### Directory Structure Verification
+
+After running `auth` and `start`, the directory tree should look like:
+
+```
+~/.copilot-adapter/
+└── profiles/
+    └── default/
+        ├── credentials.json   # Obfuscated GitHub token
+        └── status.json        # Runtime status (removed after stop)
+```
+
+```bash
+# Linux/macOS
+find ~/.copilot-adapter -type f | sort
+
+# Windows (PowerShell)
+Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object FullName
+```
+
+---
+
+## Test 34: Multi-Instance Profiles E2E
+
+**Purpose:** Verify that multiple named profiles can be created, authenticated, started on different ports simultaneously, managed with `--all`, and cleaned up with `profiles delete`.
+
+> **Prerequisites:**
+> - The adapter binary is built and in `PATH`
+> - A GitHub account with an active Copilot subscription
+> - Default profile is authenticated (`copilot-adapter auth`)
+> - Port 8080 is not in use by another application
+
+### Steps
+
+1. **Create a "work" profile:**
+   ```bash
+   copilot-adapter profiles create work
+   ```
+   Expected: `Profile 'work' created.`
+
+2. **Verify the profile directory was created:**
+   ```bash
+   # Linux/macOS
+   ls -d ~/.copilot-adapter/profiles/work/
+
+   # Windows (PowerShell)
+   Test-Path "$env:USERPROFILE\.copilot-adapter\profiles\work"
+   # Expected: True
+   ```
+
+3. **List profiles:**
+   ```bash
+   copilot-adapter profiles list
+   ```
+   Expected output:
+   ```
+   Profiles:
+     default (stopped)
+     work (stopped)
+   ```
+
+4. **Authenticate the "work" profile:**
+   ```bash
+   copilot-adapter auth -P work
+   ```
+   Complete the device flow. Verify that credentials are stored in the work profile's directory:
+   ```bash
+   # Linux/macOS
+   ls ~/.copilot-adapter/profiles/work/credentials.json
+
+   # Windows (PowerShell)
+   Test-Path "$env:USERPROFILE\.copilot-adapter\profiles\work\credentials.json"
+   # Expected: True
+   ```
+
+5. **Start the default profile:**
+   ```bash
+   copilot-adapter start --daemon
+   ```
+
+6. **Start the "work" profile on port 8080:**
+   ```bash
+   copilot-adapter start -P work -p 8080 --daemon
+   ```
+
+7. **Verify both instances are running:**
+   ```bash
+   curl http://127.0.0.1:6767/health
+   # Expected: {"status":"ok"}
+
+   curl http://127.0.0.1:8080/health
+   # Expected: {"status":"ok"}
+   ```
+
+8. **Check status of all profiles:**
+   ```bash
+   copilot-adapter status --all
+   ```
+   Expected output (both profiles shown):
+   ```
+   Profile 'default': running
+     PID:        XXXXX
+     Port:       6767
+     Version:    X.Y.Z
+     Started at: 2026-04-02T...
+   Profile 'work': running
+     PID:        YYYYY
+     Port:       8080
+     Version:    X.Y.Z
+     Started at: 2026-04-02T...
+   ```
+
+9. **Check single profile status:**
+   ```bash
+   copilot-adapter status -P work
+   ```
+   Expected:
+   ```
+   Adapter running on PID YYYYY
+     Port:       8080
+     Version:    X.Y.Z
+     Started at: 2026-04-02T...
+     Profile:    work
+   ```
+
+10. **Stop all profiles:**
+    ```bash
+    copilot-adapter stop --all
+    ```
+    Expected (output order may vary — `read_dir` traversal is filesystem-dependent):
+    ```
+    Stopped profile 'default' (was PID XXXXX).
+    Stopped profile 'work' (was PID YYYYY).
+    ```
+
+11. **Verify all stopped:**
+    ```bash
+    copilot-adapter status --all
+    ```
+    Expected: `No running profiles.`
+
+12. **Delete the "work" profile:**
+    ```bash
+    copilot-adapter profiles delete work
+    ```
+    Expected: `Profile 'work' deleted.`
+
+13. **Verify the profile directory is removed:**
+    ```bash
+    # Linux/macOS
+    ls -d ~/.copilot-adapter/profiles/work/
+    # Expected: No such file or directory
+
+    # Windows (PowerShell)
+    Test-Path "$env:USERPROFILE\.copilot-adapter\profiles\work"
+    # Expected: False
+    ```
+
+14. **Verify default profile remains:**
+    ```bash
+    copilot-adapter profiles list
+    ```
+    Expected:
+    ```
+    Profiles:
+      default (stopped)
+    ```
+
+### Port Conflict Detection
+
+15. **Start default profile:**
+    ```bash
+    copilot-adapter start --daemon
+    ```
+
+16. **Try to start "work" on the same port (should fail):**
+    ```bash
+    copilot-adapter profiles create work
+    copilot-adapter auth -P work
+    copilot-adapter start -P work -p 6767 --daemon
+    ```
+    Expected error: `Error: Port 6767 is already in use by profile 'default'`
+
+17. **Clean up:**
+    ```bash
+    copilot-adapter stop
+    copilot-adapter profiles delete work
+    ```
+
+### Failure Scenarios
+
+- **Delete running profile:** `copilot-adapter profiles delete work` while it's running → Expected: `Profile 'work' is currently running (PID XXXXX). Stop it first.`
+- **Delete default:** `copilot-adapter profiles delete default` → Expected: `Error: Cannot delete the default profile`
+- **Create duplicate:** `copilot-adapter profiles create work` twice → Expected: `Error: Profile 'work' already exists`
+- **Start nonexistent profile:** `copilot-adapter start -P nonexistent` → Expected: `Error: Profile 'nonexistent' does not exist`
+
+---
+
 ## Test Summary Checklist
 
 | # | Test Name | Category |
@@ -1651,3 +2037,6 @@ Start the adapter without `--native-tools` and run the same request. Compare:
 | 29 | Token Counting Endpoint | API |
 | 30 | Token Counting — Performance | API |
 | 31 | Token Counting — Claude Code Integration | Integration |
+| 32 | Daemon Auth E2E | Profiles / Auth |
+| 33 | Home Directory Storage E2E | Profiles / Storage |
+| 34 | Multi-Instance Profiles E2E | Profiles / Multi-Instance |

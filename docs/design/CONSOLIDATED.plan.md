@@ -577,11 +577,13 @@ Single-instance data → default profile migration. Legacy temp dir PID file han
 
 ## Epic 9: Manual E2E Tests (0.25 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Document and execute manual end-to-end test procedures.
 
-### Task 9.1: Daemon auth E2E
+Test procedures documented in `docs/development/e2e-testing.md` as Tests 32–34.
+
+### Task 9.1: Daemon auth E2E → Test 32
 
 ```bash
 copilot-adapter logout
@@ -590,18 +592,18 @@ copilot-adapter status           # Should show running
 copilot-adapter stop
 ```
 
-### Task 9.2: Home directory storage E2E
+### Task 9.2: Home directory storage E2E → Test 33
 
 ```bash
 copilot-adapter auth
-# Verify: ~/.copilot-adapter/credentials.json exists
+# Verify: ~/.copilot-adapter/profiles/default/credentials.json exists
 copilot-adapter start
-# Verify: ~/.copilot-adapter/status.json exists with PID, port, version, started_at
+# Verify: ~/.copilot-adapter/profiles/default/status.json exists with PID, port, version, started_at
 copilot-adapter status  # Shows rich output
 copilot-adapter stop
 ```
 
-### Task 9.3: Multi-instance E2E
+### Task 9.3: Multi-instance E2E → Test 34
 
 ```bash
 copilot-adapter profiles create work
@@ -628,7 +630,9 @@ copilot-adapter profiles delete work
 
 ### Task 10.2: Update docs/e2e-testing.md
 
-Add test procedures for daemon auth, home dir storage, and multi-instance profiles.
+~~Add test procedures for daemon auth, home dir storage, and multi-instance profiles.~~
+
+Done — completed in Epic 9 (Tests 32–34). No additional work needed.
 
 ### Task 10.3: Update BACKLOG.md
 
@@ -818,7 +822,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 
 ### Epics 8–10: Testing and Documentation
 - [x] Integration tests complete
-- [ ] Manual E2E verification
+- [x] Manual E2E verification
 - [ ] CLAUDE.md, e2e-testing.md, BACKLOG.md updated
 - [ ] Final review
 - [ ] Merge to main
@@ -838,7 +842,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic 6 (CLI Changes) | DONE | 2026-04-01 | 2026-04-02 | Added --profile/-P, --all, profiles subcommand; profile-scoped start/stop/status/auth/logout; review fixes: stale status liveness check, stop --all error reporting, --all+--profile warning, Windows taskkill docs, keyring isolation warning; review round 2: replaced string-based error discrimination in stop --all with typed StopOutcome enum, added liveness check to find_by_port for consistency with check_port_conflict |
 | Epic 7 (Migration) | DONE | 2026-04-02 | 2026-04-02 | Auto-migration at startup: flat-dir status.json/credentials.json → profiles/default/, legacy temp dir PID file synthesis, idempotent via profiles/ existence check, 15 unit tests. Fix-up: migrate_legacy_pid_file() invalid-PID-content path now removes both PID and port files (all four cleanup branches are now symmetric); test updated to create companion .port file and assert both removed. |
 | Epic 8 (Integration Tests) | DONE | 2026-04-02 | 2026-04-02 | 44 tests: daemon auth (2), status lifecycle (5), credential storage (5), profile lifecycle (8), multi-instance (5), migration (11); all in daemon_tests.rs and profile_tests.rs |
-| Epic 9 (Manual E2E Tests) | Not Started | - | - | Blocked by Epics 1–7 |
+| Epic 9 (Manual E2E Tests) | DONE | 2026-04-02 | 2026-04-02 | Added Tests 32–34 to e2e-testing.md: daemon auth (Task 9.1), home dir storage (Task 9.2), multi-instance profiles (Task 9.3) |
 | Epic 10 (Documentation) | Not Started | - | - | Blocked by Epics 1–7 |
 
 ---
