@@ -14,7 +14,8 @@ A standalone Rust binary (`copilot-adapter`) that acts as an **Anthropic-to-Copi
 - **Vision / image support** — translates Anthropic image blocks to OpenAI `image_url` format; document blocks gracefully skipped
 - **Dynamic model discovery** — fetches available models from Copilot API with in-memory caching and fallback
 - **Automatic token management** with refresh 5 min before expiry
-- **Secure credential storage** via OS keyring (with encrypted file fallback)
+- **Secure credential storage** — file-based by default (`~/.copilot-adapter/credentials.json`), with opt-in OS keyring via `--use-keyring`
+- **Multi-instance profiles** — run concurrent instances via `--profile` / `-P` flag with independent ports and credentials
 - **Cross-platform daemon** operation (Windows/Linux/macOS)
 
 ## Architecture
@@ -24,7 +25,7 @@ Claude Code  ──→  copilot-adapter (localhost:6767)  ──→  GitHub Copi
                         │
                   ┌─────┴─────┐
                   │ Token Mgr  │  Auto-refresh Copilot tokens
-                  │ Credential │  OS keyring / encrypted file
+                  │ Credential │  encrypted file / OS keyring
                   │ SSE Stream │  Real-time streaming support
                   └───────────┘
 ```
@@ -70,10 +71,15 @@ src/
 │   ├── mod.rs
 │   ├── keyring.rs       # OS keyring storage
 │   └── file.rs          # Encrypted file fallback
-└── daemon/
-    ├── mod.rs           # PID file management
-    ├── unix.rs          # Unix daemonization
-    └── windows.rs       # Windows background process
+├── daemon/
+│   ├── mod.rs           # PID file management
+│   ├── status.rs        # Runtime status (status.json) read/write
+│   ├── unix.rs          # Unix daemonization
+│   └── windows.rs       # Windows background process
+└── profile/
+    ├── mod.rs           # ProfileManager: CRUD, port conflict detection
+    ├── types.rs         # Profile struct and serialization
+    └── migration.rs     # Auto-migration from flat dir / legacy temp files
 ```
 
 ## Commands
@@ -82,17 +88,29 @@ src/
 |---------|-------------|
 | `copilot-adapter auth` | Authenticate with GitHub (device flow) |
 | `copilot-adapter auth --force` | Force re-authentication |
+| `copilot-adapter auth --use-keyring` | Authenticate and store credentials in OS keyring |
+| `copilot-adapter auth -P <name>` | Authenticate for a specific profile |
 | `copilot-adapter start` | Start adapter in foreground |
 | `copilot-adapter start --daemon` | Start as background daemon |
 | `copilot-adapter start -p 9090` | Start on custom port |
+| `copilot-adapter start --profile <name>` / `-P <name>` | Start with a named profile |
+| `copilot-adapter start --use-keyring` | Use OS keyring for credential storage |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --log-level trace` | Enable trace logging (very verbose, logs full request/response JSON) |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds) |
 | `copilot-adapter start --static-models` | Use static model list (skip API) |
 | `copilot-adapter start --disable-native-tools` | Disable native OpenAI tools and force XML-based tool injection |
 | `copilot-adapter status` | Check if adapter is running |
+| `copilot-adapter status -P <name>` | Check status for a specific profile |
+| `copilot-adapter status --all` | Show status for all profiles |
 | `copilot-adapter stop` | Stop the running daemon |
+| `copilot-adapter stop -P <name>` | Stop a specific profile's daemon |
+| `copilot-adapter stop --all` | Stop all running daemons |
 | `copilot-adapter logout` | Clear stored credentials |
+| `copilot-adapter logout -P <name>` | Clear credentials for a specific profile |
+| `copilot-adapter profiles list` | List all profiles |
+| `copilot-adapter profiles create <name>` | Create a named profile |
+| `copilot-adapter profiles delete <name>` | Delete a named profile |
 
 ## Building
 
@@ -117,7 +135,7 @@ cargo test
 
 1. **Rust with axum**: Minimal binary, no runtime dependencies, excellent async support
 2. **Single binary**: Easy distribution and installation
-3. **OS keyring for tokens**: Platform-native secure storage
+3. **File-based credentials by default**: Encrypted file at `~/.copilot-adapter/credentials.json`; OS keyring available via `--use-keyring`
 4. **Localhost-only by default**: Security - prevents external access without explicit opt-in
 5. **SSE passthrough**: Copilot already returns OpenAI-compatible format
 
@@ -141,6 +159,7 @@ cargo test
 - `DUAL-RESPONSES.plan.md` - Implementation plan for XML tool format migration
 - `NATIVE-TOOLS-STREAMING.design.md` - Design document for native OpenAI tools and progressive streaming
 - `NATIVE-TOOLS-STREAMING.plan.md` - Implementation plan for native tools and schema-aware parsing
+- `CONSOLIDATED.plan.md` - Consolidated implementation plan for daemon auth, home dir storage, file-first credentials, and multi-instance profiles
 - `docs/e2e-testing.md` - Manual end-to-end testing procedures
 - `docs/known-issues.md` - Known issues and workarounds
 
@@ -173,3 +192,8 @@ cargo test
 - **Tool name truncation**: OpenAI has a 64-character limit for function names. Long names (common with MCP tools like `mcp__codemogger__codemogger_search`) are truncated with a hash suffix and restored in responses. Implementation in `src/tools/translator.rs`.
 - **Parameter types**: Native tools preserve parameter types from schemas. XML fallback path coerces string values to their schema-defined types (number, boolean, etc.) via `ToolRegistry` in `src/tools/registry.rs`.
 - **Streaming state machine**: The `StreamingState` in `src/streaming/state.rs` incrementally translates OpenAI streaming chunks to Anthropic SSE events, handling content block transitions, tool call deltas, and tool name restoration.
+- **Daemon authentication**: Both foreground and daemon modes follow the same auth flow. When `start --daemon` is used without credentials, the adapter runs the interactive device flow *before* daemonizing (the parent process still has terminal access). The old daemon-specific auth gate that refused to start has been removed.
+- **Home directory storage**: All runtime state lives under `~/.copilot-adapter/`. Runtime status (PID, port, version, started_at) is stored in `status.json`; credentials in `credentials.json` (AES-256-GCM encrypted). Legacy temp-dir PID files are detected as fallback. Implementation in `src/daemon/status.rs` (status read/write) and `src/storage/file.rs` (credentials).
+- **Credential storage (`--use-keyring`)**: File-based credential storage (`~/.copilot-adapter/credentials.json`) is the default. Pass `--use-keyring` on `auth` or `start` to use the OS keyring instead. The keyring path remains available but is no longer the primary storage mechanism.
+- **Multi-instance profiles**: The `--profile` / `-P` flag selects a named profile. Each profile has its own directory under `~/.copilot-adapter/profiles/<name>/` containing `status.json` and `credentials.json`. The default profile name is `"default"`. Port conflict detection prevents two profiles from binding the same port. Profile management via `profiles list/create/delete` subcommand. Implementation in `src/profile/` (types, CRUD, migration).
+- **Profile migration**: On first startup, the adapter auto-migrates from the flat `~/.copilot-adapter/` layout (status.json + credentials.json at root) to `profiles/default/`. Legacy temp-dir PID files are synthesized into status.json format. Migration is idempotent — skipped if `profiles/` directory already exists. Implementation in `src/profile/migration.rs`.

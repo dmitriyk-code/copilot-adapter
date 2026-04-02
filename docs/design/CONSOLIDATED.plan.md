@@ -1,6 +1,6 @@
 # Consolidated Implementation Plan — Backlog Items
 
-**Status:** Not Started
+**Status:** DONE
 **Date:** 2026-04-01
 **Based on:** [BACKLOG.md](./BACKLOG.md), individual design documents
 **Prerequisite:** None — Epics 1, 2, and 3 can start immediately
@@ -618,23 +618,23 @@ copilot-adapter profiles delete work
 
 ## Epic 10: Documentation (0.25 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Update all relevant documentation in a single pass.
 
-### Task 10.1: Update CLAUDE.md
+### Task 10.1: Update CLAUDE.md — DONE
 
 - Add `src/daemon/status.rs` and `src/profile/` to project structure
 - Add development notes for: daemon auth, home directory storage, profiles, `--use-keyring`
 - Update CLI commands table with `--profile`, `--use-keyring`, `profiles` subcommand
 
-### Task 10.2: Update docs/e2e-testing.md
+### Task 10.2: Update docs/e2e-testing.md — DONE (Epic 9)
 
 ~~Add test procedures for daemon auth, home dir storage, and multi-instance profiles.~~
 
 Done — completed in Epic 9 (Tests 32–34). No additional work needed.
 
-### Task 10.3: Update BACKLOG.md
+### Task 10.3: Update BACKLOG.md — DONE
 
 Move all four items from "ToDo" to "Done":
 ```markdown
@@ -823,7 +823,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 ### Epics 8–10: Testing and Documentation
 - [x] Integration tests complete
 - [x] Manual E2E verification
-- [ ] CLAUDE.md, e2e-testing.md, BACKLOG.md updated
+- [x] CLAUDE.md, e2e-testing.md, BACKLOG.md updated
 - [ ] Final review
 - [ ] Merge to main
 - [ ] Archive design/plan docs
@@ -843,7 +843,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic 7 (Migration) | DONE | 2026-04-02 | 2026-04-02 | Auto-migration at startup: flat-dir status.json/credentials.json → profiles/default/, legacy temp dir PID file synthesis, idempotent via profiles/ existence check, 15 unit tests. Fix-up: migrate_legacy_pid_file() invalid-PID-content path now removes both PID and port files (all four cleanup branches are now symmetric); test updated to create companion .port file and assert both removed. |
 | Epic 8 (Integration Tests) | DONE | 2026-04-02 | 2026-04-02 | 44 tests: daemon auth (2), status lifecycle (5), credential storage (5), profile lifecycle (8), multi-instance (5), migration (11); all in daemon_tests.rs and profile_tests.rs |
 | Epic 9 (Manual E2E Tests) | DONE | 2026-04-02 | 2026-04-02 | Added Tests 32–34 to e2e-testing.md: daemon auth (Task 9.1), home dir storage (Task 9.2), multi-instance profiles (Task 9.3) |
-| Epic 10 (Documentation) | Not Started | - | - | Blocked by Epics 1–7 |
+| Epic 10 (Documentation) | DONE | 2026-04-02 | 2026-04-02 | Updated CLAUDE.md (structure, CLI, dev notes) and BACKLOG.md (all items → Done) |
 
 ---
 
