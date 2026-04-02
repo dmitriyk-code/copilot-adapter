@@ -334,7 +334,7 @@ mod tests {
 
 ### Epic 3: NativeStorage Implementation (Day 1-2, 1 day)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Create unified NativeStorage backend with platform detection
 
@@ -386,10 +386,10 @@ pub struct NativeStorage {
 ```
 
 **Acceptance Criteria:**
-- [ ] Types defined with proper derives
-- [ ] Version field set to 2
-- [ ] Storage field is string (for JSON readability)
-- [ ] Optional github_token field
+- [x] Types defined with proper derives
+- [x] Version field set to 2
+- [x] Storage field is string (for JSON readability)
+- [x] Optional github_token field
 
 #### Task 3.2: Implement Platform Detection
 
@@ -441,11 +441,11 @@ impl NativeStorage {
 ```
 
 **Acceptance Criteria:**
-- [ ] Windows always returns Dpapi
-- [ ] macOS/Linux probe keyring availability
-- [ ] Unavailable when keyring probe fails
-- [ ] Clear warning logged when unavailable
-- [ ] Profile-scoped keyring keys
+- [x] Windows always returns Dpapi
+- [x] macOS/Linux probe keyring availability
+- [x] Unavailable when keyring probe fails
+- [x] Clear warning logged when unavailable
+- [x] Profile-scoped keyring keys
 
 #### Task 3.3: Implement Constructor with Migration
 
@@ -549,13 +549,13 @@ impl NativeStorage {
 ```
 
 **Acceptance Criteria:**
-- [ ] Constructor detects storage method
-- [ ] Migration triggered when new file missing and old exists
-- [ ] Best-effort token read from old format
-- [ ] Old file always deleted (even on migration failure)
-- [ ] Edge case handled: both files exist
-- [ ] Clear logging at info/warn levels
-- [ ] Idempotent: safe to run multiple times
+- [x] Constructor detects storage method
+- [x] Migration triggered when new file missing and old exists
+- [x] Best-effort token read from old format
+- [x] Old file always deleted (even on migration failure)
+- [x] Edge case handled: both files exist
+- [x] Clear logging at info/warn levels
+- [x] Idempotent: safe to run multiple times
 
 **Notes:** Migration prioritizes removing insecure XOR storage over preserving credentials. If migration fails, user re-authenticates.
 
@@ -639,12 +639,12 @@ impl super::TokenStorage for NativeStorage {
 ```
 
 **Acceptance Criteria:**
-- [ ] DPAPI path: encrypts, base64-encodes, writes JSON
-- [ ] Keyring path: stores in keyring, writes sentinel JSON
-- [ ] Unavailable: returns clear error message
-- [ ] JSON is pretty-printed for readability
-- [ ] Proper error context throughout
-- [ ] File written atomically (direct write is safe for JSON)
+- [x] DPAPI path: encrypts, base64-encodes, writes JSON
+- [x] Keyring path: stores in keyring, writes sentinel JSON
+- [x] Unavailable: returns clear error message
+- [x] JSON is pretty-printed for readability
+- [x] Proper error context throughout
+- [x] File written atomically (direct write is safe for JSON)
 
 #### Task 3.5: Implement TokenStorage Trait - Get
 
@@ -726,12 +726,12 @@ impl super::TokenStorage for NativeStorage {
 ```
 
 **Acceptance Criteria:**
-- [ ] Reads file and checks version
-- [ ] Dispatches based on file's storage field (not detected method)
-- [ ] DPAPI: base64-decodes and decrypts
-- [ ] Keyring: retrieves from OS keyring
-- [ ] Clear error messages for all failure modes
-- [ ] Handles cross-platform file mismatches gracefully
+- [x] Reads file and checks version
+- [x] Dispatches based on file's storage field (not detected method)
+- [x] DPAPI: base64-decodes and decrypts
+- [x] Keyring: retrieves from OS keyring
+- [x] Clear error messages for all failure modes
+- [x] Handles cross-platform file mismatches gracefully
 
 **Notes:** Reading by the file's `storage` field (not the currently-detected method) prevents silent data loss when keyring becomes unavailable.
 
@@ -778,12 +778,12 @@ impl super::TokenStorage for NativeStorage {
 ```
 
 **Acceptance Criteria:**
-- [ ] Deletes keyring entry if storage is "keyring"
-- [ ] Deletes credential file
-- [ ] Handles "file not found" gracefully (no-op)
-- [ ] Logs successful deletion
-- [ ] Returns error only for real failures
-- [ ] Single delete call handles everything
+- [x] Deletes keyring entry if storage is "keyring"
+- [x] Deletes credential file
+- [x] Handles "file not found" gracefully (no-op)
+- [x] Logs successful deletion
+- [x] Returns error only for real failures
+- [x] Single delete call handles everything
 
 ---
 

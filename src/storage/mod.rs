@@ -1,6 +1,7 @@
 pub mod file;
 pub mod keyring;
 pub mod legacy;
+pub mod native;
 
 #[cfg(target_os = "windows")]
 pub mod dpapi;
