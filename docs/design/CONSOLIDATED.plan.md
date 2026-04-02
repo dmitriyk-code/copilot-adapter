@@ -526,7 +526,7 @@ Handle `profiles list`, `profiles create <name>`, `profiles delete <name>`.
 
 ## Epic 7: Migration (0.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Auto-migrate from flat directory and legacy temp files to profile-based layout.
 
@@ -836,7 +836,7 @@ Epics 1, 2, and 3 can run in parallel. Epics 4–7 depend on Epics 2–3. Epics 
 | Epic 4 (Profile Model) | DONE | 2026-04-01 | 2026-04-01 | Profile struct, ProfileManager CRUD, port conflict detection, ASCII-only name validation |
 | Epic 5 (Profile Storage) | DONE | 2026-04-01 | 2026-04-01 | create_storage_for_profile() convenience wrapper added |
 | Epic 6 (CLI Changes) | DONE | 2026-04-01 | 2026-04-02 | Added --profile/-P, --all, profiles subcommand; profile-scoped start/stop/status/auth/logout; review fixes: stale status liveness check, stop --all error reporting, --all+--profile warning, Windows taskkill docs, keyring isolation warning; review round 2: replaced string-based error discrimination in stop --all with typed StopOutcome enum, added liveness check to find_by_port for consistency with check_port_conflict |
-| Epic 7 (Migration) | Not Started | - | - | Blocked by Epics 2–4 |
+| Epic 7 (Migration) | DONE | 2026-04-02 | 2026-04-02 | Auto-migration at startup: flat-dir status.json/credentials.json → profiles/default/, legacy temp dir PID file synthesis, idempotent via profiles/ existence check, 15 unit tests. Fix-up: migrate_legacy_pid_file() invalid-PID-content path now removes both PID and port files (all four cleanup branches are now symmetric); test updated to create companion .port file and assert both removed. |
 | Epic 8 (Integration Tests) | Not Started | - | - | Blocked by Epics 1–7 |
 | Epic 9 (Manual E2E Tests) | Not Started | - | - | Blocked by Epics 1–7 |
 | Epic 10 (Documentation) | Not Started | - | - | Blocked by Epics 1–7 |

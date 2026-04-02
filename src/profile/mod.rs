@@ -3,8 +3,10 @@
 //! Each profile has its own directory under `~/.copilot-adapter/profiles/<name>/`
 //! containing `status.json` and `credentials.json`.
 
+pub mod migration;
 pub mod types;
 
+pub use migration::migrate_to_profiles;
 pub use types::{validate_profile_name, Profile};
 
 use crate::daemon::status::{get_base_dir, read_status_from};

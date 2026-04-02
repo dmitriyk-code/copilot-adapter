@@ -19,6 +19,10 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Auto-migrate from flat directory layout to profile-based layout.
+    // Idempotent — no-op once profiles/ directory exists.
+    copilot_adapter::profile::migrate_to_profiles();
+
     match cli.command {
         Command::Start {
             daemon: is_daemon,
