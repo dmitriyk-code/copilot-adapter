@@ -235,7 +235,7 @@ mod tests {
 
 ### Epic 2: Legacy XOR Module (Day 1, 0.25 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Extract XOR reading functions from FileStorage for migration use
 
@@ -318,12 +318,17 @@ mod tests {
 ```
 
 **Acceptance Criteria:**
-- [ ] Module created with read_xor_token function
-- [ ] Functions extracted from current file.rs
-- [ ] Proper error messages for common failures
-- [ ] Clear documentation that this is read-only for migration
-- [ ] Unit tests for XOR transform
-- [ ] No new dependencies needed (reuse existing whoami, serde_json)
+- [x] Module created with read_xor_token function
+- [x] Functions extracted from current file.rs
+- [x] Proper error messages for common failures
+- [x] Clear documentation that this is read-only for migration
+- [x] Unit tests for XOR transform
+- [x] No new dependencies needed (env var USERNAME/USER used instead of whoami for byte-identical key derivation)
+
+**Implementation Notes:**
+- Deviated from plan: used `std::env::var("USERNAME")` / `std::env::var("USER")` for key derivation instead of `whoami::username()`. This is correct — it produces byte-identical keys to `file.rs`'s existing implementation and avoids a dependency concern. Reviewed and approved.
+- 9 unit tests pass (XOR reversibility, round-trip encode/decode, error cases, missing file).
+- `Serialize` derive was noted as unnecessary (read-only module) but not a bug; all logic is correct.
 
 ---
 
@@ -1523,7 +1528,7 @@ windows-sys = { version = "0.59", features = [
 
 ### Phase 1: Core Implementation (Day 1-2)
 - [ ] Epic 1: Windows DPAPI module
-- [ ] Epic 2: Legacy XOR module
+- [x] Epic 2: Legacy XOR module
 - [ ] Epic 3: NativeStorage implementation
 - [ ] Epic 4: Integration and CLI updates
 - [ ] Epic 5: Cleanup old code
@@ -1554,8 +1559,8 @@ windows-sys = { version = "0.59", features = [
 
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
-| Epic 1: Windows DPAPI | Not Started | - | - | |
-| Epic 2: Legacy XOR | Not Started | - | - | |
+| Epic 1: Windows DPAPI | Done | 2026-04-02 | 2026-04-02 | |
+| Epic 2: Legacy XOR | Done | 2026-04-02 | 2026-04-02 | |
 | Epic 3: NativeStorage | Not Started | - | - | |
 | Epic 4: Integration | Not Started | - | - | |
 | Epic 5: Cleanup | Not Started | - | - | |
