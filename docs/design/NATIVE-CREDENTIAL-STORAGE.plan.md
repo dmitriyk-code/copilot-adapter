@@ -81,7 +81,7 @@ After implementation:
 
 ### Epic 1: Windows DPAPI Module (Day 1, 0.5 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Implement Windows DPAPI encryption/decryption using FFI
 
@@ -101,9 +101,9 @@ windows-sys = { version = "0.59", features = [
 ```
 
 **Acceptance Criteria:**
-- [ ] Cargo.toml updated with windows-sys dependency
-- [ ] Build succeeds on Windows
-- [ ] No new dependencies on non-Windows platforms
+- [x] Cargo.toml updated with windows-sys dependency
+- [x] Build succeeds on Windows
+- [x] No new dependencies on non-Windows platforms
 
 #### Task 1.2: Create DPAPI Module
 
@@ -223,11 +223,11 @@ mod tests {
 ```
 
 **Acceptance Criteria:**
-- [ ] Module created with encrypt/decrypt functions
-- [ ] Proper FFI unsafe blocks with error handling
-- [ ] Memory cleanup via LocalFree
-- [ ] Unit tests pass on Windows
-- [ ] Module is cfg-gated for Windows only
+- [x] Module created with encrypt/decrypt functions
+- [x] Proper FFI unsafe blocks with error handling
+- [x] Memory cleanup via LocalFree
+- [x] Unit tests pass on Windows
+- [x] Module is cfg-gated for Windows only
 
 **Notes:** DPAPI functions are always available on Windows (since Windows 2000), no availability check needed.
 

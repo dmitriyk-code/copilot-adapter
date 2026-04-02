@@ -2,6 +2,8 @@ pub mod file;
 pub mod keyring;
 
 #[cfg(target_os = "windows")]
+pub mod dpapi;
+#[cfg(target_os = "windows")]
 pub mod windows_credential;
 
 use crate::profile::types::Profile;
