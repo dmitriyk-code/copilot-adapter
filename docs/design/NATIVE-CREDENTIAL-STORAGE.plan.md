@@ -941,7 +941,7 @@ impl Profile {
 
 ### Epic 5: Cleanup Old Code (Day 2, 0.25 days)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Remove obsolete storage implementations
 
@@ -956,10 +956,10 @@ impl Profile {
 **Description:** Remove old FileStorage, KeyringStorage, and Windows credential code
 
 **Acceptance Criteria:**
-- [ ] All files deleted
-- [ ] No references to deleted modules remain
-- [ ] Build succeeds
-- [ ] Tests still pass
+- [x] All files deleted
+- [x] No references to deleted modules remain
+- [x] Build succeeds
+- [x] Tests still pass
 
 #### Task 5.2: Update Module Exports
 
@@ -976,9 +976,11 @@ mod native;
 ```
 
 **Acceptance Criteria:**
-- [ ] Old module references removed
-- [ ] Only native, legacy, and dpapi remain
-- [ ] Build succeeds
+- [x] Old module references removed
+- [x] Only native, legacy, and dpapi remain
+- [x] Build succeeds
+
+**Completion Notes (2026-04-03):** Review fixes applied: removed stale references to `windows_credential.rs`, `keyring.rs`, and `file.rs` from CLAUDE.md project structure diagram; fixed `dpapi.rs` tree connector to `└──` (last entry in storage/); removed unused `Win32_Security_Credentials` feature from `windows-sys` in Cargo.toml. All 519 unit tests pass.
 
 ---
 
@@ -1531,7 +1533,7 @@ windows-sys = { version = "0.59", features = [
 - [x] Epic 2: Legacy XOR module
 - [ ] Epic 3: NativeStorage implementation
 - [x] Epic 4: Integration and CLI updates
-- [ ] Epic 5: Cleanup old code
+- [x] Epic 5: Cleanup old code
 
 ### Phase 2: Testing (Day 3)
 - [ ] Epic 6: Comprehensive testing
@@ -1563,7 +1565,7 @@ windows-sys = { version = "0.59", features = [
 | Epic 2: Legacy XOR | Done | 2026-04-02 | 2026-04-02 | |
 | Epic 3: NativeStorage | Not Started | - | - | |
 | Epic 4: Integration | DONE | - | - | |
-| Epic 5: Cleanup | Not Started | - | - | |
+| Epic 5: Cleanup | DONE | 2026-04-03 | 2026-04-03 | |
 | Epic 6: Testing | Not Started | - | - | |
 | Epic 7: Documentation | Not Started | - | - | |
 

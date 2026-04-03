@@ -71,10 +71,7 @@ src/
 │   ├── mod.rs           # TokenStorage trait, factory function
 │   ├── native.rs        # Platform-native credential storage (DPAPI / keyring)
 │   ├── legacy.rs        # XOR migration reader for old credentials.json
-│   ├── dpapi.rs         # Windows DPAPI encryption FFI bindings
-│   ├── windows_credential.rs  # Windows credential helper
-│   ├── keyring.rs       # Legacy standalone OS keyring storage (not used by NativeStorage; available for direct use/testing)
-│   └── file.rs          # XOR-based file storage (legacy)
+│   └── dpapi.rs         # Windows DPAPI encryption FFI bindings
 ├── daemon/
 │   ├── mod.rs           # PID file management
 │   ├── status.rs        # Runtime status (status.json) read/write
