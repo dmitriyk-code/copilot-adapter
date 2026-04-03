@@ -1733,15 +1733,21 @@ Also verify that `start --daemon` with an **expired/invalid** stored token trigg
 
    ```bash
    # Linux/macOS
-   ls -la ~/.copilot-adapter/profiles/default/credentials.json
+   ls -la ~/.copilot-adapter/profiles/default/github-copilot.json
 
    # Windows (PowerShell)
-   Get-Item "$env:USERPROFILE\.copilot-adapter\profiles\default\credentials.json"
+   Get-Item "$env:USERPROFILE\.copilot-adapter\profiles\default\github-copilot.json"
    ```
 
-   Expected: The file exists and is non-empty. On Unix, permissions should be restrictive (e.g., `600`).
-
-   > **Note:** The credentials file is XOR-obfuscated — it will not be human-readable JSON.
+   Expected: The file exists and is non-empty. It is human-readable JSON in version 2 format, e.g.:
+   ```json
+   {
+     "version": 2,
+     "storage": "dpapi",
+     "github_token": "<base64-encoded-encrypted-blob>"
+   }
+   ```
+   On macOS/Linux with a keyring available, `"storage"` will be `"keyring"` and `"github_token"` will be absent (the token is in the OS keyring).
 
 3. **Start the adapter:**
    ```bash
@@ -1811,8 +1817,8 @@ After running `auth` and `start`, the directory tree should look like:
 ~/.copilot-adapter/
 └── profiles/
     └── default/
-        ├── credentials.json   # Obfuscated GitHub token
-        └── status.json        # Runtime status (removed after stop)
+        ├── github-copilot.json   # Native-encrypted credentials (DPAPI on Windows; keyring sentinel on macOS/Linux)
+        └── status.json           # Runtime status (removed after stop)
 ```
 
 ```bash
@@ -1871,10 +1877,10 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
    Complete the device flow. Verify that credentials are stored in the work profile's directory:
    ```bash
    # Linux/macOS
-   ls ~/.copilot-adapter/profiles/work/credentials.json
+   ls ~/.copilot-adapter/profiles/work/github-copilot.json
 
    # Windows (PowerShell)
-   Test-Path "$env:USERPROFILE\.copilot-adapter\profiles\work\credentials.json"
+   Test-Path "$env:USERPROFILE\.copilot-adapter\profiles\work\github-copilot.json"
    # Expected: True
    ```
 

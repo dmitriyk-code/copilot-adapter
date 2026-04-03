@@ -34,6 +34,7 @@ struct CredentialFile {
 
 /// Which protection mechanism is in use.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 enum StorageMethod {
     /// Windows DPAPI — encrypted blob in JSON file.
     Dpapi,
@@ -49,7 +50,8 @@ pub struct NativeStorage {
     file_path: PathBuf,
     /// The storage method detected for this platform.
     method: StorageMethod,
-    /// Profile name (for profile-scoped keyring entries).
+    /// Profile name (for profile-scoped keyring entries on macOS/Linux).
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     profile_name: String,
 }
 
