@@ -17,8 +17,11 @@ impl Profile {
     }
 
     /// Path to this profile's credential storage file.
+    ///
+    /// Returns the path to `github-copilot.json`, which uses platform-native
+    /// encryption (DPAPI on Windows, keyring on macOS/Linux).
     pub fn credentials_path(&self) -> PathBuf {
-        self.dir.join("credentials.json")
+        self.dir.join("github-copilot.json")
     }
 }
 

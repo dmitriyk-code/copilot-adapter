@@ -1,18 +1,17 @@
-pub mod file;
-pub mod keyring;
 pub mod legacy;
 pub mod native;
 
 #[cfg(target_os = "windows")]
 pub mod dpapi;
-#[cfg(target_os = "windows")]
-pub mod windows_credential;
 
-use crate::profile::types::Profile;
+pub use native::NativeStorage;
+pub use legacy::read_xor_token;
+
+use anyhow::Result;
 use std::path::PathBuf;
 
 /// Trait for persisting the GitHub OAuth access token.
-pub trait TokenStorage {
+pub trait TokenStorage: Send + Sync {
     /// Store the GitHub access token.
     fn store_github_token(&self, token: &str) -> anyhow::Result<()>;
 
@@ -23,67 +22,18 @@ pub trait TokenStorage {
     fn delete_github_token(&self) -> anyhow::Result<()>;
 }
 
-/// Create the best available storage backend.
+/// Create storage for a specific profile.
 ///
-/// When `use_keyring` is false (the default), uses file-based storage at
-/// `~/.copilot-adapter/credentials.json`. When `use_keyring` is true, tries
-/// the OS keyring first and falls back to file storage if unavailable.
-pub fn create_storage(use_keyring: bool) -> Box<dyn TokenStorage + Send + Sync> {
-    create_storage_with_path(file::get_credentials_path(), use_keyring)
-}
-
-/// Create a storage backend with a specific file path.
+/// Uses platform-native credential encryption (DPAPI on Windows, OS keyring
+/// on macOS/Linux) via [`NativeStorage`]. The credential file is stored at
+/// `credentials_path` (typically `<profile_dir>/github-copilot.json`).
 ///
-/// This is the parameterized version used by profile support (Epic 5+).
-/// The `path` is used for file-based storage; keyring storage ignores it.
-///
-/// **Note:** When `use_keyring` is true and the keyring is available, the `path`
-/// parameter is not used — all keyring entries share the service name
-/// `"copilot-adapter"`. Profile isolation via keyring would require separate
-/// service names, not paths.
-pub fn create_storage_with_path(
-    path: PathBuf,
-    use_keyring: bool,
-) -> Box<dyn TokenStorage + Send + Sync> {
-    if use_keyring {
-        match keyring::KeyringStorage::new() {
-            Ok(ks) => match ks.verify_available() {
-                Ok(true) => {
-                    tracing::info!("Using OS keyring for credential storage");
-                    return Box::new(ks);
-                }
-                Ok(false) => {
-                    tracing::warn!(
-                        "OS keyring verification failed, falling back to file storage"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "OS keyring verification error, falling back to file storage"
-                    );
-                }
-            },
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "OS keyring not available, falling back to file storage"
-                );
-            }
-        }
-    }
-
-    tracing::info!(path = %path.display(), "Using file-based credential storage");
-    Box::new(file::FileStorage::with_path(path))
-}
-
-/// Create a storage backend for a named profile.
-///
-/// Delegates to [`create_storage_with_path`] using `profile.credentials_path()`.
-/// This is the convenience entry point used by CLI commands when `--profile` is specified.
+/// If legacy XOR-encrypted credentials exist alongside the new path,
+/// they are automatically migrated on first access.
 pub fn create_storage_for_profile(
-    profile: &Profile,
-    use_keyring: bool,
-) -> Box<dyn TokenStorage + Send + Sync> {
-    create_storage_with_path(profile.credentials_path(), use_keyring)
+    credentials_path: PathBuf,
+    profile_name: String,
+) -> Result<Box<dyn TokenStorage>> {
+    let storage = NativeStorage::new(credentials_path, profile_name)?;
+    Ok(Box::new(storage))
 }

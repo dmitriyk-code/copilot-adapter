@@ -38,7 +38,6 @@ async fn main() -> anyhow::Result<()> {
             skip_auth,
             quiet,
             disable_native_tools,
-            use_keyring,
             profile: profile_name,
         } => {
             let pm = ProfileManager::new();
@@ -68,14 +67,17 @@ async fn main() -> anyhow::Result<()> {
             // with a cached Copilot token, we keep it and reuse it for the server
             // to avoid a redundant token-exchange network call on startup.
             let pre_validated_manager: Option<std::sync::Arc<TokenManager>> = if !skip_auth {
-                let store = storage::create_storage_for_profile(&profile, use_keyring);
+                let store = storage::create_storage_for_profile(
+                    profile.credentials_path(),
+                    profile.name.clone(),
+                )?;
                 let has_token = store.get_github_token().is_ok();
 
                 if !has_token {
                     // Auth check runs before daemonization — parent has terminal access.
                     eprintln!("No authentication credentials found.");
                     eprintln!("Starting authentication flow...\n");
-                    run_auth_for_profile(&profile, false, use_keyring).await?;
+                    run_auth_for_profile(&profile, false).await?;
                     // run_auth uses its own TokenManager; create a fresh one for the server later.
                     None
                 } else {
@@ -90,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
                             eprintln!("Stored token is invalid or expired: {e}");
                             // Re-auth runs before daemonization — parent has terminal access.
                             eprintln!("Starting re-authentication...\n");
-                            run_auth_for_profile(&profile, true, use_keyring).await?;
+                            run_auth_for_profile(&profile, true).await?;
                             None
                         }
                     }
@@ -145,9 +147,6 @@ async fn main() -> anyhow::Result<()> {
                     if disable_native_tools {
                         args.push("--disable-native-tools".to_string());
                     }
-                    if use_keyring {
-                        args.push("--use-keyring".to_string());
-                    }
                     // Forward the profile name to the child process
                     args.push("--profile".to_string());
                     args.push(profile_name.clone());
@@ -175,7 +174,10 @@ async fn main() -> anyhow::Result<()> {
             let manager = match pre_validated_manager {
                 Some(m) => m,
                 None => {
-                    let store = storage::create_storage_for_profile(&profile, use_keyring);
+                    let store = storage::create_storage_for_profile(
+                        profile.credentials_path(),
+                        profile.name.clone(),
+                    )?;
                     let auth_client = DeviceFlowAuth::new();
                     std::sync::Arc::new(TokenManager::new(store, auth_client).await?)
                 }
@@ -344,13 +346,12 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Auth {
             force,
-            use_keyring,
             profile: profile_name,
         } => {
             init_tracing("info");
             let pm = ProfileManager::new();
             let profile = pm.get(&profile_name)?;
-            run_auth_for_profile(&profile, force, use_keyring).await?;
+            run_auth_for_profile(&profile, force).await?;
         }
         Command::Logout {
             profile: profile_name,
@@ -423,9 +424,11 @@ async fn main() -> anyhow::Result<()> {
 async fn run_auth_for_profile(
     profile: &Profile,
     force: bool,
-    use_keyring: bool,
 ) -> anyhow::Result<()> {
-    let store = storage::create_storage_for_profile(profile, use_keyring);
+    let store = storage::create_storage_for_profile(
+        profile.credentials_path(),
+        profile.name.clone(),
+    )?;
     let auth_client = DeviceFlowAuth::new();
     let manager = TokenManager::new(store, auth_client).await?;
 
@@ -511,21 +514,14 @@ async fn run_auth_for_profile(
 
 /// Clear stored credentials for a profile.
 ///
-/// Clears both file and keyring storage to ensure credentials are
-/// fully removed regardless of which backend was used previously.
+/// Uses NativeStorage which handles both the credential file and any
+/// associated keyring entries in a single `delete_github_token()` call.
 async fn run_logout_for_profile(profile: &Profile) -> anyhow::Result<()> {
-    // Clear file-based storage for this profile
-    let file_store = storage::create_storage_for_profile(profile, false);
-    let auth_client = DeviceFlowAuth::new();
-    let manager = TokenManager::new(file_store, auth_client).await?;
-    manager.clear_tokens().await?;
-
-    // Also attempt to clear keyring storage (best-effort)
-    let keyring_store = storage::create_storage_for_profile(profile, true);
-    let auth_client2 = DeviceFlowAuth::new();
-    if let Ok(kr_manager) = TokenManager::new(keyring_store, auth_client2).await {
-        let _ = kr_manager.clear_tokens().await;
-    }
+    let store = storage::create_storage_for_profile(
+        profile.credentials_path(),
+        profile.name.clone(),
+    )?;
+    store.delete_github_token()?;
 
     println!("Logged out. Credentials removed for profile '{}'.", profile.name);
 

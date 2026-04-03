@@ -1,9 +1,9 @@
 # Native Credential Storage — Design Document
 
-**Status:** Proposed
-**Date:** 2026-04-02
+**Status:** Implemented
+**Date:** 2026-04-02 (proposed), 2026-04-03 (implemented)
 **Severity:** Medium
-**Related:** [HOME-DIR-TOKEN.design.md](./HOME-DIR-TOKEN.design.md), [CONSOLIDATED.plan.md](./CONSOLIDATED.plan.md)
+**Related:** [NATIVE-CREDENTIAL-STORAGE.plan.md](./NATIVE-CREDENTIAL-STORAGE.plan.md), [HOME-DIR-TOKEN.design.md](./HOME-DIR-TOKEN.design.md), [CONSOLIDATED.plan.md](./CONSOLIDATED.plan.md)
 
 ---
 

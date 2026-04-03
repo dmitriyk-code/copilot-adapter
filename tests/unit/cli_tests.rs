@@ -19,7 +19,6 @@ fn parse_start_defaults() {
             skip_auth,
             quiet,
             disable_native_tools,
-            use_keyring,
             profile,
         } => {
             assert!(!daemon);
@@ -35,7 +34,6 @@ fn parse_start_defaults() {
             assert!(!skip_auth);
             assert!(!quiet);
             assert!(!disable_native_tools);
-            assert!(!use_keyring);
             assert_eq!(profile, "default");
         }
         _ => panic!("Expected Start command"),
@@ -173,9 +171,8 @@ fn parse_status() {
 fn parse_auth() {
     let cli = Cli::parse_from(["copilot-adapter", "auth"]);
     match cli.command {
-        Command::Auth { force, use_keyring, profile } => {
+        Command::Auth { force, profile } => {
             assert!(!force);
-            assert!(!use_keyring);
             assert_eq!(profile, "default");
         }
         _ => panic!("Expected Auth command"),
@@ -186,9 +183,8 @@ fn parse_auth() {
 fn parse_auth_force() {
     let cli = Cli::parse_from(["copilot-adapter", "auth", "--force"]);
     match cli.command {
-        Command::Auth { force, use_keyring, profile } => {
+        Command::Auth { force, profile } => {
             assert!(force);
-            assert!(!use_keyring);
             assert_eq!(profile, "default");
         }
         _ => panic!("Expected Auth command"),
@@ -445,73 +441,19 @@ fn parse_start_disable_native_tools_default_false() {
     }
 }
 
-// --- Epic 3: --use-keyring flag tests ---
+// --- Epic 4: use_keyring flag removed ---
+// The --use-keyring flag has been removed. Verify it is no longer accepted.
 
 #[test]
-fn parse_start_use_keyring_flag() {
-    let cli = Cli::parse_from(["copilot-adapter", "start", "--use-keyring"]);
-    match cli.command {
-        Command::Start { use_keyring, .. } => assert!(use_keyring),
-        _ => panic!("Expected Start command"),
-    }
+fn parse_start_use_keyring_flag_rejected() {
+    let result = Cli::try_parse_from(["copilot-adapter", "start", "--use-keyring"]);
+    assert!(result.is_err(), "--use-keyring should no longer be accepted for start");
 }
 
 #[test]
-fn parse_start_use_keyring_default_false() {
-    let cli = Cli::parse_from(["copilot-adapter", "start"]);
-    match cli.command {
-        Command::Start { use_keyring, .. } => assert!(!use_keyring),
-        _ => panic!("Expected Start command"),
-    }
-}
-
-#[test]
-fn parse_start_use_keyring_with_daemon() {
-    let cli = Cli::parse_from(["copilot-adapter", "start", "--daemon", "--use-keyring"]);
-    match cli.command {
-        Command::Start {
-            daemon,
-            use_keyring,
-            ..
-        } => {
-            assert!(daemon);
-            assert!(use_keyring);
-        }
-        _ => panic!("Expected Start command"),
-    }
-}
-
-#[test]
-fn parse_auth_use_keyring_flag() {
-    let cli = Cli::parse_from(["copilot-adapter", "auth", "--use-keyring"]);
-    match cli.command {
-        Command::Auth { force, use_keyring, .. } => {
-            assert!(!force);
-            assert!(use_keyring);
-        }
-        _ => panic!("Expected Auth command"),
-    }
-}
-
-#[test]
-fn parse_auth_force_and_use_keyring() {
-    let cli = Cli::parse_from(["copilot-adapter", "auth", "--force", "--use-keyring"]);
-    match cli.command {
-        Command::Auth { force, use_keyring, .. } => {
-            assert!(force);
-            assert!(use_keyring);
-        }
-        _ => panic!("Expected Auth command"),
-    }
-}
-
-#[test]
-fn parse_auth_use_keyring_default_false() {
-    let cli = Cli::parse_from(["copilot-adapter", "auth"]);
-    match cli.command {
-        Command::Auth { use_keyring, .. } => assert!(!use_keyring),
-        _ => panic!("Expected Auth command"),
-    }
+fn parse_auth_use_keyring_flag_rejected() {
+    let result = Cli::try_parse_from(["copilot-adapter", "auth", "--use-keyring"]);
+    assert!(result.is_err(), "--use-keyring should no longer be accepted for auth");
 }
 
 // --- Epic 6: --profile, --all, and profiles subcommand tests ---

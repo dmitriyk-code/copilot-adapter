@@ -74,19 +74,6 @@ pub enum Command {
         #[arg(long)]
         disable_native_tools: bool,
 
-        /// Use the OS keyring for credential storage instead of the default file-based storage.
-        ///
-        /// By default, credentials are stored in ~/.copilot-adapter/credentials.json.
-        /// With this flag, the adapter will try to use the OS keyring (macOS Keychain,
-        /// Windows Credential Manager, or Linux Secret Service) and fall back to
-        /// file storage if the keyring is unavailable.
-        ///
-        /// Note: Keyring entries are shared across profiles. Logging out with
-        /// --use-keyring from any profile clears the shared keyring credential,
-        /// affecting all profiles that use keyring storage.
-        #[arg(long)]
-        use_keyring: bool,
-
         /// Suppress startup guidance messages
         #[arg(short = 'q', long)]
         quiet: bool,
@@ -124,20 +111,12 @@ pub enum Command {
         #[arg(long)]
         force: bool,
 
-        /// Use the OS keyring for credential storage instead of the default file-based storage.
-        /// Note: Keyring entries are shared across all profiles.
-        #[arg(long)]
-        use_keyring: bool,
-
         /// Named profile to authenticate
         #[arg(short = 'P', long, default_value = "default")]
         profile: String,
     },
 
     /// Remove stored credentials
-    ///
-    /// Clears stored credentials from both file storage and the OS keyring,
-    /// regardless of which backend was used previously.
     Logout {
         /// Named profile to log out
         #[arg(short = 'P', long, default_value = "default")]

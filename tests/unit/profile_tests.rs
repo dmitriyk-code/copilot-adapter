@@ -103,7 +103,7 @@ fn create_profile_creates_directory_and_returns_profile() {
     );
     assert_eq!(
         profile.credentials_path(),
-        base.join("profiles").join("foo").join("credentials.json")
+        base.join("profiles").join("foo").join("github-copilot.json")
     );
 
     let _ = fs::remove_dir_all(&base);
@@ -393,12 +393,12 @@ fn profile_credentials_path_is_correct() {
     let mgr = ProfileManager::with_base_dir(base.clone());
 
     let profile = mgr.get("default").unwrap();
-    assert!(profile.credentials_path().ends_with("credentials.json"));
+    assert!(profile.credentials_path().ends_with("github-copilot.json"));
     assert_eq!(
         profile.credentials_path(),
         base.join("profiles")
             .join("default")
-            .join("credentials.json")
+            .join("github-copilot.json")
     );
 
     let _ = fs::remove_dir_all(&base);

@@ -10,7 +10,6 @@ use copilot_adapter::daemon::status::{
 };
 use copilot_adapter::profile::migration::run_migration;
 use copilot_adapter::profile::ProfileManager;
-use copilot_adapter::storage::file::FileStorage;
 use copilot_adapter::storage::TokenStorage;
 use std::fs;
 
@@ -42,7 +41,11 @@ fn profile_full_lifecycle_create_auth_status_stop_delete() {
     assert!(profile.dir.is_dir());
 
     // Step 2: Simulate auth — store credentials
-    let storage = FileStorage::with_path(profile.credentials_path());
+    let storage = copilot_adapter::storage::create_storage_for_profile(
+        profile.credentials_path(),
+        profile.name.clone(),
+    )
+    .unwrap();
     storage.store_github_token("ghp_staging_token").unwrap();
     assert!(profile.credentials_path().exists());
 
@@ -63,7 +66,10 @@ fn profile_full_lifecycle_create_auth_status_stop_delete() {
         "status should be None after stop"
     );
 
-    // Step 6: Delete the profile
+    // Step 6: Clean up keyring entry before deleting profile
+    storage.delete_github_token().unwrap_or_default();
+
+    // Step 7: Delete the profile
     mgr.delete("staging").unwrap();
     assert!(!profile.dir.exists(), "profile directory should be removed");
 
@@ -81,7 +87,11 @@ fn profile_lifecycle_default_auto_creates() {
     assert!(profile.dir.exists());
 
     // Store credentials and status
-    let storage = FileStorage::with_path(profile.credentials_path());
+    let storage = copilot_adapter::storage::create_storage_for_profile(
+        profile.credentials_path(),
+        profile.name.clone(),
+    )
+    .unwrap();
     storage.store_github_token("ghp_default_token").unwrap();
     write_status_to(&profile.status_path(), 6767).unwrap();
 
@@ -95,6 +105,7 @@ fn profile_lifecycle_default_auto_creates() {
     assert!(result.unwrap_err().to_string().contains("Cannot delete"));
 
     // Clean up
+    storage.delete_github_token().unwrap_or_default();
     remove_status_from(&profile.status_path());
     let _ = fs::remove_dir_all(&base);
 }
@@ -208,8 +219,16 @@ fn multi_instance_two_profiles_different_ports() {
     assert_eq!(s2.pid, std::process::id());
 
     // Store separate credentials
-    let default_storage = FileStorage::with_path(default.credentials_path());
-    let work_storage = FileStorage::with_path(work.credentials_path());
+    let default_storage = copilot_adapter::storage::create_storage_for_profile(
+        default.credentials_path(),
+        default.name.clone(),
+    )
+    .unwrap();
+    let work_storage = copilot_adapter::storage::create_storage_for_profile(
+        work.credentials_path(),
+        work.name.clone(),
+    )
+    .unwrap();
     default_storage.store_github_token("ghp_default").unwrap();
     work_storage.store_github_token("ghp_work").unwrap();
 
@@ -229,7 +248,9 @@ fn multi_instance_two_profiles_different_ports() {
     // Port not in use returns None
     assert!(mgr.find_by_port(9999).is_none());
 
-    // Clean up
+    // Clean up keyring entries
+    default_storage.delete_github_token().unwrap_or_default();
+    work_storage.delete_github_token().unwrap_or_default();
     remove_status_from(&default.status_path());
     remove_status_from(&work.status_path());
     let _ = fs::remove_dir_all(&base);
@@ -434,9 +455,9 @@ fn migration_flat_status_to_default_profile() {
 fn migration_flat_credentials_to_default_profile() {
     let base = test_dir("migrate-creds");
 
-    // Create flat-dir credentials
-    let storage = FileStorage::with_path(base.join("credentials.json"));
-    storage.store_github_token("ghp_flat_token").unwrap();
+    // Create flat-dir credentials as raw bytes (profile migration just moves files)
+    let cred_data = b"test-credential-data";
+    fs::write(base.join("credentials.json"), cred_data).unwrap();
 
     // Run migration
     run_migration(&base, None);
@@ -444,15 +465,13 @@ fn migration_flat_credentials_to_default_profile() {
     // Flat file should be gone
     assert!(!base.join("credentials.json").exists());
 
-    // Profile file should exist with the correct token
+    // Profile file should exist with identical content
     let profile_path = base
         .join("profiles")
         .join("default")
         .join("credentials.json");
     assert!(profile_path.exists());
-
-    let migrated_storage = FileStorage::with_path(profile_path);
-    assert_eq!(migrated_storage.get_github_token().unwrap(), "ghp_flat_token");
+    assert_eq!(fs::read(&profile_path).unwrap(), cred_data);
 
     let _ = fs::remove_dir_all(&base);
 }
@@ -681,8 +700,13 @@ fn migration_post_migrate_profile_manager_works() {
     let default = mgr.get("default").unwrap();
     assert_eq!(default.name, "default");
 
-    // Migrated credentials should be accessible via the profile path
-    assert!(default.credentials_path().exists());
+    // Migrated credentials should be accessible at the old filename.
+    // NativeStorage will auto-migrate from credentials.json → github-copilot.json
+    // on first access, but the profile migration itself preserves the original name.
+    assert!(
+        default.dir.join("credentials.json").exists(),
+        "profile migration should have copied credentials.json into the profile directory"
+    );
 
     // Can create additional profiles
     let work = mgr.create("work").unwrap();

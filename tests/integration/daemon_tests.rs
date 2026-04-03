@@ -13,7 +13,6 @@ use copilot_adapter::daemon::status::{
     read_status_from, remove_status_from, write_status_to, StatusFile,
 };
 use copilot_adapter::profile::ProfileManager;
-use copilot_adapter::storage::file::FileStorage;
 use copilot_adapter::storage::TokenStorage;
 use std::fs;
 use std::sync::Mutex;
@@ -237,7 +236,11 @@ fn daemon_start_without_credentials_does_not_panic() {
 
     // Create storage for this profile — mirrors what main.rs does before auth
     let storage =
-        copilot_adapter::storage::create_storage_for_profile(&profile, false);
+        copilot_adapter::storage::create_storage_for_profile(
+            profile.credentials_path(),
+            profile.name.clone(),
+        )
+        .unwrap();
 
     // Attempting to get a token should return an error (no stored token),
     // which is the trigger for the interactive auth flow. The key assertion
@@ -260,20 +263,30 @@ fn daemon_start_without_credentials_does_not_panic() {
 
 #[test]
 fn daemon_start_with_credentials_succeeds() {
+    let profile_name = format!("daemon-auth-{}", std::process::id());
     let base = test_dir("daemon-auth-with-creds");
     let mgr = ProfileManager::with_base_dir(base.clone());
 
-    let profile = mgr.get("default").unwrap();
+    let profile = mgr.get(&profile_name).unwrap_or_else(|_| {
+        mgr.create(&profile_name).unwrap()
+    });
 
     // Store credentials
     let storage =
-        copilot_adapter::storage::create_storage_for_profile(&profile, false);
+        copilot_adapter::storage::create_storage_for_profile(
+            profile.credentials_path(),
+            profile.name.clone(),
+        )
+        .unwrap();
     storage.store_github_token("ghp_test_daemon_auth").unwrap();
 
     // Credentials should be retrievable — mirrors the check main.rs does
     let token = storage.get_github_token().unwrap();
     assert_eq!(token, "ghp_test_daemon_auth");
 
+    // Clean up keyring entry before removing directory (prevents orphaned entries
+    // on macOS/Linux where NativeStorage uses the OS keyring)
+    storage.delete_github_token().unwrap_or_default();
     let _ = fs::remove_dir_all(&base);
 }
 
@@ -438,10 +451,14 @@ fn credential_storage_store_retrieve_delete_lifecycle() {
     let mgr = ProfileManager::with_base_dir(base.clone());
 
     let profile = mgr.get("default").unwrap();
-    let creds_path = profile.credentials_path();
 
-    // Step 1: Create file storage at profile path
-    let storage = FileStorage::with_path(creds_path.clone());
+    // Step 1: Create NativeStorage via factory (mirrors production usage)
+    let storage =
+        copilot_adapter::storage::create_storage_for_profile(
+            profile.credentials_path(),
+            profile.name.clone(),
+        )
+        .unwrap();
 
     // Step 2: No token initially
     assert!(
@@ -451,7 +468,7 @@ fn credential_storage_store_retrieve_delete_lifecycle() {
 
     // Step 3: Store a token (simulates successful auth)
     storage.store_github_token("ghp_integration_test_token").unwrap();
-    assert!(creds_path.exists(), "credentials file should be created");
+    assert!(profile.credentials_path().exists(), "credentials file should be created");
 
     // Step 4: Retrieve the token (simulates restart → load)
     let token = storage.get_github_token().unwrap();
@@ -473,41 +490,71 @@ fn credential_storage_store_retrieve_delete_lifecycle() {
 
 #[test]
 fn credential_storage_survives_new_storage_instance() {
+    let profile_name = format!("cred-restart-{}", std::process::id());
     let base = test_dir("cred-restart");
     let mgr = ProfileManager::with_base_dir(base.clone());
 
-    let profile = mgr.get("default").unwrap();
-    let creds_path = profile.credentials_path();
+    let profile = mgr.get(&profile_name).unwrap_or_else(|_| {
+        mgr.create(&profile_name).unwrap()
+    });
 
-    // Store with first storage instance
-    let storage1 = FileStorage::with_path(creds_path.clone());
+    // Store with first NativeStorage instance (via factory)
+    let storage1 =
+        copilot_adapter::storage::create_storage_for_profile(
+            profile.credentials_path(),
+            profile.name.clone(),
+        )
+        .unwrap();
     storage1
         .store_github_token("ghp_persist_across_restart")
         .unwrap();
 
     // Create a NEW storage instance (simulates process restart)
-    let storage2 = FileStorage::with_path(creds_path.clone());
+    let storage2 =
+        copilot_adapter::storage::create_storage_for_profile(
+            profile.credentials_path(),
+            profile.name.clone(),
+        )
+        .unwrap();
     let token = storage2.get_github_token().unwrap();
     assert_eq!(
         token, "ghp_persist_across_restart",
         "token should persist across storage instances"
     );
 
+    // Clean up keyring entry before removing directory (prevents orphaned entries
+    // on macOS/Linux where NativeStorage uses the OS keyring)
+    storage2.delete_github_token().unwrap_or_default();
     let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
 fn credential_storage_per_profile_isolation() {
+    let pid = std::process::id();
+    let default_name = format!("iso-default-{}", pid);
+    let work_name = format!("iso-work-{}", pid);
     let base = test_dir("cred-isolation");
     let mgr = ProfileManager::with_base_dir(base.clone());
 
-    // Create two profiles
-    let default_profile = mgr.get("default").unwrap();
-    let work_profile = mgr.create("work").unwrap();
+    // Create two profiles with unique names to avoid keyring collisions
+    let default_profile = mgr.get(&default_name).unwrap_or_else(|_| {
+        mgr.create(&default_name).unwrap()
+    });
+    let work_profile = mgr.create(&work_name).unwrap();
 
-    // Store different tokens for each profile
-    let default_storage = FileStorage::with_path(default_profile.credentials_path());
-    let work_storage = FileStorage::with_path(work_profile.credentials_path());
+    // Store different tokens for each profile via NativeStorage factory
+    let default_storage =
+        copilot_adapter::storage::create_storage_for_profile(
+            default_profile.credentials_path(),
+            default_profile.name.clone(),
+        )
+        .unwrap();
+    let work_storage =
+        copilot_adapter::storage::create_storage_for_profile(
+            work_profile.credentials_path(),
+            work_profile.name.clone(),
+        )
+        .unwrap();
 
     default_storage
         .store_github_token("ghp_default_token")
@@ -525,53 +572,28 @@ fn credential_storage_per_profile_isolation() {
     assert!(default_storage.get_github_token().is_err());
     assert_eq!(work_storage.get_github_token().unwrap(), "ghp_work_token");
 
-    let _ = fs::remove_dir_all(&base);
-}
-
-#[test]
-fn credential_migration_from_legacy_path() {
-    let base = test_dir("cred-migration");
-
-    // Simulate legacy credentials at a "source" path
-    let legacy_dir = base.join("legacy");
-    let _ = fs::create_dir_all(&legacy_dir);
-    let legacy_path = legacy_dir.join("credentials.json");
-    let legacy_storage = FileStorage::with_path(legacy_path.clone());
-    legacy_storage.store_github_token("ghp_legacy_token").unwrap();
-
-    // New destination path
-    let new_dir = base.join("new_profile");
-    let _ = fs::create_dir_all(&new_dir);
-    let new_path = new_dir.join("credentials.json");
-
-    // Run migration
-    copilot_adapter::storage::file::migrate_from_to(&legacy_path, &new_path);
-
-    // Verify new location has the token
-    let new_storage = FileStorage::with_path(new_path.clone());
-    assert_eq!(new_storage.get_github_token().unwrap(), "ghp_legacy_token");
-
-    // Legacy file should still exist (copy, not move)
-    assert!(legacy_path.exists());
-
-    // Migration should be idempotent — running again should be a no-op
-    // because the destination file already exists
-    copilot_adapter::storage::file::migrate_if_needed(&new_path);
-    assert_eq!(new_storage.get_github_token().unwrap(), "ghp_legacy_token");
-
+    // Clean up remaining keyring entry before removing directory
+    work_storage.delete_github_token().unwrap_or_default();
     let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
 fn credential_storage_via_create_storage_for_profile() {
+    let profile_name = format!("cred-factory-{}", std::process::id());
     let base = test_dir("cred-factory");
     let mgr = ProfileManager::with_base_dir(base.clone());
 
-    let profile = mgr.get("default").unwrap();
+    let profile = mgr.get(&profile_name).unwrap_or_else(|_| {
+        mgr.create(&profile_name).unwrap()
+    });
 
     // Use the factory function (mirrors actual usage in main.rs)
     let storage =
-        copilot_adapter::storage::create_storage_for_profile(&profile, false);
+        copilot_adapter::storage::create_storage_for_profile(
+            profile.credentials_path(),
+            profile.name.clone(),
+        )
+        .unwrap();
 
     storage.store_github_token("ghp_factory_test").unwrap();
     assert_eq!(storage.get_github_token().unwrap(), "ghp_factory_test");
@@ -582,5 +604,8 @@ fn credential_storage_via_create_storage_for_profile() {
         "credentials file should be at profile.credentials_path()"
     );
 
+    // Clean up keyring entry before removing directory (prevents orphaned entries
+    // on macOS/Linux where NativeStorage uses the OS keyring)
+    storage.delete_github_token().unwrap_or_default();
     let _ = fs::remove_dir_all(&base);
 }

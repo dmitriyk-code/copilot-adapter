@@ -1,7 +1,7 @@
 //! Profile management for multi-instance support.
 //!
 //! Each profile has its own directory under `~/.copilot-adapter/profiles/<name>/`
-//! containing `status.json` and `credentials.json`.
+//! containing `status.json` and `github-copilot.json`.
 
 pub mod migration;
 pub mod types;

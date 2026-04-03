@@ -53,7 +53,7 @@ pub fn read_xor_token(path: &Path) -> Result<String> {
 }
 
 /// Generate the XOR obfuscation key using the same algorithm as the old
-/// `FileStorage` implementation.
+/// `FileStorage` implementation (now deleted).
 ///
 /// The key is a fixed prefix (`copilot-adapter-storage-key-v1`) with the
 /// current OS username XOR-mixed into it. This must remain byte-identical
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn read_xor_token_round_trip_with_file_storage_format() {
-        // Simulate what FileStorage.write_credentials produces:
+        // Simulate what the old FileStorage.write_credentials produced:
         // XOR-encrypt a JSON blob with the obfuscation key
         let dir = std::env::temp_dir().join(format!(
             "copilot-adapter-legacy-roundtrip-{}",

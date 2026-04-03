@@ -128,7 +128,7 @@ cargo test
 
 - Unit tests: `cargo test --test unit`
 - Integration tests: `cargo test --test integration`
-- Manual E2E tests: See `docs/e2e-testing.md`
+- Manual E2E tests: See `docs/development/e2e-testing.md`
 
 ## Key Design Decisions
 
@@ -148,19 +148,22 @@ cargo test
 - `GET /v1/models/:model` - Get model details
 
 ## Important Files
-- `DESIGN.md` - Full design document (architecture, API research, implementation details)
-- `IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
-- `DYNAMIC-MODELS.design.md` - Design document for dynamic models list feature (implemented)
-- `DYNAMIC-MODELS.plan.md` - Implementation plan for dynamic models
-- `TOOLS-SUPPORT.design.md` - **Deprecated** — original tools design (JSON format). See `DUAL-RESPONSES.design.md`
-- `TOOLS-SUPPORT.plan.md` - **Deprecated** — original tools plan. See `DUAL-RESPONSES.plan.md`
-- `DUAL-RESPONSES.design.md` - Design document for XML tool format migration and endpoint cleanup
-- `DUAL-RESPONSES.plan.md` - Implementation plan for XML tool format migration
-- `NATIVE-TOOLS-STREAMING.design.md` - Design document for native OpenAI tools and progressive streaming
-- `NATIVE-TOOLS-STREAMING.plan.md` - Implementation plan for native tools and schema-aware parsing
-- `CONSOLIDATED.plan.md` - Consolidated implementation plan for daemon auth, home dir storage, file-first credentials, and multi-instance profiles
-- `docs/e2e-testing.md` - Manual end-to-end testing procedures
+- `docs/design/archive/DESIGN.md` - Full design document (architecture, API research, implementation details)
+- `docs/design/archive/IMPLEMENTATION.plan.md` - Implementation plan with epics and tasks
+- `docs/design/archive/DYNAMIC-MODELS.design.md` - Design document for dynamic models list feature (implemented)
+- `docs/design/archive/DYNAMIC-MODELS.plan.md` - Implementation plan for dynamic models
+- `docs/design/archive/TOOLS-SUPPORT.design.md` - **Deprecated** — original tools design (JSON format). See `docs/design/archive/DUAL-RESPONSES.design.md`
+- `docs/design/archive/TOOLS-SUPPORT.plan.md` - **Deprecated** — original tools plan. See `docs/design/archive/DUAL-RESPONSES.plan.md`
+- `docs/design/archive/DUAL-RESPONSES.design.md` - Design document for XML tool format migration and endpoint cleanup
+- `docs/design/archive/DUAL-RESPONSES.plan.md` - Implementation plan for XML tool format migration
+- `docs/design/archive/NATIVE-TOOLS-STREAMING.design.md` - Design document for native OpenAI tools and progressive streaming
+- `docs/design/archive/NATIVE-TOOLS-STREAMING.plan.md` - Implementation plan for native tools and schema-aware parsing
+- `docs/design/CONSOLIDATED.plan.md` - Consolidated implementation plan for daemon auth, home dir storage, file-first credentials, and multi-instance profiles
+- `docs/design/NATIVE-CREDENTIAL-STORAGE.design.md` - Design document for platform-native credential encryption (DPAPI / keyring)
+- `docs/design/NATIVE-CREDENTIAL-STORAGE.plan.md` - Implementation plan for native credential storage
+- `docs/development/e2e-testing.md` - Manual end-to-end testing procedures
 - `docs/known-issues.md` - Known issues and workarounds
+- `docs/migration-v2-credentials.md` - Migration guide for v1 (XOR) → v2 (native encryption) credential format
 
 ## Major changes development process (features and bug fixes that introduce new concepts or touch multiple files / components)
 
@@ -193,6 +196,8 @@ cargo test
 - **Streaming state machine**: The `StreamingState` in `src/streaming/state.rs` incrementally translates OpenAI streaming chunks to Anthropic SSE events, handling content block transitions, tool call deltas, and tool name restoration.
 - **Daemon authentication**: Both foreground and daemon modes follow the same auth flow. When `start --daemon` is used without credentials, the adapter runs the interactive device flow *before* daemonizing (the parent process still has terminal access). The old daemon-specific auth gate that refused to start has been removed.
 - **Home directory storage**: All runtime state lives under `~/.copilot-adapter/`. Runtime status (PID, port, version, started_at) is stored in `status.json`; credentials in `github-copilot.json` (platform-native encryption: DPAPI on Windows, OS keyring on macOS/Linux). Legacy temp-dir PID files are detected as fallback. Implementation in `src/daemon/status.rs` (status read/write) and `src/storage/native.rs` (credentials).
-- **Credential storage**: Platform-native credential encryption is always enabled. Credentials are stored in `~/.copilot-adapter/profiles/<name>/github-copilot.json` using DPAPI on Windows or OS keyring on macOS/Linux. Legacy XOR-encrypted credentials (`credentials.json`) are automatically migrated on first access.
+- **Credential storage**: Platform-native credential encryption is always enabled — no flags needed. Credentials are stored in `~/.copilot-adapter/profiles/<name>/github-copilot.json` using DPAPI on Windows or OS keyring on macOS/Linux. The file is human-readable JSON with fields: `version` (always 2), `storage` (`"dpapi"` or `"keyring"`), and optionally `github_token` (base64-encoded DPAPI ciphertext on Windows; on macOS/Linux the token is stored in the OS keyring and this field is absent). Storage factory: `create_storage_for_profile(credentials_path, profile_name)`. Implementation in `src/storage/native.rs` (`NativeStorage`), `src/storage/dpapi.rs` (Windows DPAPI FFI), and `src/storage/mod.rs` (factory).
+- **Credential migration**: Legacy XOR-encrypted credentials (`credentials.json`) are automatically migrated on first access. Migration prioritizes **security over preservation** — the old insecure file is always deleted, even if the token cannot be read (corrupted file, username changed, etc.). If migration fails, the user must re-authenticate with `copilot-adapter auth`. Read-only XOR decryption lives in `src/storage/legacy.rs`.
+- **No secure storage error**: On Linux, if no Secret Service provider (e.g., `gnome-keyring`, `kde-wallet`) is running, the adapter refuses to store credentials and returns a clear error: "No secure credential storage available". Install a keyring provider and restart the service before running `copilot-adapter auth`.
 - **Multi-instance profiles**: The `--profile` / `-P` flag selects a named profile. Each profile has its own directory under `~/.copilot-adapter/profiles/<name>/` containing `status.json` and `github-copilot.json`. The default profile name is `"default"`. Port conflict detection prevents two profiles from binding the same port. Profile management via `profiles list/create/delete` subcommand. Implementation in `src/profile/` (types, CRUD, migration).
 - **Profile migration**: On first startup, the adapter auto-migrates from the flat `~/.copilot-adapter/` layout (status.json + credentials.json at root) to `profiles/default/`. Legacy temp-dir PID files are synthesized into status.json format. Migration is idempotent — skipped if `profiles/` directory already exists. Implementation in `src/profile/migration.rs`.
