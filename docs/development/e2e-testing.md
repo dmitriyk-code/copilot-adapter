@@ -2001,6 +2001,292 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 
 ---
 
+## Test 35: Windows DPAPI Credential Storage
+
+**Purpose:** Verify that on Windows the adapter stores credentials using DPAPI encryption in the `github-copilot.json` file.
+
+> **Prerequisites:**
+> - Running on Windows
+> - The adapter binary is built and in `PATH`
+> - A GitHub account with an active Copilot subscription
+
+### Steps
+
+1. **Clean state:**
+   ```powershell
+   copilot-adapter logout
+   Remove-Item -Recurse -Force "$env:USERPROFILE\.copilot-adapter" -ErrorAction SilentlyContinue
+   ```
+
+2. **Authenticate:**
+   ```powershell
+   copilot-adapter auth
+   ```
+   Follow the device flow in the browser.
+
+3. **Verify credential file format:**
+   ```powershell
+   Get-Content "$env:USERPROFILE\.copilot-adapter\profiles\default\github-copilot.json" | python -m json.tool
+   ```
+
+4. **Expected output:**
+   ```json
+   {
+     "version": 2,
+     "storage": "dpapi",
+     "github_token": "<base64-encoded DPAPI-encrypted blob>"
+   }
+   ```
+
+5. **Verify adapter works with DPAPI credentials:**
+   ```powershell
+   copilot-adapter start
+   # In another terminal:
+   curl -s -X POST http://127.0.0.1:6767/v1/messages `
+     -H "Content-Type: application/json" `
+     -H "x-api-key: dummy" `
+     -H "anthropic-version: 2023-06-01" `
+     -d '{"model":"claude-3-5-sonnet-20241022","max_tokens":50,"messages":[{"role":"user","content":"Say hello"}]}'
+   ```
+
+6. **Expected:** Valid response with assistant message. Token decrypted via DPAPI and used to obtain a Copilot API token.
+
+### Verification Checklist
+
+- [ ] File exists at `~/.copilot-adapter/profiles/default/github-copilot.json`
+- [ ] File contains `"version": 2`
+- [ ] File contains `"storage": "dpapi"`
+- [ ] File contains `"github_token"` with a base64-encoded string
+- [ ] Adapter starts successfully with the stored credentials
+- [ ] API requests return valid responses
+
+---
+
+## Test 36: macOS/Linux Keyring Credential Storage
+
+**Purpose:** Verify that on macOS/Linux the adapter stores credentials using the OS keyring with a sentinel JSON file.
+
+> **Prerequisites:**
+> - Running on macOS or Linux
+> - On Linux: a Secret Service provider must be running (GNOME Keyring, KDE Wallet, or `pass`)
+> - A GitHub account with an active Copilot subscription
+
+### Steps
+
+1. **Clean state:**
+   ```bash
+   copilot-adapter logout
+   rm -rf ~/.copilot-adapter
+   ```
+
+2. **Authenticate:**
+   ```bash
+   copilot-adapter auth
+   ```
+   Follow the device flow in the browser.
+
+3. **Verify credential file format:**
+   ```bash
+   cat ~/.copilot-adapter/profiles/default/github-copilot.json | python3 -m json.tool
+   ```
+
+4. **Expected output:**
+   ```json
+   {
+     "version": 2,
+     "storage": "keyring"
+   }
+   ```
+   Note: `github_token` field is **absent** — the token is stored in the OS keyring.
+
+5. **Verify adapter works with keyring credentials:**
+   ```bash
+   copilot-adapter start
+   curl -s http://127.0.0.1:6767/health
+   ```
+
+6. **Expected:** `{"status": "ok"}` — adapter decrypts token from keyring successfully.
+
+### Verification Checklist
+
+- [ ] Sentinel file exists at `~/.copilot-adapter/profiles/default/github-copilot.json`
+- [ ] File contains `"version": 2`
+- [ ] File contains `"storage": "keyring"`
+- [ ] File does **not** contain a `"github_token"` field
+- [ ] Adapter starts and serves requests using the keyring-stored token
+
+---
+
+## Test 37: Automatic Migration from XOR Format
+
+**Purpose:** Verify that the adapter automatically migrates credentials from the old XOR-obfuscated `credentials.json` to the new `github-copilot.json` format.
+
+> **Prerequisites:**
+> - An old `credentials.json` file from a previous adapter version, or a manually created one
+> - The new adapter binary
+
+### Steps
+
+1. **Setup — Create old-format credentials:**
+
+   If you have a previous adapter version installed:
+   ```bash
+   # Use old version to authenticate (creates credentials.json)
+   old-copilot-adapter auth
+   ```
+
+   Or manually create a test file (advanced — requires matching the XOR key derivation):
+   ```bash
+   # Ensure no new-format file exists
+   rm -f ~/.copilot-adapter/profiles/default/github-copilot.json
+   # Place old-format file in the profile directory
+   cp /path/to/old/credentials.json ~/.copilot-adapter/profiles/default/credentials.json
+   ```
+
+2. **Start the new adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+3. **Check logs for migration messages:**
+   ```
+   Migrating credentials from XOR format to native encryption
+   Successfully migrated credentials to new format
+   Deleted old XOR credentials file
+   ```
+
+4. **Verify file state:**
+   ```bash
+   # Old file should be gone
+   ls ~/.copilot-adapter/profiles/default/credentials.json
+   # Expected: No such file or directory
+
+   # New file should exist
+   cat ~/.copilot-adapter/profiles/default/github-copilot.json | python3 -m json.tool
+   # Expected: {"version": 2, "storage": "dpapi" or "keyring", ...}
+   ```
+
+5. **Verify adapter works with migrated credentials:**
+   ```bash
+   curl -s http://127.0.0.1:6767/health
+   # Expected: {"status": "ok"}
+   ```
+
+### Verification Checklist
+
+- [ ] Old `credentials.json` is deleted after migration
+- [ ] New `github-copilot.json` is created with version 2 format
+- [ ] Logs show migration info messages
+- [ ] Adapter functions correctly with migrated token
+
+---
+
+## Test 38: Edge Case — Both Credential Files Exist
+
+**Purpose:** Verify that when both `credentials.json` (old) and `github-copilot.json` (new) exist, the adapter removes the old file and uses the new one.
+
+### Steps
+
+1. **Setup — Create both files:**
+   ```bash
+   PROFILE_DIR=~/.copilot-adapter/profiles/default
+
+   # Ensure new-format credentials exist (authenticate first if needed)
+   copilot-adapter auth
+
+   # Manually place an old-format file alongside it
+   echo "fake-old-data" > "$PROFILE_DIR/credentials.json"
+   ```
+
+2. **Start the adapter:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+3. **Verify:**
+   ```bash
+   # Old file should be removed
+   ls "$PROFILE_DIR/credentials.json"
+   # Expected: No such file or directory
+
+   # New file should be untouched
+   cat "$PROFILE_DIR/github-copilot.json" | python3 -m json.tool
+   # Expected: valid JSON with version 2
+   ```
+
+4. **Check logs:**
+   ```
+   Removed old XOR credentials file (new format already exists)
+   ```
+
+### Verification Checklist
+
+- [ ] Old `credentials.json` is removed
+- [ ] New `github-copilot.json` is preserved and used
+- [ ] Adapter logs a message about removing the old file
+- [ ] Adapter works correctly
+
+---
+
+## Test 39: Corrupted XOR Credential File
+
+**Purpose:** Verify that a corrupted old `credentials.json` is handled gracefully — deleted with a warning, and the user is prompted to re-authenticate.
+
+### Steps
+
+1. **Setup — Create a corrupted old file:**
+   ```bash
+   PROFILE_DIR=~/.copilot-adapter/profiles/default
+   mkdir -p "$PROFILE_DIR"
+
+   # Remove any new-format file
+   rm -f "$PROFILE_DIR/github-copilot.json"
+
+   # Write corrupted data
+   echo "this is not valid XOR-encrypted JSON" > "$PROFILE_DIR/credentials.json"
+   ```
+
+2. **Start the adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+3. **Check logs for warnings:**
+   ```
+   Failed to read old XOR credentials. Please run `copilot-adapter auth` to re-authenticate.
+   Deleted old XOR credentials file
+   ```
+
+4. **Verify:**
+   ```bash
+   # Corrupted file should be deleted
+   ls "$PROFILE_DIR/credentials.json"
+   # Expected: No such file or directory
+
+   # No new file should have been created (migration failed)
+   ls "$PROFILE_DIR/github-copilot.json"
+   # Expected: No such file or directory
+
+   # Adapter should prompt for authentication
+   copilot-adapter status
+   # May report not running or require re-auth
+   ```
+
+5. **Re-authenticate:**
+   ```bash
+   copilot-adapter auth
+   # Should start fresh device flow
+   ```
+
+### Verification Checklist
+
+- [ ] Corrupted `credentials.json` is deleted
+- [ ] Warning logged with `re-authenticate` guidance
+- [ ] No corrupted data propagated to new file
+- [ ] Fresh `copilot-adapter auth` works after cleanup
+
+---
+
 ## Test Summary Checklist
 
 | # | Test Name | Category |
@@ -2040,3 +2326,8 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 | 32 | Daemon Auth E2E | Profiles / Auth |
 | 33 | Home Directory Storage E2E | Profiles / Storage |
 | 34 | Multi-Instance Profiles E2E | Profiles / Multi-Instance |
+| 35 | Windows DPAPI Credential Storage | Credential Storage |
+| 36 | macOS/Linux Keyring Credential Storage | Credential Storage |
+| 37 | Automatic Migration from XOR Format | Credential Migration |
+| 38 | Edge Case — Both Credential Files Exist | Credential Migration |
+| 39 | Corrupted XOR Credential File | Credential Migration |
