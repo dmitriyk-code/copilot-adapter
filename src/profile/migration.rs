@@ -29,6 +29,17 @@ pub fn migrate_to_profiles() {
 /// 3. Migrate legacy temp dir PID file to profile status
 ///
 /// Pass `legacy_pid_path` as `None` to skip legacy PID file migration.
+///
+/// # Two-stage credential migration
+///
+/// `credentials.json` is intentionally moved into the profile directory even
+/// though it is still in the old XOR-obfuscated format. [`NativeStorage`] looks
+/// for a legacy `credentials.json` **in the same directory** as its new
+/// `github-copilot.json` file path, so the file must first be placed in the
+/// profile directory before `NativeStorage` can perform the XOR→native
+/// upgrade on first access. Both stages are idempotent.
+///
+/// [`NativeStorage`]: crate::storage::NativeStorage
 pub fn run_migration(base_dir: &Path, legacy_pid_path: Option<&Path>) {
     let profiles_dir = base_dir.join("profiles");
 

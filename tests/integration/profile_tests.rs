@@ -10,7 +10,6 @@ use copilot_adapter::daemon::status::{
 };
 use copilot_adapter::profile::migration::run_migration;
 use copilot_adapter::profile::ProfileManager;
-use copilot_adapter::storage::TokenStorage;
 use std::fs;
 
 /// Helper: create a unique temp directory for each test to avoid interference.

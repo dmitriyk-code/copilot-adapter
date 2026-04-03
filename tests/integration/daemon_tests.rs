@@ -13,7 +13,6 @@ use copilot_adapter::daemon::status::{
     read_status_from, remove_status_from, write_status_to, StatusFile,
 };
 use copilot_adapter::profile::ProfileManager;
-use copilot_adapter::storage::TokenStorage;
 use std::fs;
 use std::sync::Mutex;
 
