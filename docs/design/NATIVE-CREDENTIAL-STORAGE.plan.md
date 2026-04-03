@@ -789,9 +789,7 @@ impl super::TokenStorage for NativeStorage {
 
 ### Epic 4: Integration and CLI Updates (Day 2, 0.5 days)
 
-**Status:** Not Started
-
-**Objective:** Update storage factory and CLI to use NativeStorage
+**Status:** DONE
 
 #### Task 4.1: Update Storage Module Exports
 
@@ -831,10 +829,10 @@ pub fn create_storage_for_profile(
 ```
 
 **Acceptance Criteria:**
-- [ ] Exports updated to include native and legacy
-- [ ] Simplified factory function (no use_keyring parameter)
-- [ ] Profile name passed to storage
-- [ ] Old exports removed
+- [x] Exports updated to include native and legacy
+- [x] Simplified factory function (no use_keyring parameter)
+- [x] Profile name passed to storage
+- [x] Old exports removed
 
 **Notes:** This is a breaking change - all callers must be updated.
 
@@ -878,11 +876,11 @@ pub struct Auth {
 ```
 
 **Acceptance Criteria:**
-- [ ] use_keyring removed from Auth struct
-- [ ] use_keyring removed from Start struct
-- [ ] All other fields preserved
-- [ ] Doc comments updated
-- [ ] Build succeeds
+- [x] use_keyring removed from Auth struct
+- [x] use_keyring removed from Start struct
+- [x] All other fields preserved
+- [x] Doc comments updated
+- [x] Build succeeds
 
 #### Task 4.3: Update Main Entry Points
 
@@ -912,11 +910,11 @@ storage.delete_github_token()?;
 ```
 
 **Acceptance Criteria:**
-- [ ] All storage factory calls updated
-- [ ] use_keyring parameter removed everywhere
-- [ ] Logout simplified to single delete call
-- [ ] Profile name passed correctly
-- [ ] Builds and runs
+- [x] All storage factory calls updated
+- [x] use_keyring parameter removed everywhere
+- [x] Logout simplified to single delete call
+- [x] Profile name passed correctly
+- [x] Builds and runs
 
 #### Task 4.4: Update Profile Module
 
@@ -934,8 +932,10 @@ impl Profile {
 ```
 
 **Acceptance Criteria:**
-- [ ] Function returns new filename
-- [ ] All callers still work (path is opaque)
+- [x] Function returns new filename
+- [x] All callers still work (path is opaque)
+
+**Completion Notes (2026-04-03):** Epic implemented in a previous iteration. Documentation inaccuracy in CLAUDE.md corrected: `keyring.rs` description updated to clarify it is legacy standalone storage not used by NativeStorage (which uses the external `keyring` crate directly via `keyring::Entry::new()`). `KeyringStorage` is not imported or instantiated anywhere outside `src/storage/keyring.rs`.
 
 ---
 
@@ -1530,7 +1530,7 @@ windows-sys = { version = "0.59", features = [
 - [ ] Epic 1: Windows DPAPI module
 - [x] Epic 2: Legacy XOR module
 - [ ] Epic 3: NativeStorage implementation
-- [ ] Epic 4: Integration and CLI updates
+- [x] Epic 4: Integration and CLI updates
 - [ ] Epic 5: Cleanup old code
 
 ### Phase 2: Testing (Day 3)
@@ -1562,7 +1562,7 @@ windows-sys = { version = "0.59", features = [
 | Epic 1: Windows DPAPI | Done | 2026-04-02 | 2026-04-02 | |
 | Epic 2: Legacy XOR | Done | 2026-04-02 | 2026-04-02 | |
 | Epic 3: NativeStorage | Not Started | - | - | |
-| Epic 4: Integration | Not Started | - | - | |
+| Epic 4: Integration | DONE | - | - | |
 | Epic 5: Cleanup | Not Started | - | - | |
 | Epic 6: Testing | Not Started | - | - | |
 | Epic 7: Documentation | Not Started | - | - | |

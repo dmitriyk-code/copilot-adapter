@@ -14,7 +14,7 @@ A standalone Rust binary (`copilot-adapter`) that acts as an **Anthropic-to-Copi
 - **Vision / image support** — translates Anthropic image blocks to OpenAI `image_url` format; document blocks gracefully skipped
 - **Dynamic model discovery** — fetches available models from Copilot API with in-memory caching and fallback
 - **Automatic token management** with refresh 5 min before expiry
-- **Secure credential storage** — file-based by default (`~/.copilot-adapter/credentials.json`), with opt-in OS keyring via `--use-keyring`
+- **Secure credential storage** — platform-native encryption (DPAPI on Windows, OS keyring on macOS/Linux) stored in `~/.copilot-adapter/profiles/<name>/github-copilot.json`
 - **Multi-instance profiles** — run concurrent instances via `--profile` / `-P` flag with independent ports and credentials
 - **Cross-platform daemon** operation (Windows/Linux/macOS)
 
@@ -25,7 +25,7 @@ Claude Code  ──→  copilot-adapter (localhost:6767)  ──→  GitHub Copi
                         │
                   ┌─────┴─────┐
                   │ Token Mgr  │  Auto-refresh Copilot tokens
-                  │ Credential │  encrypted file / OS keyring
+                  │ Credential │  platform-native encryption
                   │ SSE Stream │  Real-time streaming support
                   └───────────┘
 ```
@@ -68,9 +68,13 @@ src/
 │   ├── mod.rs           # Streaming module exports
 │   └── state.rs         # Streaming state machine (OpenAI → Anthropic SSE)
 ├── storage/
-│   ├── mod.rs
-│   ├── keyring.rs       # OS keyring storage
-│   └── file.rs          # Encrypted file fallback
+│   ├── mod.rs           # TokenStorage trait, factory function
+│   ├── native.rs        # Platform-native credential storage (DPAPI / keyring)
+│   ├── legacy.rs        # XOR migration reader for old credentials.json
+│   ├── dpapi.rs         # Windows DPAPI encryption FFI bindings
+│   ├── windows_credential.rs  # Windows credential helper
+│   ├── keyring.rs       # Legacy standalone OS keyring storage (not used by NativeStorage; available for direct use/testing)
+│   └── file.rs          # XOR-based file storage (legacy)
 ├── daemon/
 │   ├── mod.rs           # PID file management
 │   ├── status.rs        # Runtime status (status.json) read/write
@@ -88,13 +92,11 @@ src/
 |---------|-------------|
 | `copilot-adapter auth` | Authenticate with GitHub (device flow) |
 | `copilot-adapter auth --force` | Force re-authentication |
-| `copilot-adapter auth --use-keyring` | Authenticate and store credentials in OS keyring |
 | `copilot-adapter auth -P <name>` | Authenticate for a specific profile |
 | `copilot-adapter start` | Start adapter in foreground |
 | `copilot-adapter start --daemon` | Start as background daemon |
 | `copilot-adapter start -p 9090` | Start on custom port |
 | `copilot-adapter start --profile <name>` / `-P <name>` | Start with a named profile |
-| `copilot-adapter start --use-keyring` | Use OS keyring for credential storage |
 | `copilot-adapter start --log-level debug` | Enable debug logging |
 | `copilot-adapter start --log-level trace` | Enable trace logging (very verbose, logs full request/response JSON) |
 | `copilot-adapter start --models-cache-ttl 600` | Set model list cache TTL (seconds) |
@@ -135,7 +137,7 @@ cargo test
 
 1. **Rust with axum**: Minimal binary, no runtime dependencies, excellent async support
 2. **Single binary**: Easy distribution and installation
-3. **File-based credentials by default**: Encrypted file at `~/.copilot-adapter/credentials.json`; OS keyring available via `--use-keyring`
+3. **Platform-native credentials**: Automatic encryption via DPAPI (Windows) or OS keyring (macOS/Linux) in `~/.copilot-adapter/profiles/<name>/github-copilot.json`
 4. **Localhost-only by default**: Security - prevents external access without explicit opt-in
 5. **SSE passthrough**: Copilot already returns OpenAI-compatible format
 
@@ -193,7 +195,7 @@ cargo test
 - **Parameter types**: Native tools preserve parameter types from schemas. XML fallback path coerces string values to their schema-defined types (number, boolean, etc.) via `ToolRegistry` in `src/tools/registry.rs`.
 - **Streaming state machine**: The `StreamingState` in `src/streaming/state.rs` incrementally translates OpenAI streaming chunks to Anthropic SSE events, handling content block transitions, tool call deltas, and tool name restoration.
 - **Daemon authentication**: Both foreground and daemon modes follow the same auth flow. When `start --daemon` is used without credentials, the adapter runs the interactive device flow *before* daemonizing (the parent process still has terminal access). The old daemon-specific auth gate that refused to start has been removed.
-- **Home directory storage**: All runtime state lives under `~/.copilot-adapter/`. Runtime status (PID, port, version, started_at) is stored in `status.json`; credentials in `credentials.json` (AES-256-GCM encrypted). Legacy temp-dir PID files are detected as fallback. Implementation in `src/daemon/status.rs` (status read/write) and `src/storage/file.rs` (credentials).
-- **Credential storage (`--use-keyring`)**: File-based credential storage (`~/.copilot-adapter/credentials.json`) is the default. Pass `--use-keyring` on `auth` or `start` to use the OS keyring instead. The keyring path remains available but is no longer the primary storage mechanism.
-- **Multi-instance profiles**: The `--profile` / `-P` flag selects a named profile. Each profile has its own directory under `~/.copilot-adapter/profiles/<name>/` containing `status.json` and `credentials.json`. The default profile name is `"default"`. Port conflict detection prevents two profiles from binding the same port. Profile management via `profiles list/create/delete` subcommand. Implementation in `src/profile/` (types, CRUD, migration).
+- **Home directory storage**: All runtime state lives under `~/.copilot-adapter/`. Runtime status (PID, port, version, started_at) is stored in `status.json`; credentials in `github-copilot.json` (platform-native encryption: DPAPI on Windows, OS keyring on macOS/Linux). Legacy temp-dir PID files are detected as fallback. Implementation in `src/daemon/status.rs` (status read/write) and `src/storage/native.rs` (credentials).
+- **Credential storage**: Platform-native credential encryption is always enabled. Credentials are stored in `~/.copilot-adapter/profiles/<name>/github-copilot.json` using DPAPI on Windows or OS keyring on macOS/Linux. Legacy XOR-encrypted credentials (`credentials.json`) are automatically migrated on first access.
+- **Multi-instance profiles**: The `--profile` / `-P` flag selects a named profile. Each profile has its own directory under `~/.copilot-adapter/profiles/<name>/` containing `status.json` and `github-copilot.json`. The default profile name is `"default"`. Port conflict detection prevents two profiles from binding the same port. Profile management via `profiles list/create/delete` subcommand. Implementation in `src/profile/` (types, CRUD, migration).
 - **Profile migration**: On first startup, the adapter auto-migrates from the flat `~/.copilot-adapter/` layout (status.json + credentials.json at root) to `profiles/default/`. Legacy temp-dir PID files are synthesized into status.json format. Migration is idempotent — skipped if `profiles/` directory already exists. Implementation in `src/profile/migration.rs`.
