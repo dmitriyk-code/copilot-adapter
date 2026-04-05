@@ -1,7 +1,7 @@
 # Context Window Enforcement & Truncated Tool Recovery — Design Document
 
 **Status:** Draft
-**Date:** 2026-04-05
+**Date:** 2026-04-05 (updated)
 **Severity:** High
 **Related:** `LARGE-FILE-WRITE-BUG-RESEARCH.md`, `ERROR_INVESTIGATION_REPORT.md`
 
@@ -9,14 +9,17 @@
 
 ## Executive Summary
 
-The copilot-adapter has two related bugs that cause Claude Code sessions to fail during long conversations or large file writes:
+The copilot-adapter has three related issues that cause Claude Code sessions to fail or underperform during long conversations, large file writes, or 1M context usage:
 
 1. **Context window mismatch** — Claude Code believes `claude-opus-4-6` has a 200K context window (its built-in default), but the GitHub Copilot API enforces a 168K prompt-token limit. When the prompt exceeds this, the Copilot API returns HTTP 400 `model_max_prompt_tokens_exceeded`. The adapter wraps this as a generic 502 `upstream_error`, which Claude Code treats as an opaque connection failure rather than a "prompt too long" error that would trigger automatic context compaction.
 
 2. **Truncated tool calls silently dropped** — When the Copilot API returns `finish_reason: "length"` mid-tool-call, the adapter drops the incomplete tool_use block entirely. Claude Code receives `stop_reason: "max_tokens"` with zero tool_use content blocks. However, Claude Code's internal stream processing has already detected tool_use activity, so `needsFollowUp = true`, which skips the max_tokens escalation logic (8K → 64K). The model never gets a larger output budget to complete the tool call.
 
-This document designs two targeted fixes:
+3. **1M context models not activated** — When Claude Code's user selects "Opus (1M context)" or "Sonnet (1M context)", Claude Code communicates this via the `anthropic-beta: context-1m-2025-08-07` HTTP header, **not** via the model name. The adapter currently ignores this header. Meanwhile, the GitHub Copilot API exposes 1M context as a **separate model** (e.g., `claude-opus-4.6-1m`). The adapter needs to detect the beta header and select the correct Copilot model name.
+
+This document designs three targeted fixes:
 - **Option A**: Translate Copilot 400 `model_max_prompt_tokens_exceeded` into an Anthropic-format `invalid_request_error` with a message that matches Claude Code's prompt-too-long regex, returning HTTP 400.
+- **Option C**: Detect the `anthropic-beta: context-1m-*` header and append `-1m` to the normalized Copilot model name, enabling 1M context window passthrough.
 - **Option E**: When a tool call is truncated, emit a text content block explaining the truncation instead of dropping it silently, so Claude Code sees a text-only response and can fire max_tokens escalation.
 
 ---
@@ -53,6 +56,68 @@ HTTP/1.1 502 Bad Gateway
 HTTP/1.1 400 Bad Request
 {"error":{"type":"invalid_request_error","message":"prompt is too long: 168929 tokens > 168000 maximum"}}
 ```
+
+#### 1M context: How Claude Code communicates extended context
+
+Claude Code uses `[1m]` as an **internal suffix** to track 1M context models (e.g., `claude-opus-4-6[1m]`). Before sending any API request, the suffix is **stripped** via `normalizeModelStringForAPI()`:
+
+**`claude-code/src/utils/model/model.ts:616-618`:**
+```typescript
+export function normalizeModelStringForAPI(model: string): string {
+  return model.replace(/\[(1|2)m\]/gi, '')
+}
+```
+
+The 1M context opt-in is communicated via the **`anthropic-beta` HTTP header**, not the model name:
+
+**`claude-code/src/utils/betas.ts:254-256`:**
+```typescript
+if (has1mContext(model)) {
+  betaHeaders.push(CONTEXT_1M_BETA_HEADER)  // 'context-1m-2025-08-07'
+}
+```
+
+The final API request looks like:
+```
+POST /v1/messages
+anthropic-beta: context-1m-2025-08-07,...
+
+{
+  "model": "claude-opus-4-6",   ← no context marker
+  "messages": [...],
+  ...
+}
+```
+
+**Key finding: Claude Code never sends `-1m` or `[1m]` in the model name over the wire.** The `[1m]` suffix is stripped, and the context information travels exclusively via the `anthropic-beta` header.
+
+#### 1M context: How GitHub Copilot API handles extended context
+
+The Copilot API exposes 1M context as **separate model IDs**. A live query to `GET https://api.githubcopilot.com/models` returns (among others):
+
+```json
+{"id": "claude-opus-4.6-1m",  "object": "model", ...},
+{"id": "claude-opus-4.6",     "object": "model", ...},
+{"id": "claude-sonnet-4.6",   "object": "model", ...}
+```
+
+There is no header or parameter to request extended context — you simply use the model name with the `-1m` suffix. The standard models enforce a 168K prompt token limit; the `-1m` models presumably accept up to ~1M tokens.
+
+#### 1M context: Current adapter behavior
+
+The adapter's `model_mapper.rs` has logic to **preserve** context markers like `-1m` in model names:
+
+```
+claude-opus-4-6-1m  →  claude-opus-4.6-1m   (marker preserved)
+claude-opus-4-6     →  claude-opus-4.6       (no marker)
+```
+
+However, this preservation logic is **dead code** — Claude Code never sends `-1m` in the model name. The adapter also:
+- Does **not** parse the `anthropic-beta` header (the `messages` handler extracts only `State` and `Json<AnthropicRequest>`)
+- Does **not** have a `betas` field in `AnthropicRequest` (the SDK sends betas as an HTTP header, not in the JSON body)
+- Does **not** have any mechanism to activate 1M context on the Copilot side
+
+**Result:** When a user selects "Opus (1M context)" in Claude Code, the adapter receives `model: "claude-opus-4-6"` and forwards it as `claude-opus-4.6` — the standard 168K model. The 1M context selection has no effect.
 
 #### Streaming truncation handling
 
@@ -96,7 +161,8 @@ For the single-tool case (the most common truncation scenario), the adapter curr
 
 1. When the Copilot API rejects a request for exceeding its prompt token limit, Claude Code receives a "prompt is too long" error and triggers automatic context compaction
 2. When a tool call is truncated by the output token limit, Claude Code receives an informative text block and `stop_reason: max_tokens`, enabling max_tokens escalation
-3. No changes required to Claude Code
+3. When Claude Code sends the `anthropic-beta: context-1m-*` header, the adapter selects the Copilot API's 1M model variant (e.g., `claude-opus-4.6-1m`), enabling true 1M context windows
+4. No changes required to Claude Code
 
 ---
 
@@ -125,6 +191,7 @@ Claude Code receives `stop_reason: max_tokens` with text content only. If escala
 **Impact:**
 - Long Claude Code sessions become unusable when the conversation approaches 168K tokens
 - Large file writes fail when the tool call arguments exceed the output token budget
+- 1M context selections in Claude Code have no effect — users get 168K even when they explicitly request 1M
 
 ---
 
@@ -138,6 +205,7 @@ Claude Code receives `stop_reason: max_tokens` with text content only. If escala
 | G2 | Truncated tool calls provide informative context | Text block emitted with truncation info; `stop_reason: max_tokens` preserved |
 | G3 | No regressions in normal streaming or tool call flows | All existing tests pass; non-error paths unchanged |
 | G4 | Works without Claude Code modifications | Adapter-only changes |
+| G5 | 1M context models are activated when Claude Code requests them | `anthropic-beta: context-1m-*` → model name has `-1m` suffix → Copilot API receives 1M model ID |
 
 ### Non-Goals
 
@@ -250,6 +318,72 @@ The `StreamingState` struct tracks:
 Currently there's no field that tracks "at least one tool_use block was fully emitted to the client." We need to add one for Option E to decide whether the truncation notice text block is the only content or accompanies earlier tool_use blocks.
 
 Actually, looking more carefully: when a tool_use block is flushed, the events include `ContentBlockStart` with a `ResponseContentBlock::ToolUse`. We can add a `bool` flag `has_emitted_tool_use` that is set to `true` whenever `flush_tool_use_buffer()` returns non-empty events.
+
+### Key Finding 7: Claude Code's `anthropic-beta` header mechanism
+
+Claude Code uses the `anthropic-beta` HTTP header to enable 1M context. The relevant flow in `claude-code/src/`:
+
+1. **User selects model** — e.g., "Opus (1M context)" → internal model string `claude-opus-4-6[1m]`
+2. **Beta header injection** (`utils/betas.ts:254`):
+   ```typescript
+   if (has1mContext(model)) {
+     betaHeaders.push(CONTEXT_1M_BETA_HEADER)  // 'context-1m-2025-08-07'
+   }
+   ```
+3. **Model name normalization** (`utils/model/model.ts:616-618`):
+   ```typescript
+   model: normalizeModelStringForAPI(options.model)  // strips [1m]
+   ```
+4. **Request sent** (`services/api/claude.ts:1700-1713`):
+   ```typescript
+   {
+     model: normalizeModelStringForAPI(options.model),  // 'claude-opus-4-6'
+     ...(useBetas && { betas: betasParams }),            // includes 'context-1m-2025-08-07'
+   }
+   ```
+
+The Anthropic TypeScript SDK converts the `betas` array into the `anthropic-beta` HTTP header. The adapter receives:
+```
+POST /v1/messages
+anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...
+
+{"model": "claude-opus-4-6", "messages": [...], ...}
+```
+
+**The `betas` field is NOT in the JSON body** — it's an HTTP header set by the SDK.
+
+The specific beta header value is `context-1m-2025-08-07` (defined in `constants/betas.ts:6`). The date suffix may change in future versions. Detection should use a **prefix match** on `context-1m-` rather than an exact string match.
+
+### Key Finding 8: Copilot API model discovery confirms 1M models
+
+A live query to `GET https://api.githubcopilot.com/models` (via the running adapter) returns `claude-opus-4.6-1m` as a distinct model alongside `claude-opus-4.6`:
+
+```json
+{"id": "claude-opus-4.6-1m",   "object": "model", "created": 0, "owned_by": "github-copilot"},
+{"id": "claude-opus-4.6",      "object": "model", "created": 0, "owned_by": "github-copilot"},
+{"id": "claude-sonnet-4.6",    "object": "model", "created": 0, "owned_by": "github-copilot"},
+{"id": "claude-sonnet-4.5",    "object": "model", "created": 0, "owned_by": "github-copilot"},
+{"id": "claude-opus-4.5",      "object": "model", "created": 0, "owned_by": "github-copilot"},
+{"id": "claude-haiku-4.5",     "object": "model", "created": 0, "owned_by": "github-copilot"},
+{"id": "claude-sonnet-4",      "object": "model", "created": 0, "owned_by": "github-copilot"}
+```
+
+**Key observations:**
+- `claude-opus-4.6-1m` is the only Claude model with a context size suffix — consistent with VS Code Copilot's UI showing "Opus 4.6 (1M context)" as a model option
+- No `claude-sonnet-4.6-1m` exists in the current model list (Sonnet 1M may not be available via Copilot yet, or may appear later)
+- The Copilot API uses model name alone to determine context window — no separate header or parameter needed
+- The `-1m` suffix convention matches what the adapter's `model_mapper.rs` already produces (though via a path that is never triggered)
+
+### Key Finding 9: Model mapper's context marker logic is correct but unreachable
+
+The existing `normalize_model_name()` in `src/model_mapper.rs` preserves context markers:
+```
+claude-opus-4-6-1m  →  claude-opus-4.6-1m
+```
+
+This produces exactly the model name that the Copilot API expects. However, this code path is **never triggered** because Claude Code sends `claude-opus-4-6` (without `-1m`) and communicates the context size via the beta header instead.
+
+The fix (Option C) bridges this gap by detecting the beta header and **appending** `-1m` to the normalized model name after normalization. This makes the existing model_mapper context-preservation logic a secondary fallback (for hypothetical direct callers), while the primary path uses the beta header.
 
 ---
 
@@ -464,7 +598,158 @@ pub fn error_type(&self) -> &'static str {
 
 ---
 
-### Option E: Emit text block for truncated tool calls
+### Option C: Detect `anthropic-beta` header and activate 1M context models
+
+#### Overview
+
+The adapter needs to bridge two different mechanisms for requesting extended context:
+- **Claude Code** sends `anthropic-beta: context-1m-2025-08-07` as an HTTP header
+- **Copilot API** expects a distinct model name (e.g., `claude-opus-4.6-1m`)
+
+Option C detects the beta header in the incoming request and appends `-1m` to the normalized Copilot model name.
+
+#### 1. Extract `anthropic-beta` header in the messages handler
+
+**File: `src/handlers/messages.rs`**
+
+Add `axum::http::HeaderMap` extraction to the handler signature:
+
+```rust
+pub async fn messages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,                    // NEW
+    Json(request): Json<AnthropicRequest>,
+) -> Result<Response, AppError> {
+```
+
+axum supports multiple extractors in handler signatures. `HeaderMap` must come before `Json` since `Json` consumes the request body. This is a zero-cost extraction — axum passes the existing header map by reference.
+
+#### 2. Detect the 1M context beta header
+
+**File: `src/handlers/messages.rs`**
+
+Add a helper function to check for the `context-1m-*` beta:
+
+```rust
+/// Check if the `anthropic-beta` header contains the 1M context beta.
+///
+/// Claude Code sends beta headers as a comma-separated list:
+///   `anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...`
+///
+/// Uses prefix matching (`context-1m-`) to be forward-compatible with
+/// future date suffixes.
+fn has_1m_context_beta(headers: &HeaderMap) -> bool {
+    headers
+        .get_all("anthropic-beta")
+        .iter()
+        .any(|value| {
+            value.to_str().ok().map_or(false, |s| {
+                s.split(',')
+                    .any(|beta| beta.trim().starts_with("context-1m-"))
+            })
+        })
+}
+```
+
+**Why prefix matching:** The beta header value includes a date suffix (e.g., `context-1m-2025-08-07`). This date may change in future Claude Code versions. Prefix matching on `context-1m-` is forward-compatible without requiring adapter updates for each new beta version.
+
+**Header format:** The `anthropic-beta` header can appear as:
+- A single header with comma-separated values: `anthropic-beta: context-1m-2025-08-07,other-beta`
+- Multiple headers (HTTP allows repeated headers): `anthropic-beta: context-1m-2025-08-07` + `anthropic-beta: other-beta`
+
+The implementation handles both via `get_all()` + splitting on commas.
+
+#### 3. Apply context suffix to the model name
+
+**File: `src/handlers/messages.rs` — in the `messages()` handler**
+
+After the existing model normalization in `to_chat_completion_request()`, conditionally append `-1m`:
+
+```rust
+let wants_1m = has_1m_context_beta(&headers);
+
+// Convert Anthropic request to OpenAI/Copilot format
+let mut chat_request = request.to_chat_completion_request(use_native_tools);
+
+// If Claude Code requested 1M context, select the Copilot 1M model variant.
+// The model mapper has already normalized the name (e.g., "claude-opus-4-6" →
+// "claude-opus-4.6"). We append "-1m" to get "claude-opus-4.6-1m", which is a
+// distinct model in the Copilot API.
+if wants_1m && !chat_request.model.contains("-1m") {
+    tracing::info!(
+        original_model = %chat_request.model,
+        "1M context beta detected, selecting Copilot 1M model variant"
+    );
+    chat_request.model = format!("{}-1m", chat_request.model);
+}
+```
+
+**The guard `!chat_request.model.contains("-1m")`** prevents double-appending in the edge case where someone manually sets a model name with `-1m` already present.
+
+**The transformation is applied after `to_chat_completion_request()`** (which calls `normalize_model_name()`) rather than before it, so we append to the already-normalized model name. This ensures the suffix is always in the correct position.
+
+#### 4. Full request flow with Option C
+
+```
+Claude Code sends:
+  POST /v1/messages
+  anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14
+  {"model": "claude-opus-4-6", "messages": [...], ...}
+    ↓
+Adapter: has_1m_context_beta(&headers) → true
+    ↓
+Adapter: to_chat_completion_request()
+  normalize_model_name("claude-opus-4-6") → "claude-opus-4.6"
+    ↓
+Adapter: append "-1m" → "claude-opus-4.6-1m"
+    ↓
+Copilot API receives:
+  POST /chat/completions
+  {"model": "claude-opus-4.6-1m", "messages": [...], ...}
+    ↓
+Copilot API: routes to 1M context model variant
+```
+
+**Without the beta header (standard 200K context):**
+```
+Claude Code sends:
+  POST /v1/messages
+  anthropic-beta: interleaved-thinking-2025-05-14
+  {"model": "claude-opus-4-6", "messages": [...], ...}
+    ↓
+Adapter: has_1m_context_beta(&headers) → false
+    ↓
+Adapter: normalize_model_name("claude-opus-4-6") → "claude-opus-4.6"
+    ↓
+Copilot API receives:
+  {"model": "claude-opus-4.6", ...}   ← standard 168K model
+```
+
+#### 5. Impact on model_mapper.rs
+
+The existing context marker preservation logic in `model_mapper.rs` becomes a **secondary fallback**. The primary 1M activation path is now:
+
+1. **Primary (Option C):** Beta header detected → `-1m` appended after normalization
+2. **Fallback (existing):** Model name already contains `-1m` → preserved through normalization
+
+Both paths produce the same result (e.g., `claude-opus-4.6-1m`). The fallback handles hypothetical direct API callers who might embed `-1m` in the model name. No changes to `model_mapper.rs` are needed.
+
+#### 6. Edge cases
+
+| Scenario | Input | Beta Header | Output | Notes |
+|----------|-------|-------------|--------|-------|
+| Standard context | `claude-opus-4-6` | (none) | `claude-opus-4.6` | No change |
+| 1M context via beta | `claude-opus-4-6` | `context-1m-2025-08-07` | `claude-opus-4.6-1m` | Option C |
+| 1M context in model name | `claude-opus-4-6-1m` | (none) | `claude-opus-4.6-1m` | model_mapper fallback |
+| Both beta and model name | `claude-opus-4-6-1m` | `context-1m-2025-08-07` | `claude-opus-4.6-1m` | Guard prevents double-append |
+| Non-Claude model + beta | `gpt-4o` | `context-1m-2025-08-07` | `gpt-4o-1m` | Harmless — GPT models don't have 1M variants, Copilot will reject/ignore |
+| Model without Copilot 1M variant | `claude-sonnet-4.6` | `context-1m-2025-08-07` | `claude-sonnet-4.6-1m` | May fail if Copilot doesn't have this model; graceful error from Copilot API |
+
+**Note on non-Claude models:** The guard only checks for `-1m` in the model name, not for Claude-specific models. If a non-Claude model is used with the 1M beta, `-1m` would be appended and likely rejected by Copilot. This is acceptable because: (a) Claude Code only sends the `context-1m-*` beta for Claude models, and (b) the Copilot API will return a clear error for unknown model IDs.
+
+**Note on missing 1M variants:** If Claude Code sends `context-1m-*` for a model that doesn't have a Copilot 1M variant (e.g., `claude-sonnet-4.6-1m` doesn't currently exist), the Copilot API will return an error. This is the correct behavior — the adapter shouldn't silently downgrade to the standard model, as that would give the user a false sense of extended context.
+
+---
 
 #### 1. Add state tracking for emitted tool_use blocks
 
@@ -603,10 +888,13 @@ This is a valid Anthropic streaming response.
 |------|--------|-------------|
 | `src/error.rs` | Modified | Add `PromptTooLong` variant, HTTP 400 mapping, `error_type()` arm |
 | `src/copilot/client.rs` | Modified | Add `parse_prompt_too_long()`, update `handle_error_response()` |
+| `src/handlers/messages.rs` | Modified | Extract `anthropic-beta` header, add `has_1m_context_beta()`, append `-1m` to model name when beta detected |
 | `src/streaming/state.rs` | Modified | Add `has_emitted_tool_use` field, emit text block on truncation |
 | `tests/unit/error_tests.rs` | Modified | Add test for `PromptTooLong` error format |
 | `tests/unit/streaming_tests.rs` | Modified | Update truncation tests to expect text block |
+| `tests/unit/messages_tests.rs` | New/Modified | Add tests for `has_1m_context_beta()` and model name with 1M suffix |
 | `tests/integration/error_tests.rs` | Modified | Add integration test for prompt-too-long translation |
+| `tests/integration/messages_tests.rs` | Modified | Add integration test for 1M model selection |
 
 ---
 
@@ -864,6 +1152,10 @@ fn first_tool_complete_second_truncated_emits_notice() {
 | Emit text block for truncation (not partial tool_use) | Safety: partial tool_use blocks could cause Claude Code to execute incomplete tool calls. Text blocks are inert. |
 | Use `[square brackets]` for truncation notice | Matches common system-message formatting conventions. Clearly distinguishes from model-generated text. |
 | Don't change behavior when prior tool_use blocks exist | When tool A completed and tool B was truncated, Claude Code will process tool A's result normally. The truncation notice serves as context for the model's next turn, not as a recovery trigger. |
+| Detect `anthropic-beta` header with prefix match `context-1m-` | The beta header includes a date suffix that may change. Prefix matching is forward-compatible without adapter updates for each new beta version. |
+| Append `-1m` after normalization, not before | Appending to the normalized name (e.g., `claude-opus-4.6` → `claude-opus-4.6-1m`) is simpler and produces the exact model ID the Copilot API expects. Prepending or injecting before normalization would require the mapper to handle an additional format. |
+| Don't silently downgrade when a 1M model variant doesn't exist | If Copilot doesn't have `claude-sonnet-4.6-1m`, the API will return an error. This is correct — the user should know their 1M selection isn't available, not be silently downgraded to 168K. |
+| Apply `-1m` in the handler, not in `model_mapper.rs` | The model mapper normalizes model name syntax (dashes→dots, stripping datestamps). The 1M selection is a semantic decision based on an HTTP header, which belongs in the handler layer. |
 
 ---
 
@@ -871,10 +1163,12 @@ fn first_tool_complete_second_truncated_emits_notice() {
 
 | # | Question | Status |
 |---|----------|--------|
-| 1 | What is the per-model prompt token limit on the Copilot API? Is 168K the same for all Claude models? | Open — observed 168K for claude-opus-4.6 |
+| 1 | What is the per-model prompt token limit on the Copilot API? Is 168K the same for all Claude models? | Partially answered — observed 168K for `claude-opus-4.6`; the `claude-opus-4.6-1m` model presumably accepts ~1M (not yet tested) |
 | 2 | Should we also translate other Copilot 400 errors (e.g., content policy violations)? | Deferred — only prompt-too-long is addressed in this design |
 | 3 | Should Option B (pre-flight token validation) be implemented as a follow-up? | Deferred — would prevent the wasted round-trip |
 | 4 | Should the truncation notice include partial argument data (e.g., file_path)? | No — keeping it minimal reduces confusion |
+| 5 | Will `claude-sonnet-4.6-1m` appear in the Copilot models list in the future? | Open — currently only `claude-opus-4.6-1m` exists. The adapter will automatically support new 1M models when they appear. |
+| 6 | What happens when `-1m` is appended to a model that Copilot doesn't have a 1M variant for? | Expected: Copilot API returns a model-not-found error. The adapter passes this through as an error to Claude Code. |
 
 ---
 
@@ -883,18 +1177,32 @@ fn first_tool_complete_second_truncated_emits_notice() {
 ### copilot-adapter
 - `src/error.rs` — AppError enum and HTTP status mapping (lines 1-166)
 - `src/copilot/client.rs` — `handle_error_response()` (lines 93-112)
+- `src/handlers/messages.rs` — `messages()` handler (lines 38-41)
+- `src/model_mapper.rs` — `normalize_model_name()` with context marker preservation (lines 18-85)
 - `src/streaming/state.rs` — `handle_finish()` (lines 347-404), `StreamingState` struct (lines 31-67)
 - `src/handlers/messages.rs` — `handle_native_tools_streaming()` (lines 1113-1332)
 - `tests/unit/error_tests.rs` — Existing error format tests
 - `tests/unit/streaming_tests.rs` — Existing streaming/truncation tests
 
 ### Claude Code
+- `src/utils/model/model.ts` — `normalizeModelStringForAPI()` (line 616-618) — strips `[1m]` before API call
+- `src/utils/betas.ts` — `getModelBetas()` (line 254) — injects `context-1m-*` beta header for 1M models
+- `src/utils/context.ts` — `has1mContext()` (line 35), `getContextWindowForModel()` (line 51)
+- `src/constants/betas.ts` — `CONTEXT_1M_BETA_HEADER = 'context-1m-2025-08-07'` (line 6)
+- `src/utils/model/configs.ts` — Model name configs per provider (firstParty: `claude-opus-4-6`, etc.)
+- `src/utils/model/providers.ts` — `getAPIProvider()` — determines firstParty vs 3P
+- `src/utils/model/modelOptions.ts` — Model picker options, 1M variants use `[1m]` suffix (lines 143-163)
 - `src/services/api/errors.ts` — `isPromptTooLongMessage()` (lines 64-77), regex (lines 89-90), prompt-too-long handler (lines 560-574)
 - `src/services/api/errorUtils.ts` — `extractNestedErrorMessage()` (lines 169-198), SDK error shapes comment (lines 132-142)
 - `src/services/api/claude.ts` — max_tokens escalation (line ~1062), `needsFollowUp` guard, `model_context_window_exceeded` handling (lines 2279-2292)
 
+### GitHub Copilot API
+- `GET https://api.githubcopilot.com/models` — Returns model list including `claude-opus-4.6-1m` as a distinct model ID
+- Chat completions endpoint uses model name alone to determine context window (no headers or parameters)
+
 ### Anthropic SDK
 - `@anthropic-ai/sdk` — `APIError.makeMessage()` constructs `error.message` from the HTTP response body; checks `body.message` first, then `JSON.stringify(body)`
+- `betas` array in SDK request is sent as `anthropic-beta` HTTP header (not in JSON body)
 
 ---
 
@@ -963,4 +1271,37 @@ Claude Code: No tool_use blocks → needsFollowUp = false
   maxOutputTokensOverride = 64000
   ↓
 Claude Code retries with max_tokens=64000 → Write tool call completes successfully
+```
+
+### C: Full 1M context activation flow with fix applied
+
+```
+User selects: "Opus (1M context)" in Claude Code model picker
+  ↓
+Claude Code internal: model = "claude-opus-4-6[1m]"
+  ↓
+Claude Code: normalizeModelStringForAPI("claude-opus-4-6[1m]") → "claude-opus-4-6"
+  ↓
+Claude Code: has1mContext("claude-opus-4-6[1m]") → true
+  → betaHeaders.push("context-1m-2025-08-07")
+  ↓
+Claude Code sends:
+  POST /v1/messages
+  anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...
+  {"model": "claude-opus-4-6", "messages": [...], ...}
+  ↓
+copilot-adapter: has_1m_context_beta(&headers) → true
+  ↓
+copilot-adapter: normalize_model_name("claude-opus-4-6") → "claude-opus-4.6"
+  ↓
+copilot-adapter: append "-1m" → "claude-opus-4.6-1m"
+  ↓
+copilot-adapter sends to Copilot API:
+  POST /chat/completions
+  {"model": "claude-opus-4.6-1m", "messages": [...], ...}
+  ↓
+Copilot API: routes to 1M context model variant
+  → accepts prompts up to ~1M tokens
+  ↓
+Response flows back through adapter to Claude Code normally
 ```

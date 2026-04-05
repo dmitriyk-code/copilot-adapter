@@ -10,19 +10,22 @@
 
 ## Executive Summary
 
-The copilot-adapter has two related bugs that cause Claude Code sessions to fail during long conversations or large file writes. This plan implements the two targeted fixes designed in the companion design document:
+The copilot-adapter has three related issues that cause Claude Code sessions to fail or underperform during long conversations, large file writes, or 1M context usage. This plan implements three targeted fixes designed in the companion design document:
 
 1. **Option A — Prompt-too-long error translation:** Translate GitHub Copilot's `model_max_prompt_tokens_exceeded` HTTP 400 error into an Anthropic-format `invalid_request_error` with a message matching Claude Code's prompt-too-long regex, so Claude Code triggers automatic context compaction.
-2. **Option E — Truncated tool call recovery:** When a tool call is truncated by `finish_reason: "length"`, emit a descriptive text content block instead of silently dropping the incomplete tool_use block, so Claude Code sees a text-only response and can fire its max_tokens escalation logic (8K → 64K retry).
+2. **Option C — 1M context model activation:** Detect Claude Code's `anthropic-beta: context-1m-*` HTTP header and append `-1m` to the normalized Copilot model name (e.g., `claude-opus-4.6` → `claude-opus-4.6-1m`), enabling true 1M context windows via the Copilot API's distinct model ID.
+3. **Option E — Truncated tool call recovery:** When a tool call is truncated by `finish_reason: "length"`, emit a descriptive text content block instead of silently dropping the incomplete tool_use block, so Claude Code sees a text-only response and can fire its max_tokens escalation logic (8K → 64K retry).
 
 This plan implements:
 - New `PromptTooLong` error variant with Anthropic-compatible HTTP 400 response
 - Copilot API error body parser for `model_max_prompt_tokens_exceeded`
+- `anthropic-beta` header extraction and `context-1m-*` detection in the messages handler
+- Model name `-1m` suffix appending for 1M context activation
 - Streaming state machine changes to emit truncation notice text blocks
 - New `has_emitted_tool_use` tracking field in `StreamingState`
 - Comprehensive unit, integration, and manual E2E tests
 
-**Total estimated time:** 1-2 days
+**Total estimated time:** 1.5-2.5 days
 
 ---
 
@@ -35,10 +38,15 @@ This plan implements:
 - **Error types (`src/error.rs`, lines 13-37):** 8 existing variants: `NotAuthenticated`, `TokenExpired`, `GitHubError`, `CopilotError`, `RateLimited`, `InvalidRequest`, `ModelNotFound`, `Internal`.
 - **`StreamingState` struct (`src/streaming/state.rs`, lines 32-68):** 13 fields. No tracking of whether complete tool_use blocks have been emitted.
 - **`regex` crate:** Already a direct dependency in `Cargo.toml` (line 27: `regex = "1"`).
+- **Messages handler (`src/handlers/messages.rs`, line 38-41):** Extracts only `State` and `Json<AnthropicRequest>`. Does not extract HTTP headers. No access to `anthropic-beta` or any other header.
+- **`AnthropicRequest` struct (`src/anthropic/types.rs`, lines 228-252):** No `betas` field. The Anthropic SDK sends betas as the `anthropic-beta` HTTP header, not in the JSON body.
+- **`model_mapper.rs` (lines 18-85):** Has context marker preservation logic for `-1m`/`-200k` in model names, but this code is unreachable from Claude Code — Claude Code strips `[1m]` before sending and uses the beta header instead.
+- **Copilot API models:** Live query to `GET https://api.githubcopilot.com/models` confirms `claude-opus-4.6-1m` exists as a distinct model ID alongside `claude-opus-4.6`.
 
 ### Target State
 
 - Copilot API 400 `model_max_prompt_tokens_exceeded` → adapter returns HTTP 400 with `"type": "invalid_request_error"` and message `"prompt is too long: N tokens > M maximum"` → Claude Code triggers context compaction.
+- `anthropic-beta: context-1m-*` header → adapter appends `-1m` to normalized model name → Copilot API receives 1M model ID (e.g., `claude-opus-4.6-1m`) → 1M context window activated.
 - Tool call truncated by `finish_reason: "length"` → adapter emits a text block `[Tool call to "ToolName" was truncated due to output token limit]` + `stop_reason: max_tokens` → Claude Code fires max_tokens escalation.
 - All existing tests continue to pass. Normal streaming and error paths unchanged.
 
@@ -54,6 +62,7 @@ This plan implements:
 | G2 | Truncated tool calls provide informative context | Text block emitted with truncation info; `stop_reason: max_tokens` preserved |
 | G3 | No regressions in normal streaming or tool call flows | All existing tests pass; non-error paths unchanged |
 | G4 | Works without Claude Code modifications | Adapter-only changes |
+| G5 | 1M context models are activated when Claude Code requests them | `anthropic-beta: context-1m-*` → model name has `-1m` suffix → Copilot API receives 1M model ID |
 
 ### Non-Goals
 
@@ -231,13 +240,143 @@ async fn handle_error_response(response: reqwest::Response) -> AppError {
 
 ---
 
-### Epic 2: Truncated Tool Call Recovery (Day 1, ~0.5 day)
+### Epic 2: 1M Context Model Activation (Day 1, ~0.5 day)
+
+**Status:** Not Started
+
+**Objective:** Detect Claude Code's `anthropic-beta: context-1m-*` HTTP header and append `-1m` to the normalized Copilot model name, enabling 1M context windows via the Copilot API's distinct model ID (e.g., `claude-opus-4.6-1m`).
+
+#### Task 2.1: Add `has_1m_context_beta()` helper function
+
+**File:** `src/handlers/messages.rs` (MODIFIED)
+
+**Description:** Add a helper function that checks whether the `anthropic-beta` HTTP header contains a `context-1m-*` beta. Uses prefix matching (`context-1m-`) to be forward-compatible with future date suffixes. Handles both comma-separated values in a single header and multiple repeated headers.
+
+**Implementation:**
+
+Add at the top of the file (with the other imports):
+```rust
+use axum::http::HeaderMap;
+```
+
+Add as a module-level function:
+```rust
+/// Check if the `anthropic-beta` header contains the 1M context beta.
+///
+/// Claude Code sends beta headers as a comma-separated list:
+///   `anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...`
+///
+/// Uses prefix matching (`context-1m-`) to be forward-compatible with
+/// future date suffixes (the date portion may change across Claude Code versions).
+fn has_1m_context_beta(headers: &HeaderMap) -> bool {
+    headers
+        .get_all("anthropic-beta")
+        .iter()
+        .any(|value| {
+            value.to_str().ok().map_or(false, |s| {
+                s.split(',')
+                    .any(|beta| beta.trim().starts_with("context-1m-"))
+            })
+        })
+}
+```
+
+**Acceptance Criteria:**
+- [ ] Returns `true` when `anthropic-beta` contains `context-1m-2025-08-07` (or any `context-1m-*` value)
+- [ ] Returns `false` when `anthropic-beta` is absent
+- [ ] Returns `false` when `anthropic-beta` contains other betas but not `context-1m-*`
+- [ ] Handles comma-separated values in a single header value
+- [ ] Handles multiple `anthropic-beta` headers (HTTP allows repeated headers)
+- [ ] Handles whitespace around comma-separated values
+
+**Notes:**
+- The `anthropic-beta` header value format is `beta1,beta2,beta3` (comma-separated, may have spaces after commas)
+- The specific beta value is `context-1m-2025-08-07` as of April 2026, defined in Claude Code's `src/constants/betas.ts:6`
+- Prefix matching on `context-1m-` ensures the adapter doesn't need updates when the beta version date changes
+
+#### Task 2.2: Extract `HeaderMap` in messages handler
+
+**File:** `src/handlers/messages.rs` (MODIFIED)
+
+**Description:** Add `axum::http::HeaderMap` extraction to the `messages()` handler signature. axum supports multiple extractors — `HeaderMap` must come before `Json` since `Json` consumes the request body. This is a zero-cost extraction.
+
+**Implementation:**
+
+Update handler signature (~line 38):
+```rust
+// Before:
+pub async fn messages(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<AnthropicRequest>,
+) -> Result<Response, AppError> {
+
+// After:
+pub async fn messages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<AnthropicRequest>,
+) -> Result<Response, AppError> {
+```
+
+**Acceptance Criteria:**
+- [ ] Handler compiles with `HeaderMap` extractor
+- [ ] Existing request routing unchanged (axum route registration in `server.rs` doesn't need changes)
+- [ ] `Json<AnthropicRequest>` extraction still works (ordering: `HeaderMap` before `Json`)
+
+**Notes:** axum's `HeaderMap` extractor is zero-copy — it passes a reference to the already-parsed header map. No performance impact.
+
+#### Task 2.3: Apply `-1m` suffix based on beta header
+
+**File:** `src/handlers/messages.rs` (MODIFIED)
+
+**Description:** After the existing `to_chat_completion_request()` call (which normalizes the model name via `model_mapper::normalize_model_name()`), conditionally append `-1m` to the model name if the `context-1m-*` beta was detected. This transforms e.g., `claude-opus-4.6` → `claude-opus-4.6-1m`.
+
+**Implementation:**
+
+Add after the `to_chat_completion_request()` call, before sending to the Copilot API. The exact location depends on the streaming vs non-streaming code paths — the suffix must be applied in both. Find all places where `request.to_chat_completion_request(...)` is called and apply the suffix immediately after:
+
+```rust
+let wants_1m = has_1m_context_beta(&headers);
+
+let mut chat_request = request.to_chat_completion_request(use_native_tools);
+
+// If Claude Code requested 1M context via the anthropic-beta header,
+// select the Copilot API's 1M model variant. The model mapper has already
+// normalized the name (e.g., "claude-opus-4-6" → "claude-opus-4.6").
+// We append "-1m" to produce "claude-opus-4.6-1m", which is a distinct
+// model ID in the Copilot API with ~1M token context window.
+if wants_1m && !chat_request.model.contains("-1m") {
+    tracing::info!(
+        original_model = %chat_request.model,
+        "1M context beta detected, selecting Copilot 1M model variant"
+    );
+    chat_request.model = format!("{}-1m", chat_request.model);
+}
+```
+
+**Acceptance Criteria:**
+- [ ] `claude-opus-4-6` with `context-1m-*` beta → `claude-opus-4.6-1m` sent to Copilot
+- [ ] `claude-opus-4-6` without beta → `claude-opus-4.6` sent to Copilot (no change)
+- [ ] `claude-opus-4-6-1m` with beta → `claude-opus-4.6-1m` (no double-append, guard `!contains("-1m")`)
+- [ ] Applied in both streaming and non-streaming code paths
+- [ ] Info-level log emitted when 1M model is selected
+- [ ] TRACE-level log (existing) shows the final model name sent to Copilot
+
+**Notes:**
+- The guard `!chat_request.model.contains("-1m")` prevents double-appending if someone manually sets a model name with `-1m`
+- The suffix is applied **after** `to_chat_completion_request()` (not before) to append to the normalized model name
+- Both streaming and non-streaming paths call `to_chat_completion_request()` — both need the suffix applied
+- Check the handler code to identify all call sites; there may be separate paths for native tools vs XML tools
+
+---
+
+### Epic 3: Truncated Tool Call Recovery (Day 1-2, ~0.5 day)
 
 **Status:** Not Started
 
 **Objective:** When a tool call is truncated by the output token limit (`finish_reason: "length"`), emit a descriptive text content block instead of silently dropping the incomplete tool_use block. This ensures Claude Code sees a text-only response and can fire max_tokens escalation.
 
-#### Task 2.1: Add `has_emitted_tool_use` tracking field
+#### Task 3.1: Add `has_emitted_tool_use` tracking field
 
 **File:** `src/streaming/state.rs` (MODIFIED)
 
@@ -277,7 +416,7 @@ fn flush_tool_use_buffer(&mut self) -> Vec<StreamEvent> {
 - [ ] Not affected by empty buffer flushes
 - [ ] Existing tests still pass (field is additive)
 
-#### Task 2.2: Emit text block on tool call truncation
+#### Task 3.2: Emit text block on tool call truncation
 
 **File:** `src/streaming/state.rs` (MODIFIED)
 
@@ -370,13 +509,13 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 
 ---
 
-### Epic 3: Testing (Day 1-2, ~0.5 day)
+### Epic 4: Testing (Day 2, ~0.75 day)
 
 **Status:** Not Started
 
-**Objective:** Ensure both fixes are thoroughly tested with unit tests, integration tests, and documented manual E2E test procedures.
+**Objective:** Ensure all three fixes are thoroughly tested with unit tests, integration tests, and documented manual E2E test procedures.
 
-#### Task 3.1: Unit Tests — Error Translation
+#### Task 4.1: Unit Tests — Error Translation
 
 **File:** `tests/unit/error_tests.rs` (MODIFIED)
 
@@ -449,7 +588,7 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 
 **Notes:** The regex test is the most important — it validates the end-to-end error message chain from adapter through Anthropic SDK to Claude Code's detection logic.
 
-#### Task 3.2: Unit Tests — Copilot Error Parsing
+#### Task 4.2: Unit Tests — Copilot Error Parsing
 
 **File:** `tests/unit/copilot_client_tests.rs` (MODIFIED)
 
@@ -517,7 +656,102 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 - [ ] All 6 new parsing tests pass
 - [ ] Existing copilot client tests still pass
 
-#### Task 3.3: Unit Tests — Streaming Truncation
+#### Task 4.3: Unit Tests — 1M Context Beta Detection
+
+**File:** `tests/unit/messages_tests.rs` (NEW or MODIFIED)
+
+**Description:** Test the `has_1m_context_beta()` helper and the end-to-end model name transformation when the `anthropic-beta` header is present.
+
+**Tests to implement:**
+
+1. **`has_1m_context_beta_present`** — Header contains the beta:
+   ```rust
+   #[test]
+   fn has_1m_context_beta_present() {
+       let mut headers = HeaderMap::new();
+       headers.insert("anthropic-beta", "context-1m-2025-08-07".parse().unwrap());
+       assert!(has_1m_context_beta(&headers));
+   }
+   ```
+   - [ ] Test passes
+
+2. **`has_1m_context_beta_absent`** — Header doesn't contain the beta:
+   ```rust
+   #[test]
+   fn has_1m_context_beta_absent() {
+       let mut headers = HeaderMap::new();
+       headers.insert("anthropic-beta", "interleaved-thinking-2025-05-14".parse().unwrap());
+       assert!(!has_1m_context_beta(&headers));
+   }
+   ```
+   - [ ] Test passes
+
+3. **`has_1m_context_beta_no_header`** — No `anthropic-beta` header at all:
+   ```rust
+   #[test]
+   fn has_1m_context_beta_no_header() {
+       let headers = HeaderMap::new();
+       assert!(!has_1m_context_beta(&headers));
+   }
+   ```
+   - [ ] Test passes
+
+4. **`has_1m_context_beta_comma_separated`** — Mixed with other betas:
+   ```rust
+   #[test]
+   fn has_1m_context_beta_comma_separated() {
+       let mut headers = HeaderMap::new();
+       headers.insert(
+           "anthropic-beta",
+           "interleaved-thinking-2025-05-14,context-1m-2025-08-07".parse().unwrap(),
+       );
+       assert!(has_1m_context_beta(&headers));
+   }
+   ```
+   - [ ] Test passes
+
+5. **`has_1m_context_beta_future_date`** — Forward-compatible with new date suffix:
+   ```rust
+   #[test]
+   fn has_1m_context_beta_future_date() {
+       let mut headers = HeaderMap::new();
+       headers.insert("anthropic-beta", "context-1m-2026-12-31".parse().unwrap());
+       assert!(has_1m_context_beta(&headers));
+   }
+   ```
+   - [ ] Test passes
+
+6. **`model_name_with_1m_beta_appends_suffix`** — End-to-end model name:
+   ```rust
+   #[test]
+   fn model_name_with_1m_beta_appends_suffix() {
+       // Simulate: normalize "claude-opus-4-6" → "claude-opus-4.6", then append "-1m"
+       let normalized = normalize_model_name("claude-opus-4-6");
+       assert_eq!(normalized, "claude-opus-4.6");
+       let with_1m = format!("{}-1m", normalized);
+       assert_eq!(with_1m, "claude-opus-4.6-1m");
+   }
+   ```
+   - [ ] Test passes
+
+7. **`model_name_no_double_append`** — Guard prevents double-appending:
+   ```rust
+   #[test]
+   fn model_name_no_double_append() {
+       let model = "claude-opus-4.6-1m";
+       assert!(model.contains("-1m"));
+       // Guard should prevent appending again
+   }
+   ```
+   - [ ] Test passes
+
+**Acceptance Criteria:**
+- [ ] All 7 new 1M context tests pass
+- [ ] `has_1m_context_beta` is accessible to tests (either `pub(crate)` or tested via the handler)
+
+**Notes:** If `has_1m_context_beta()` is private to the handler module, tests can either: (a) make it `pub(crate)` for test access, or (b) test it indirectly via integration tests (Task 4.6). Prefer (a) for faster feedback.
+
+#### Task 4.4: Unit Tests — Streaming Truncation
 
 **File:** `tests/unit/streaming_tests.rs` (MODIFIED)
 
@@ -581,7 +815,7 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 - [ ] 2 new truncation edge-case tests pass
 - [ ] All other existing streaming tests still pass (non-truncation paths unchanged)
 
-#### Task 3.4: Integration Tests — Prompt-Too-Long Translation
+#### Task 4.5: Integration Tests — Prompt-Too-Long Translation
 
 **File:** `tests/integration/error_tests.rs` (MODIFIED)
 
@@ -622,7 +856,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] Integration test passes
 - [ ] Existing integration error tests still pass
 
-#### Task 3.5: Integration Tests — Streaming Truncation
+#### Task 4.6: Integration Tests — Streaming Truncation
 
 **File:** `tests/integration/streaming_tests.rs` (NEW or MODIFIED — check if file exists)
 
@@ -643,7 +877,32 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] SSE stream validated end-to-end
 - [ ] No tool_use blocks in output
 
-#### Task 3.6: Manual E2E Test Procedures
+#### Task 4.7: Integration Tests — 1M Context Model Selection
+
+**File:** `tests/integration/messages_tests.rs` (MODIFIED)
+
+**Description:** Add integration tests that send requests through the adapter with and without the `anthropic-beta: context-1m-*` header, verifying the correct model name is forwarded to the Copilot API.
+
+**Scenario 1: 1M context activated**
+1. **Setup:** Spawn a mock Copilot API that captures the request body.
+2. **Action:** Send `POST /v1/messages` with `anthropic-beta: context-1m-2025-08-07` header and `model: "claude-opus-4-6"`.
+3. **Verification:**
+   - The mock Copilot receives `model: "claude-opus-4.6-1m"` in the request body
+
+**Scenario 2: Standard context (no beta)**
+1. **Setup:** Same mock.
+2. **Action:** Send `POST /v1/messages` without the `context-1m-*` beta and `model: "claude-opus-4-6"`.
+3. **Verification:**
+   - The mock Copilot receives `model: "claude-opus-4.6"` (no `-1m` suffix)
+
+- [ ] Both scenarios pass
+
+**Acceptance Criteria:**
+- [ ] 1M beta header → model name has `-1m` suffix
+- [ ] No beta header → model name unchanged
+- [ ] Existing integration message tests still pass
+
+#### Task 4.8: Manual E2E Test Procedures
 
 **File:** `docs/development/e2e-testing.md` (MODIFIED)
 
@@ -674,19 +933,32 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    - Expected: File write succeeds on retry with escalated token budget
    - [ ] Documented
 
+3. **1M context model activation:**
+   ```
+   1. Start copilot-adapter with --log-level debug
+   2. Start Claude Code and select "Opus (1M context)" from the model picker
+   3. Send a message and observe the adapter logs
+   4. Verify the adapter log shows "1M context beta detected, selecting Copilot 1M model variant"
+   5. Verify the adapter log shows model="claude-opus-4.6-1m" in the outgoing request
+   6. Verify the conversation works normally with the 1M model
+   7. Optionally: start a long conversation and verify it doesn't hit the 168K limit
+   ```
+   - Expected: Adapter forwards requests to `claude-opus-4.6-1m`; longer conversations are supported
+   - [ ] Documented
+
 **Acceptance Criteria:**
 - [ ] Both E2E test procedures documented
 - [ ] Steps are reproducible
 
 ---
 
-### Epic 4: Documentation (Day 2, ~0.25 day)
+### Epic 5: Documentation (Day 2-3, ~0.25 day)
 
 **Status:** Not Started
 
 **Objective:** Update project documentation to reflect the new error handling and streaming behavior.
 
-#### Task 4.1: Update CLAUDE.md
+#### Task 5.1: Update CLAUDE.md
 
 **File:** `CLAUDE.md` (MODIFIED)
 
@@ -695,12 +967,17 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
   - `PromptTooLong` error variant, when it's emitted, how it maps to HTTP 400
   - The critical format string requirement for Claude Code's regex
 - Update the existing streaming/truncation note to mention the text notice block behavior
+- Add a note about 1M context model activation:
+  - The `anthropic-beta: context-1m-*` header detection mechanism
+  - How `-1m` is appended to the Copilot model name
+  - The relationship between Claude Code's `[1m]` suffix, the beta header, and the Copilot model ID
 
 **Acceptance Criteria:**
 - [ ] CLAUDE.md updated with prompt-too-long error handling info
 - [ ] CLAUDE.md updated with truncation notice behavior
+- [ ] CLAUDE.md updated with 1M context model activation info
 
-#### Task 4.2: Update known issues
+#### Task 5.2: Update known issues
 
 **File:** `docs/known-issues.md` (MODIFIED)
 
@@ -711,7 +988,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 **Acceptance Criteria:**
 - [ ] Known issues document updated
 
-#### Task 4.3: Archive design document
+#### Task 5.3: Archive design document
 
 **File:** `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md` (MODIFIED)
 
@@ -733,9 +1010,12 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | FR1 | Copilot API 400 `model_max_prompt_tokens_exceeded` → adapter HTTP 400 `invalid_request_error` | Design doc §Option A | Epic 1 |
 | FR2 | Error message matches Claude Code regex `/prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)/i` | Design doc §Research KF2 | Epic 1 |
 | FR3 | Token counts extracted from Copilot error and reformatted in Anthropic style | Design doc §Option A.1 | Epic 1 |
-| FR4 | Truncated tool call emits text block with `[Tool call to "X" was truncated due to output token limit]` | Design doc §Option E.2 | Epic 2 |
-| FR5 | `stop_reason: max_tokens` preserved after truncation notice | Design doc §Option E.2 | Epic 2 |
-| FR6 | Unrecognized Copilot 400 errors still return HTTP 502 `upstream_error` (existing behavior) | Design doc §NG3, NG4 | Epic 1 |
+| FR4 | `anthropic-beta: context-1m-*` header → model name appended with `-1m` | Design doc §Option C | Epic 2 |
+| FR5 | Without `context-1m-*` beta, model name unchanged | Design doc §Option C | Epic 2 |
+| FR6 | No double-append when model name already contains `-1m` | Design doc §Option C.6 | Epic 2 |
+| FR7 | Truncated tool call emits text block with `[Tool call to "X" was truncated due to output token limit]` | Design doc §Option E.2 | Epic 3 |
+| FR8 | `stop_reason: max_tokens` preserved after truncation notice | Design doc §Option E.2 | Epic 3 |
+| FR9 | Unrecognized Copilot 400 errors still return HTTP 502 `upstream_error` (existing behavior) | Design doc §NG3, NG4 | Epic 1 |
 
 ### Non-Functional Requirements
 
@@ -743,7 +1023,8 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 |----|-------------|--------|------|
 | NFR1 | No new crate dependencies | Zero new dependencies | All |
 | NFR2 | Error translation adds negligible latency | <1ms additional parsing | Epic 1 |
-| NFR3 | No changes to non-error streaming paths | Identical SSE output for successful requests | Epic 2 |
+| NFR3 | No changes to non-error streaming paths | Identical SSE output for successful requests | Epic 3 |
+| NFR4 | Beta header detection is forward-compatible | Prefix match `context-1m-` works for future dates | Epic 2 |
 
 ---
 
@@ -753,16 +1034,19 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 |------|--------|------|-------------|
 | `src/error.rs` | Modified | Epic 1 | Add `PromptTooLong` variant, HTTP 400 mapping, `error_type()` arm |
 | `src/copilot/client.rs` | Modified | Epic 1 | Add `parse_prompt_too_long()` function, update `handle_error_response()` |
-| `src/streaming/state.rs` | Modified | Epic 2 | Add `has_emitted_tool_use` field, emit text block on truncation |
-| `tests/unit/error_tests.rs` | Modified | Epic 3 | Add 3 tests: HTTP response format, regex match, error_type |
-| `tests/unit/copilot_client_tests.rs` | Modified | Epic 3 | Add 6 tests: prompt-too-long parsing (valid, edge cases, failures) |
-| `tests/unit/streaming_tests.rs` | Modified | Epic 3 | Update 4 existing truncation tests, add 2 new edge-case tests |
-| `tests/integration/error_tests.rs` | Modified | Epic 3 | Add 1 integration test: prompt-too-long end-to-end |
-| `tests/integration/streaming_tests.rs` | Modified/New | Epic 3 | Add 1 integration test: truncation notice in SSE stream |
-| `docs/development/e2e-testing.md` | Modified | Epic 3 | Add 2 manual E2E test procedures |
-| `CLAUDE.md` | Modified | Epic 4 | Add development notes for prompt-too-long and truncation handling |
-| `docs/known-issues.md` | Modified | Epic 4 | Update/add resolved issue entries |
-| `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md` | Modified | Epic 4 | Update status to "Implemented" |
+| `src/handlers/messages.rs` | Modified | Epic 2 | Add `HeaderMap` extraction, `has_1m_context_beta()`, append `-1m` to model name |
+| `src/streaming/state.rs` | Modified | Epic 3 | Add `has_emitted_tool_use` field, emit text block on truncation |
+| `tests/unit/error_tests.rs` | Modified | Epic 4 | Add 3 tests: HTTP response format, regex match, error_type |
+| `tests/unit/copilot_client_tests.rs` | Modified | Epic 4 | Add 6 tests: prompt-too-long parsing (valid, edge cases, failures) |
+| `tests/unit/messages_tests.rs` | New/Modified | Epic 4 | Add 7 tests: 1M beta detection, model name transformation |
+| `tests/unit/streaming_tests.rs` | Modified | Epic 4 | Update 4 existing truncation tests, add 2 new edge-case tests |
+| `tests/integration/error_tests.rs` | Modified | Epic 4 | Add 1 integration test: prompt-too-long end-to-end |
+| `tests/integration/messages_tests.rs` | Modified | Epic 4 | Add 2 integration tests: 1M model selection with/without beta |
+| `tests/integration/streaming_tests.rs` | Modified/New | Epic 4 | Add 1 integration test: truncation notice in SSE stream |
+| `docs/development/e2e-testing.md` | Modified | Epic 4 | Add 3 manual E2E test procedures |
+| `CLAUDE.md` | Modified | Epic 5 | Add development notes for prompt-too-long, 1M context, and truncation handling |
+| `docs/known-issues.md` | Modified | Epic 5 | Update/add resolved issue entries |
+| `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md` | Modified | Epic 5 | Update status to "Implemented" |
 
 ---
 
@@ -772,11 +1056,13 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 | Component | Unit Tests | Integration Tests | E2E Tests |
 |-----------|------------|-------------------|-----------|
-| `PromptTooLong` error variant | Task 3.1 (3 tests) | Task 3.4 (1 test) | Task 3.6 (procedure 1) |
-| `parse_prompt_too_long()` parser | Task 3.2 (6 tests) | Task 3.4 (1 test) | — |
-| `handle_error_response()` 400 path | — | Task 3.4 (1 test) | Task 3.6 (procedure 1) |
-| Truncation text notice | Task 3.3 (6 tests) | Task 3.5 (1 test) | Task 3.6 (procedure 2) |
-| `has_emitted_tool_use` tracking | Task 3.3 (implicit) | — | — |
+| `PromptTooLong` error variant | Task 4.1 (3 tests) | Task 4.5 (1 test) | Task 4.8 (procedure 1) |
+| `parse_prompt_too_long()` parser | Task 4.2 (6 tests) | Task 4.5 (1 test) | — |
+| `handle_error_response()` 400 path | — | Task 4.5 (1 test) | Task 4.8 (procedure 1) |
+| `has_1m_context_beta()` detection | Task 4.3 (7 tests) | Task 4.7 (2 tests) | Task 4.8 (procedure 3) |
+| Model name `-1m` appending | Task 4.3 (2 tests) | Task 4.7 (2 tests) | Task 4.8 (procedure 3) |
+| Truncation text notice | Task 4.4 (6 tests) | Task 4.6 (1 test) | Task 4.8 (procedure 2) |
+| `has_emitted_tool_use` tracking | Task 4.4 (implicit) | — | — |
 
 ### Test Files
 
@@ -784,10 +1070,12 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 |------|------|----------|
 | `tests/unit/error_tests.rs` | Unit | PromptTooLong error format + regex match |
 | `tests/unit/copilot_client_tests.rs` | Unit | Error body parsing (6 cases) |
+| `tests/unit/messages_tests.rs` | Unit | 1M beta detection + model name transformation (7 tests) |
 | `tests/unit/streaming_tests.rs` | Unit | Truncation notice emission (6 tests) |
 | `tests/integration/error_tests.rs` | Integration | Full HTTP round-trip for prompt-too-long |
+| `tests/integration/messages_tests.rs` | Integration | 1M model selection (2 scenarios) |
 | `tests/integration/streaming_tests.rs` | Integration | Full SSE stream with truncation |
-| `docs/development/e2e-testing.md` | Manual E2E | Long conversation + large file write |
+| `docs/development/e2e-testing.md` | Manual E2E | Long conversation + large file write + 1M context |
 
 ---
 
@@ -799,7 +1087,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 |------------|---------|---------|------|
 | None | — | No new dependencies required | — |
 
-**Cargo.toml changes:** None. `regex`, `serde_json`, `thiserror`, and `axum` are all existing dependencies. The string-parsing approach in `parse_prompt_too_long()` avoids needing `regex` in the production code (only used in tests for the Claude Code regex validation).
+**Cargo.toml changes:** None. `regex`, `serde_json`, `thiserror`, and `axum` (including `axum::http::HeaderMap`) are all existing dependencies. The string-parsing approach in `parse_prompt_too_long()` avoids needing `regex` in the production code (only used in tests for the Claude Code regex validation).
 
 ### Internal Dependencies
 
@@ -807,9 +1095,11 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 |--------|-------------|--------|
 | `src/error.rs` (`AppError`) | Epic 1 | ✅ Exists — adding variant |
 | `src/copilot/client.rs` (`CopilotClient`) | Epic 1 | ✅ Exists — adding function + modifying method |
-| `src/streaming/state.rs` (`StreamingState`) | Epic 2 | ✅ Exists — adding field + modifying method |
-| `src/streaming/state.rs` (`ResponseContentBlock::text()`) | Epic 2 | ✅ Exists — constructor already defined |
-| `src/streaming/state.rs` (`StreamEvent` variants) | Epic 2 | ✅ Exists — using existing event types |
+| `src/handlers/messages.rs` (`messages()`) | Epic 2 | ✅ Exists — adding header extraction + helper function |
+| `axum::http::HeaderMap` | Epic 2 | ✅ Exists — already a dependency via axum |
+| `src/streaming/state.rs` (`StreamingState`) | Epic 3 | ✅ Exists — adding field + modifying method |
+| `src/streaming/state.rs` (`ResponseContentBlock::text()`) | Epic 3 | ✅ Exists — constructor already defined |
+| `src/streaming/state.rs` (`StreamEvent` variants) | Epic 3 | ✅ Exists — using existing event types |
 
 ---
 
@@ -817,50 +1107,59 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 | Risk | Impact | Probability | Mitigation | Epic |
 |------|--------|-------------|------------|------|
-| Anthropic SDK doesn't match `prompt is too long` in JSON-stringified body | High | Low | Task 3.1 test 2 validates exact SDK behavior with regex | Epic 1 |
+| Anthropic SDK doesn't match `prompt is too long` in JSON-stringified body | High | Low | Task 4.1 test 2 validates exact SDK behavior with regex | Epic 1 |
 | Copilot API changes error message format | Medium | Low | `parse_prompt_too_long` returns `None` → falls through to generic `CopilotError` | Epic 1 |
-| Truncation text block confuses the model on retry | Low | Medium | Square-bracket format is clearly system-level; model has seen similar patterns | Epic 2 |
-| Updated streaming tests break other streaming tests | Medium | Low | Additive changes only; existing event sequences extended, not replaced | Epic 3 |
-| `has_emitted_tool_use` tracking has off-by-one or state leak | Low | Low | Simple boolean, set in one place, tested explicitly | Epic 2 |
+| Copilot API doesn't have 1M variant for a model Claude Code requests | Medium | Medium | API returns a clear error for unknown model IDs; no silent downgrade | Epic 2 |
+| Beta header date format changes | Low | Low | Prefix matching on `context-1m-` is forward-compatible | Epic 2 |
+| Non-Claude model gets `-1m` appended | Low | Very Low | Claude Code only sends `context-1m-*` for Claude models; Copilot rejects unknown IDs | Epic 2 |
+| Truncation text block confuses the model on retry | Low | Medium | Square-bracket format is clearly system-level; model has seen similar patterns | Epic 3 |
+| Updated streaming tests break other streaming tests | Medium | Low | Additive changes only; existing event sequences extended, not replaced | Epic 4 |
+| `has_emitted_tool_use` tracking has off-by-one or state leak | Low | Low | Simple boolean, set in one place, tested explicitly | Epic 3 |
 | Copilot API 400 errors from other causes wrongly matched as prompt-too-long | Low | Very Low | Checks `code` field specifically, not message text | Epic 1 |
 
 ---
 
 ## Success Criteria
 
-1. **Prompt too long** — Claude Code's `isPromptTooLongMessage()` returns `true` for the translated error (Epic 1, validated by Task 3.1 test 2)
-2. **Token parsing** — `parsePromptTooLongTokenCounts()` extracts correct `actualTokens` and `limitTokens` (Epic 1, validated by Task 3.1 test 2)
-3. **Tool truncation** — Text notice block emitted; `stop_reason: max_tokens` preserved (Epic 2, validated by Task 3.3)
-4. **No regressions** — All existing streaming and error tests pass (Epic 3)
-5. **All new tests passing** — 18 new/updated tests pass (Epic 3)
-6. **Documentation complete** — CLAUDE.md, known-issues, and e2e-testing docs updated (Epic 4)
+1. **Prompt too long** — Claude Code's `isPromptTooLongMessage()` returns `true` for the translated error (Epic 1, validated by Task 4.1 test 2)
+2. **Token parsing** — `parsePromptTooLongTokenCounts()` extracts correct `actualTokens` and `limitTokens` (Epic 1, validated by Task 4.1 test 2)
+3. **1M context activation** — Selecting "Opus (1M context)" in Claude Code results in `claude-opus-4.6-1m` being sent to Copilot (Epic 2, validated by Task 4.7)
+4. **Tool truncation** — Text notice block emitted; `stop_reason: max_tokens` preserved (Epic 3, validated by Task 4.4)
+5. **No regressions** — All existing streaming and error tests pass (Epic 4)
+6. **All new tests passing** — 27 new/updated tests pass (Epic 4)
+7. **Documentation complete** — CLAUDE.md, known-issues, and e2e-testing docs updated (Epic 5)
 
 ---
 
 ## Rollout / Migration Plan
 
-### Phase 1: Development (Epics 1-2)
+### Phase 1: Development (Epics 1-3)
 - [ ] Implement `PromptTooLong` error variant and HTTP mapping (Task 1.1)
 - [ ] Implement `parse_prompt_too_long()` parser (Task 1.2)
 - [ ] Update `handle_error_response()` (Task 1.3)
-- [ ] Add `has_emitted_tool_use` field (Task 2.1)
-- [ ] Implement truncation text block emission (Task 2.2)
+- [ ] Add `has_1m_context_beta()` helper (Task 2.1)
+- [ ] Extract `HeaderMap` in messages handler (Task 2.2)
+- [ ] Apply `-1m` suffix based on beta header (Task 2.3)
+- [ ] Add `has_emitted_tool_use` field (Task 3.1)
+- [ ] Implement truncation text block emission (Task 3.2)
 - [ ] Verify `cargo build` succeeds
 
-### Phase 2: Testing (Epic 3)
-- [ ] Unit tests for error translation (Task 3.1)
-- [ ] Unit tests for error parsing (Task 3.2)
-- [ ] Unit tests for streaming truncation (Task 3.3)
-- [ ] Integration test for prompt-too-long (Task 3.4)
-- [ ] Integration test for streaming truncation (Task 3.5)
-- [ ] Manual E2E procedures documented (Task 3.6)
+### Phase 2: Testing (Epic 4)
+- [ ] Unit tests for error translation (Task 4.1)
+- [ ] Unit tests for error parsing (Task 4.2)
+- [ ] Unit tests for 1M context beta detection (Task 4.3)
+- [ ] Unit tests for streaming truncation (Task 4.4)
+- [ ] Integration test for prompt-too-long (Task 4.5)
+- [ ] Integration test for streaming truncation (Task 4.6)
+- [ ] Integration test for 1M model selection (Task 4.7)
+- [ ] Manual E2E procedures documented (Task 4.8)
 - [ ] `cargo test --test unit` passes
 - [ ] `cargo test --test integration` passes
 
-### Phase 3: Documentation (Epic 4)
-- [ ] CLAUDE.md updated (Task 4.1)
-- [ ] Known issues updated (Task 4.2)
-- [ ] Design document status updated (Task 4.3)
+### Phase 3: Documentation (Epic 5)
+- [ ] CLAUDE.md updated (Task 5.1)
+- [ ] Known issues updated (Task 5.2)
+- [ ] Design document status updated (Task 5.3)
 
 ### Phase 4: Release
 - [ ] All acceptance criteria met
@@ -875,9 +1174,10 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
 | Epic 1: Prompt-Too-Long Error Translation | Not Started | - | - | 3 tasks |
-| Epic 2: Truncated Tool Call Recovery | Not Started | - | - | 2 tasks |
-| Epic 3: Testing | Not Started | - | - | 6 tasks, 18 tests |
-| Epic 4: Documentation | Not Started | - | - | 3 tasks |
+| Epic 2: 1M Context Model Activation | Not Started | - | - | 3 tasks |
+| Epic 3: Truncated Tool Call Recovery | Not Started | - | - | 2 tasks |
+| Epic 4: Testing | Not Started | - | - | 8 tasks, 27 tests |
+| Epic 5: Documentation | Not Started | - | - | 3 tasks |
 
 ---
 
@@ -885,9 +1185,11 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 | # | Question | Status | Blocker For |
 |---|----------|--------|-------------|
-| 1 | What is the per-model prompt token limit on the Copilot API? Is 168K the same for all Claude models? | Open (from design doc) | None — parser extracts whatever numbers Copilot returns |
-| 2 | Does `tests/integration/streaming_tests.rs` already exist or does it need to be created? | Resolve at implementation time | Task 3.5 |
+| 1 | What is the per-model prompt token limit on the Copilot API? Is 168K the same for all Claude models? | Partially answered — observed 168K for `claude-opus-4.6`; `claude-opus-4.6-1m` presumably accepts ~1M | None — parser extracts whatever numbers Copilot returns |
+| 2 | Does `tests/integration/streaming_tests.rs` already exist or does it need to be created? | Resolve at implementation time | Task 4.6 |
 | 3 | Should `parse_prompt_too_long` live in `client.rs` or a separate `error_parser.rs` module? | Deferred — start in `client.rs`, refactor if needed | None |
+| 4 | Will `claude-sonnet-4.6-1m` appear in the Copilot models list in the future? | Open — currently only `claude-opus-4.6-1m` exists | None — adapter will support it automatically |
+| 5 | Does the handler have separate code paths for streaming/non-streaming that both need the `-1m` suffix? | Resolve at implementation time — check all `to_chat_completion_request()` call sites | Task 2.3 |
 
 ---
 
@@ -914,13 +1216,14 @@ The recommended implementation order within each day:
 
 **Day 1:**
 1. Task 1.1 (error variant) → Task 1.2 (parser) → Task 1.3 (handle_error_response) — builds bottom-up
-2. Task 2.1 (tracking field) → Task 2.2 (truncation text block) — builds bottom-up
-3. `cargo build` to verify compilation
+2. Task 2.1 (beta helper) → Task 2.2 (header extraction) → Task 2.3 (suffix appending) — builds bottom-up
+3. Task 3.1 (tracking field) → Task 3.2 (truncation text block) — builds bottom-up
+4. `cargo build` to verify compilation
 
 **Day 2:**
-1. Task 3.2 (parser tests — simplest) → Task 3.1 (error tests) → Task 3.3 (streaming tests — most complex)
-2. Task 3.4 (integration error test) → Task 3.5 (integration streaming test)
-3. Task 3.6 (E2E docs) → Tasks 4.1-4.3 (documentation)
+1. Task 4.2 (parser tests — simplest) → Task 4.1 (error tests) → Task 4.3 (1M context tests) → Task 4.4 (streaming tests — most complex)
+2. Task 4.5 (integration error test) → Task 4.7 (integration 1M test) → Task 4.6 (integration streaming test)
+3. Task 4.8 (E2E docs) → Tasks 5.1-5.3 (documentation)
 4. Full test suite: `cargo test`
 
 ### Key Invariants
@@ -929,6 +1232,9 @@ The recommended implementation order within each day:
 - The truncation notice format `[Tool call to "X" was truncated due to output token limit]` should use square brackets to distinguish from model text
 - `parse_prompt_too_long()` must return `None` (not panic) for any unexpected input
 - Existing `CopilotError` behavior must be preserved for all non-matching 400 errors
+- `has_1m_context_beta()` must use prefix matching (`context-1m-`) not exact string matching, to be forward-compatible with future beta date suffixes
+- The `-1m` suffix must be appended AFTER `normalize_model_name()`, not before, to ensure correct Copilot model ID format
+- The guard `!model.contains("-1m")` must prevent double-appending in all code paths
 
 ### Development Notes
 - [Notes added during implementation]
