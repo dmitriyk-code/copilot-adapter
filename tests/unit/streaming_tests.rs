@@ -324,7 +324,7 @@ fn empty_text_deltas_are_skipped() {
 fn single_tool_call_streaming() {
     let mut state = StreamingState::new(HashMap::new());
 
-    // First chunk: tool call start
+    // First chunk: tool call start — tool_use events are buffered
     let events = state.process_chunk(&tool_call_start_chunk(
         "chatcmpl-xyz",
         "claude-sonnet-4",
@@ -333,40 +333,41 @@ fn single_tool_call_streaming() {
         "bash",
         "{\"co",
     ));
-    assert_eq!(events.len(), 3);
+    assert_eq!(events.len(), 1); // only message_start (tool_use buffered)
     assert_message_start(&events[0]);
-    assert_tool_use_block_start(&events[1], 0, "call_abc123", "bash");
-    assert_input_json_delta(&events[2], 0, "{\"co");
 
-    // Argument continuation
+    // Argument continuation — buffered
     let events = state.process_chunk(&tool_call_args_chunk(
         "chatcmpl-xyz",
         "claude-sonnet-4",
         0,
         "mmand\":\"ls",
     ));
-    assert_eq!(events.len(), 1);
-    assert_input_json_delta(&events[0], 0, "mmand\":\"ls");
+    assert_eq!(events.len(), 0);
 
-    // More arguments
+    // More arguments — buffered
     let events = state.process_chunk(&tool_call_args_chunk(
         "chatcmpl-xyz",
         "claude-sonnet-4",
         0,
         "\"}",
     ));
-    assert_eq!(events.len(), 1);
-    assert_input_json_delta(&events[0], 0, "\"}");
+    assert_eq!(events.len(), 0);
 
-    // Finish with tool_calls reason
+    // Finish with tool_calls reason — buffer flushed
     let events = state.process_chunk(&finish_chunk(
         "chatcmpl-xyz",
         "claude-sonnet-4",
         "tool_calls",
     ));
-    assert_eq!(events.len(), 2);
-    assert_block_stop(&events[0], 0);
-    assert_message_delta(&events[1], "tool_use");
+    // Flushed: block_start + 3 deltas, then block_stop + message_delta
+    assert_eq!(events.len(), 6);
+    assert_tool_use_block_start(&events[0], 0, "call_abc123", "bash");
+    assert_input_json_delta(&events[1], 0, "{\"co");
+    assert_input_json_delta(&events[2], 0, "mmand\":\"ls");
+    assert_input_json_delta(&events[3], 0, "\"}");
+    assert_block_stop(&events[4], 0);
+    assert_message_delta(&events[5], "tool_use");
 
     // Finalize
     let events = state.finalize();
@@ -393,16 +394,23 @@ fn tool_call_with_name_restoration() {
         "very_long_tool_na_abcd1234",
         "{}",
     ));
-    assert_eq!(events.len(), 3);
+    assert_eq!(events.len(), 1); // message_start (tool_use buffered)
     assert_message_start(&events[0]);
+
+    // Finish to flush buffer
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "tool_calls"));
+    // Flushed: block_start + delta, then block_stop + message_delta
+    assert_eq!(events.len(), 4);
     // Name should be restored to original
     assert_tool_use_block_start(
-        &events[1],
+        &events[0],
         0,
         "call_1",
         "very_long_tool_name_that_exceeds_64_characters_and_was_truncated",
     );
-    assert_input_json_delta(&events[2], 0, "{}");
+    assert_input_json_delta(&events[1], 0, "{}");
+    assert_block_stop(&events[2], 0);
+    assert_message_delta(&events[3], "tool_use");
 }
 
 #[test]
@@ -435,9 +443,17 @@ fn tool_call_without_id_gets_synthetic_id() {
     };
 
     let events = state.process_chunk(&chunk);
-    assert_eq!(events.len(), 2); // message_start + block_start (no args delta)
-                                 // Should use synthetic "call_0"
-    assert_tool_use_block_start(&events[1], 0, "call_0", "test_tool");
+    assert_eq!(events.len(), 1); // message_start only (tool_use buffered)
+    assert_message_start(&events[0]);
+
+    // Finish to flush buffer
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "tool_calls"));
+    // Flushed: block_start, then block_stop + message_delta
+    assert_eq!(events.len(), 3);
+    // Should use synthetic "call_0"
+    assert_tool_use_block_start(&events[0], 0, "call_0", "test_tool");
+    assert_block_stop(&events[1], 0);
+    assert_message_delta(&events[2], "tool_use");
 }
 
 // ===========================================================================
@@ -460,7 +476,7 @@ fn mixed_text_then_tool_streaming() {
     assert_eq!(events.len(), 1);
     assert_text_delta(&events[0], 0, " for you.");
 
-    // Transition to tool call — should close text block, increment index, open tool block
+    // Transition to tool call — should close text block, tool events buffered
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1",
         "m1",
@@ -469,21 +485,23 @@ fn mixed_text_then_tool_streaming() {
         "bash",
         "{\"command\"",
     ));
-    assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 0); // close text block at index 0
-    assert_tool_use_block_start(&events[1], 1, "call_1", "bash"); // tool at index 1
-    assert_input_json_delta(&events[2], 1, "{\"command\"");
-
-    // Continue tool arguments
-    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, ":\"ls\"}"));
     assert_eq!(events.len(), 1);
-    assert_input_json_delta(&events[0], 1, ":\"ls\"}");
+    assert_block_stop(&events[0], 0); // close text block at index 0
+    // tool_use start + delta are buffered
 
-    // Finish
+    // Continue tool arguments — buffered
+    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, ":\"ls\"}"));
+    assert_eq!(events.len(), 0);
+
+    // Finish — buffer flushed
     let events = state.process_chunk(&finish_chunk("c1", "m1", "tool_calls"));
-    assert_eq!(events.len(), 2);
-    assert_block_stop(&events[0], 1);
-    assert_message_delta(&events[1], "tool_use");
+    // Flushed: tool block_start + 2 deltas, then block_stop + message_delta
+    assert_eq!(events.len(), 5);
+    assert_tool_use_block_start(&events[0], 1, "call_1", "bash"); // tool at index 1
+    assert_input_json_delta(&events[1], 1, "{\"command\"");
+    assert_input_json_delta(&events[2], 1, ":\"ls\"}");
+    assert_block_stop(&events[3], 1);
+    assert_message_delta(&events[4], "tool_use");
 
     let events = state.finalize();
     assert_eq!(events.len(), 1);
@@ -498,21 +516,18 @@ fn mixed_text_then_tool_streaming() {
 fn parallel_tool_calls_streaming() {
     let mut state = StreamingState::new(HashMap::new());
 
-    // First tool call
+    // First tool call — buffered
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1", "m1", 0, "call_a", "bash", "{\"",
     ));
-    assert_eq!(events.len(), 3);
+    assert_eq!(events.len(), 1); // message_start
     assert_message_start(&events[0]);
-    assert_tool_use_block_start(&events[1], 0, "call_a", "bash");
-    assert_input_json_delta(&events[2], 0, "{\"");
 
-    // Continue first tool args
+    // Continue first tool args — buffered
     let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, "command\":\"ls\"}"));
-    assert_eq!(events.len(), 1);
-    assert_input_json_delta(&events[0], 0, "command\":\"ls\"}");
+    assert_eq!(events.len(), 0);
 
-    // Second tool call starts (parallel) — should close first block, open second
+    // Second tool call starts (parallel) — flushes first tool, closes its block
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1",
         "m1",
@@ -521,22 +536,23 @@ fn parallel_tool_calls_streaming() {
         "read_file",
         "{\"",
     ));
-    assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 0); // close first tool block
-    assert_tool_use_block_start(&events[1], 1, "call_b", "read_file"); // second tool at index 1
-    assert_input_json_delta(&events[2], 1, "{\"");
+    // Flushed: first tool's start + 2 deltas, then block_stop(0)
+    assert_eq!(events.len(), 4);
+    assert_tool_use_block_start(&events[0], 0, "call_a", "bash");
+    assert_input_json_delta(&events[1], 0, "{\"");
+    assert_input_json_delta(&events[2], 0, "command\":\"ls\"}");
+    assert_block_stop(&events[3], 0); // close first tool block
 
-    // Continue second tool args
+    // Continue second tool args — buffered
     let events = state.process_chunk(&tool_call_args_chunk(
         "c1",
         "m1",
         1,
         "path\":\"README.md\"}",
     ));
-    assert_eq!(events.len(), 1);
-    assert_input_json_delta(&events[0], 1, "path\":\"README.md\"}");
+    assert_eq!(events.len(), 0);
 
-    // Third tool call
+    // Third tool call — flushes second tool
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1",
         "m1",
@@ -545,16 +561,19 @@ fn parallel_tool_calls_streaming() {
         "write_file",
         "{}",
     ));
-    assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 1);
-    assert_tool_use_block_start(&events[1], 2, "call_c", "write_file");
-    assert_input_json_delta(&events[2], 2, "{}");
+    assert_eq!(events.len(), 4);
+    assert_tool_use_block_start(&events[0], 1, "call_b", "read_file");
+    assert_input_json_delta(&events[1], 1, "{\"");
+    assert_input_json_delta(&events[2], 1, "path\":\"README.md\"}");
+    assert_block_stop(&events[3], 1);
 
-    // Finish
+    // Finish — flushes third tool
     let events = state.process_chunk(&finish_chunk("c1", "m1", "tool_calls"));
-    assert_eq!(events.len(), 2);
-    assert_block_stop(&events[0], 2);
-    assert_message_delta(&events[1], "tool_use");
+    assert_eq!(events.len(), 4);
+    assert_tool_use_block_start(&events[0], 2, "call_c", "write_file");
+    assert_input_json_delta(&events[1], 2, "{}");
+    assert_block_stop(&events[2], 2);
+    assert_message_delta(&events[3], "tool_use");
 
     let events = state.finalize();
     assert_eq!(events.len(), 1);
@@ -574,33 +593,33 @@ fn block_transitions_emit_stop_then_start() {
     assert_eq!(events.len(), 3);
     assert_text_block_start(&events[1], 0);
 
-    // Transition to tool — verify stop(0) then start(1)
+    // Transition to tool — text block closed, tool events buffered
     let events = state.process_chunk(&tool_call_start_chunk("c1", "m1", 0, "call_1", "bash", ""));
-    // stop(0) + start(1) (no args delta since args is empty)
-    assert_eq!(events.len(), 2);
+    // stop(0) only (tool_use start is buffered, no args delta since empty)
+    assert_eq!(events.len(), 1);
     assert_block_stop(&events[0], 0);
-    assert_tool_use_block_start(&events[1], 1, "call_1", "bash");
 }
 
 #[test]
 fn tool_to_tool_transition() {
     let mut state = StreamingState::new(HashMap::new());
 
-    // First tool
+    // First tool — buffered
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1", "m1", 0, "call_a", "tool_a", "{}",
     ));
-    assert_eq!(events.len(), 3);
-    assert_tool_use_block_start(&events[1], 0, "call_a", "tool_a");
+    assert_eq!(events.len(), 1); // message_start
+    assert_message_start(&events[0]);
 
-    // Second tool — should close first, open second
+    // Second tool — flushes first, starts buffering second
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1", "m1", 1, "call_b", "tool_b", "{}",
     ));
+    // Flushed: first tool start + delta, then block_stop(0)
     assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 0);
-    assert_tool_use_block_start(&events[1], 1, "call_b", "tool_b");
-    assert_input_json_delta(&events[2], 1, "{}");
+    assert_tool_use_block_start(&events[0], 0, "call_a", "tool_a");
+    assert_input_json_delta(&events[1], 0, "{}");
+    assert_block_stop(&events[2], 0);
 }
 
 #[test]
@@ -623,7 +642,7 @@ fn finalize_closes_open_text_block() {
 fn finalize_closes_open_tool_block() {
     let mut state = StreamingState::new(HashMap::new());
 
-    // Send tool call without finish
+    // Send tool call without finish — events buffered
     let events = state.process_chunk(&tool_call_start_chunk(
         "c1",
         "m1",
@@ -632,14 +651,16 @@ fn finalize_closes_open_tool_block() {
         "bash",
         "{\"cmd\":\"ls\"}",
     ));
-    assert_eq!(events.len(), 3);
+    assert_eq!(events.len(), 1); // message_start only
 
-    // Finalize should close the open tool block, emit message_delta, then message_stop
+    // Finalize should flush buffer, close the open tool block, emit message_delta, then message_stop
     let events = state.finalize();
-    assert_eq!(events.len(), 3);
-    assert_block_stop(&events[0], 0);
-    assert_message_delta(&events[1], "end_turn");
-    assert_message_stop(&events[2]);
+    assert_eq!(events.len(), 5);
+    assert_tool_use_block_start(&events[0], 0, "call_1", "bash");
+    assert_input_json_delta(&events[1], 0, "{\"cmd\":\"ls\"}");
+    assert_block_stop(&events[2], 0);
+    assert_message_delta(&events[3], "end_turn");
+    assert_message_stop(&events[4]);
 }
 
 #[test]
@@ -837,4 +858,185 @@ fn events_serialize_to_valid_json() {
                 .unwrap_or_else(|e| panic!("Failed to parse JSON '{}': {}", json, e));
         }
     }
+}
+
+// ===========================================================================
+// Test: truncated tool calls (finish_reason="length" during tool_use)
+// ===========================================================================
+
+/// When a single tool call is truncated by finish_reason="length",
+/// the tool_use block should be completely dropped. Only message_start
+/// and message_delta("max_tokens") should be emitted.
+#[test]
+fn tool_call_truncated_by_length() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // Tool call starts — events are buffered, only message_start returned
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_abc", "Write", "{\"file_path",
+    ));
+    assert_eq!(events.len(), 1); // only message_start (tool_use is buffered)
+    assert_message_start(&events[0]);
+
+    // More arguments — still buffered
+    let events = state.process_chunk(&tool_call_args_chunk(
+        "c1", "m1", 0, "\": \"test.md\"",
+    ));
+    assert_eq!(events.len(), 0); // all buffered
+
+    // Truncated by length — tool_use block discarded
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 1); // only message_delta("max_tokens")
+    assert_message_delta(&events[0], "max_tokens");
+
+    // Verify truncation was tracked
+    assert!(state.truncated_openai_tool_indices().contains(&0));
+
+    // Finalize — just message_stop
+    let events = state.finalize();
+    assert_eq!(events.len(), 1);
+    assert_message_stop(&events[0]);
+}
+
+/// Text block followed by a tool call that gets truncated by length.
+/// The text block should be emitted normally; the tool_use block dropped.
+#[test]
+fn text_then_tool_truncated_by_length() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // Text streams normally
+    let events = state.process_chunk(&text_chunk("c1", "m1", "Let me write that.", None));
+    assert_eq!(events.len(), 3); // message_start + block_start + text_delta
+    assert_message_start(&events[0]);
+    assert_text_block_start(&events[1], 0);
+    assert_text_delta(&events[2], 0, "Let me write that.");
+
+    // Tool call starts — previous text block is closed, tool is buffered
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_1", "Write", "{\"file",
+    ));
+    // text block stop(0) is emitted (closes completed text);
+    // tool_use start + delta are buffered
+    assert_eq!(events.len(), 1);
+    assert_block_stop(&events[0], 0); // close text block
+
+    // More tool args — buffered
+    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, "_path\": \"x\"}"));
+    assert_eq!(events.len(), 0);
+
+    // Truncated by length — tool_use block dropped
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 1);
+    assert_message_delta(&events[0], "max_tokens");
+
+    // Verify truncation tracked
+    assert!(state.truncated_openai_tool_indices().contains(&0));
+
+    let events = state.finalize();
+    assert_eq!(events.len(), 1);
+    assert_message_stop(&events[0]);
+}
+
+/// Two parallel tool calls: first completes, second is truncated.
+/// First tool_use should be fully emitted; second dropped.
+#[test]
+fn first_tool_complete_second_truncated() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // First tool call
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_a", "Read", "{\"path\":\"a.rs\"}",
+    ));
+    assert_eq!(events.len(), 1); // message_start only (tool buffered)
+    assert_message_start(&events[0]);
+
+    // Second tool call starts — flushes first tool (complete)
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 1, "call_b", "Write", "{\"file",
+    ));
+    // Flushed from buffer: first tool's start + delta
+    // Then: block_stop(0) for first tool
+    // Second tool's start + delta are buffered
+    assert_eq!(events.len(), 3);
+    assert_tool_use_block_start(&events[0], 0, "call_a", "Read");
+    assert_input_json_delta(&events[1], 0, "{\"path\":\"a.rs\"}");
+    assert_block_stop(&events[2], 0);
+
+    // More args for second tool — buffered
+    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 1, "_path\": \"b\"}"));
+    assert_eq!(events.len(), 0);
+
+    // Truncated by length — second tool dropped
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 1);
+    assert_message_delta(&events[0], "max_tokens");
+
+    // Only second tool was truncated
+    assert!(!state.truncated_openai_tool_indices().contains(&0));
+    assert!(state.truncated_openai_tool_indices().contains(&1));
+
+    let events = state.finalize();
+    assert_eq!(events.len(), 1);
+    assert_message_stop(&events[0]);
+}
+
+/// Even if the tool call has complete-looking JSON, finish_reason="length"
+/// always causes the tool_use block to be dropped.
+#[test]
+fn tool_call_with_length_finish_but_complete_json() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // Tool call with seemingly complete JSON
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_1", "Bash",
+        "{\"command\": \"ls\"}",
+    ));
+    assert_eq!(events.len(), 1); // message_start
+    assert_message_start(&events[0]);
+
+    // Finish with "length" — tool is STILL dropped (always-drop policy)
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 1);
+    assert_message_delta(&events[0], "max_tokens");
+
+    assert!(state.truncated_openai_tool_indices().contains(&0));
+
+    let events = state.finalize();
+    assert_eq!(events.len(), 1);
+    assert_message_stop(&events[0]);
+}
+
+/// Tool calls that finish normally (finish_reason="tool_calls") should
+/// still be emitted correctly — the buffering must not break normal flow.
+#[test]
+fn tool_call_normal_finish_with_buffering() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // Tool call starts — buffered
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_1", "Bash", "{\"co",
+    ));
+    assert_eq!(events.len(), 1); // message_start
+    assert_message_start(&events[0]);
+
+    // More args — buffered
+    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, "mmand\":\"ls\"}"));
+    assert_eq!(events.len(), 0);
+
+    // Normal finish — buffer flushed, block closed
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "tool_calls"));
+    // Flushed: tool_use start + 2 deltas
+    // Then: block_stop + message_delta
+    assert_eq!(events.len(), 5);
+    assert_tool_use_block_start(&events[0], 0, "call_1", "Bash");
+    assert_input_json_delta(&events[1], 0, "{\"co");
+    assert_input_json_delta(&events[2], 0, "mmand\":\"ls\"}");
+    assert_block_stop(&events[3], 0);
+    assert_message_delta(&events[4], "tool_use");
+
+    assert!(state.truncated_openai_tool_indices().is_empty());
+
+    let events = state.finalize();
+    assert_eq!(events.len(), 1);
+    assert_message_stop(&events[0]);
 }

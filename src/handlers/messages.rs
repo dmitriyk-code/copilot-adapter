@@ -1243,14 +1243,19 @@ async fn handle_native_tools_streaming(
 
         // --- Conversation log: write cycle for native tools streaming ---
         if let Some(mut builder) = cycle_builder {
+            // Exclude truncated tool calls from logging.
+            let truncated = streaming_state.truncated_openai_tool_indices();
+            let effective_has_tool_calls = has_tool_calls
+                && log_tool_ids.keys().any(|k| !truncated.contains(k));
+
             builder.set_copilot_streaming_response(
                 &model,
                 &content_buffer,
                 last_finish_reason.as_deref(),
-                has_tool_calls,
+                effective_has_tool_calls,
             );
 
-            let stop_reason = if has_tool_calls {
+            let stop_reason = if effective_has_tool_calls {
                 Some("tool_use".to_string())
             } else {
                 crate::anthropic::types::map_stop_reason(last_finish_reason.as_deref())
@@ -1264,11 +1269,13 @@ async fn handle_native_tools_streaming(
                 ));
             }
 
-            // Reconstruct tool calls from accumulated streaming data.
+            // Reconstruct tool calls from accumulated streaming data,
+            // excluding any that were truncated.
             let mut log_tool_calls = Vec::new();
             let mut tool_indices: Vec<u32> = log_tool_ids.keys()
                 .chain(log_tool_names.keys())
                 .copied()
+                .filter(|idx| !truncated.contains(idx))
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
                 .collect();
