@@ -140,3 +140,85 @@ shutdown via the tokio signal handler).
 Known limitation. A future improvement could use a Windows named event or pipe
 to signal the adapter process for a graceful shutdown, similar to how Unix
 SIGTERM works.
+
+---
+
+## Prompt-Too-Long Errors Returned as 502 (Resolved)
+
+### Description
+When the Copilot API returned HTTP 400 with `model_max_prompt_tokens_exceeded`
+(e.g., prompt exceeded the ~168K token limit), the adapter wrapped it as a
+generic 502 `upstream_error`. Claude Code treated this as an opaque connection
+failure rather than a "prompt too long" error, preventing automatic context
+compaction.
+
+### Resolution
+**Fixed.** The adapter now detects `model_max_prompt_tokens_exceeded` in the
+Copilot API response and translates it into an Anthropic-format HTTP 400
+`invalid_request_error` with `"code": "prompt_too_long"`. The error message
+format (`"prompt is too long: N tokens > M maximum"`) matches Claude Code's
+regex, enabling automatic context compaction.
+
+Implementation: `AppError::PromptTooLong` in `src/error.rs`,
+`parse_prompt_too_long()` in `src/copilot/client.rs`.
+
+---
+
+## Truncated Tool Calls Silently Dropped (Resolved)
+
+### Description
+When the Copilot API returned `finish_reason: "length"` mid-tool-call, the
+adapter dropped the incomplete `tool_use` block entirely. Claude Code received
+`stop_reason: "max_tokens"` with zero content blocks. Since Claude Code's
+internal stream processing had already detected tool_use activity,
+`needsFollowUp = true`, which skipped the max_tokens escalation logic
+(8K → 64K). The model never got a larger output budget to complete the
+tool call.
+
+### Resolution
+**Fixed.** The adapter now emits a descriptive text content block when a tool
+call is truncated: `[Tool call to "X" was truncated due to output token limit]`.
+This gives Claude Code a text-only response (no tool_use blocks), allowing it
+to fire the max_tokens escalation logic and retry with a larger output budget.
+
+Implementation: `src/streaming/state.rs` — truncation notice emission in the
+streaming state machine.
+
+---
+
+## 1M Context Models Not Activated (Resolved)
+
+### Description
+When Claude Code's user selected "Opus (1M context)" or similar, Claude Code
+communicated this via the `anthropic-beta: context-1m-*` HTTP header, not via
+the model name. The adapter ignored this header. Meanwhile, the Copilot API
+exposes 1M context as a separate model (e.g., `claude-opus-4.6-1m`). Users
+selecting 1M context were silently getting the standard context window.
+
+### Resolution
+**Fixed.** The adapter now detects the `context-1m-*` beta in the
+`anthropic-beta` header and appends `-1m` to the normalized Copilot model name.
+A guard prevents double-append for models that already contain `-1m`.
+
+Implementation: `has_1m_context_beta()` in `src/handlers/messages.rs`.
+
+---
+
+## Effort and Thinking Parameters Silently Dropped (Resolved)
+
+### Description
+Claude Code sends `output_config.effort` and `thinking` configuration to
+control model reasoning behavior. The adapter's `AnthropicRequest` struct had
+no fields for these parameters, so they were silently discarded during
+deserialization. Additionally, `thinking` and `redacted_thinking` content
+blocks in conversation history caused deserialization failures.
+
+### Resolution
+**Fixed.** The adapter now accepts `output_config.effort` and translates it to
+`reasoning.effort` in the OpenAI request format (`"max"` maps to `"high"`).
+`Thinking` and `RedactedThinking` content block variants are accepted during
+deserialization and stripped before translation. Temperature is suppressed when
+thinking is active to avoid API errors.
+
+Implementation: `OutputConfig` and `strip_thinking_blocks()` in
+`src/anthropic/types.rs`, `Reasoning` struct in `src/copilot/types.rs`.

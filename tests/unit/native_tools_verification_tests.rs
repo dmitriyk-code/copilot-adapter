@@ -434,6 +434,7 @@ fn request_with_native_tools_serializes_correctly() {
             },
         }]),
         tool_choice: Some(serde_json::json!("auto")),
+        reasoning: None,
     };
 
     let json = serde_json::to_value(&req).unwrap();

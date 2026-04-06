@@ -32,6 +32,12 @@ pub enum AppError {
     #[error("Not found: {0}")]
     ModelNotFound(String),
 
+    #[error("prompt is too long: {actual_tokens} tokens > {limit_tokens} maximum")]
+    PromptTooLong {
+        actual_tokens: u32,
+        limit_tokens: u32,
+    },
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -110,6 +116,16 @@ impl IntoResponse for AppError {
                     }
                 }),
             ),
+            AppError::PromptTooLong { .. } => (
+                StatusCode::BAD_REQUEST,
+                json!({
+                    "error": {
+                        "message": self.to_string(),
+                        "type": "invalid_request_error",
+                        "code": "prompt_too_long"
+                    }
+                }),
+            ),
             AppError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({
@@ -151,7 +167,7 @@ impl AppError {
             AppError::NotAuthenticated | AppError::TokenExpired => "authentication_error",
             AppError::GitHubError(_) | AppError::CopilotError(_) => "upstream_error",
             AppError::RateLimited(_) => "rate_limit_error",
-            AppError::InvalidRequest(_) => "invalid_request_error",
+            AppError::InvalidRequest(_) | AppError::PromptTooLong { .. } => "invalid_request_error",
             AppError::ModelNotFound(_) => "not_found_error",
             AppError::Internal(_) => "internal_error",
         }

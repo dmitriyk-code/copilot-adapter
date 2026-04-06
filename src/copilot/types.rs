@@ -99,6 +99,19 @@ pub struct Message {
     pub tool_call_id: Option<String>,
 }
 
+/// OpenAI reasoning configuration.
+///
+/// Controls model reasoning behavior. Currently only `effort` is supported.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reasoning {
+    /// Reasoning effort level.
+    ///
+    /// Model-dependent values: "none", "minimal", "low", "medium", "high", "xhigh".
+    /// For Claude models via Copilot, typically "low", "medium", or "high".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
 /// OpenAI-compatible chat completion request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -130,6 +143,11 @@ pub struct ChatCompletionRequest {
     /// Tool choice preference ("auto", "none", "required", or specific tool).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<serde_json::Value>,
+    /// Reasoning configuration (effort level).
+    ///
+    /// Translated from Anthropic's `output_config.effort`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Reasoning>,
 }
 
 /// A single choice in a chat completion response.

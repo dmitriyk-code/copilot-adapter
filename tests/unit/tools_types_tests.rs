@@ -450,6 +450,7 @@ fn chat_completion_request_without_tools_skips() {
         frequency_penalty: None,
         tools: None,
         tool_choice: None,
+        reasoning: None,
     };
     let json = serde_json::to_value(&req).unwrap();
     assert!(json.get("tools").is_none());

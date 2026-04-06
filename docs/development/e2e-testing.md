@@ -2337,3 +2337,254 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 | 37 | Automatic Migration from XOR Format | Credential Migration |
 | 38 | Edge Case — Both Credential Files Exist | Credential Migration |
 | 39 | Corrupted XOR Credential File | Credential Migration |
+| 40 | Prompt-Too-Long Recovery | Context Window |
+| 41 | Truncated Tool Call Escalation | Context Window |
+| 42 | 1M Context Model Activation | Context Window |
+| 43 | Effort Level Forwarding | Effort / Thinking |
+| 44 | Thinking Blocks in Conversation History | Effort / Thinking |
+
+---
+
+## Test 40: Prompt-Too-Long Recovery
+
+**Purpose:** Verify that when the Copilot API returns a prompt-too-long error, the adapter translates it into Anthropic format so Claude Code triggers context compaction.
+
+> **Prerequisites:**
+> - The adapter is built and authenticated
+> - A long-running Claude Code session that approaches the token limit
+
+### Steps
+
+1. **Start copilot-adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Start a Claude Code session** with a long conversation.
+
+3. **Continue until the prompt approaches 168K tokens** (keep sending messages,
+   pasting large files, etc.).
+
+4. **Observe that Claude Code receives "prompt too long" error.**
+
+5. **Verify Claude Code triggers context compaction** (visible in Claude Code output — it will automatically summarize and trim conversation history).
+
+6. **Verify the adapter logs show:**
+   ```
+   Translating prompt-too-long error to Anthropic format
+   ```
+
+### Expected Result
+
+- Claude Code compacts context and continues the session without crashing.
+- The adapter translates the Copilot 400 `model_max_prompt_tokens_exceeded` error to
+  Anthropic's `prompt_too_long` format with the message:
+  `"prompt is too long: N tokens > M maximum"`.
+
+### Verification Checklist
+
+- [ ] Claude Code compacts context automatically
+- [ ] Adapter log shows "Translating prompt-too-long error to Anthropic format"
+- [ ] Session continues working after compaction
+
+---
+
+## Test 41: Truncated Tool Call Escalation
+
+**Purpose:** Verify that when a tool call is truncated due to output token limit, the adapter emits a text notice that triggers Claude Code's max_tokens escalation logic.
+
+> **Prerequisites:**
+> - The adapter is built and authenticated
+
+### Steps
+
+1. **Start copilot-adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Start a Claude Code session.**
+
+3. **Ask Claude to write a very large file** (>8K tokens of content), e.g.:
+   ```
+   Write a 500-line Python module with comprehensive docstrings for a REST API client
+   ```
+
+4. **Observe that the first attempt uses the default max_tokens** (8K).
+
+5. **Observe that the tool call is truncated** — the adapter log should show:
+   ```
+   Dropping truncated tool_use block
+   ```
+   And Claude Code receives a text block with:
+   `[Tool call to "Write" was truncated due to output token limit]`
+
+6. **Observe that Claude Code escalates max_tokens and retries** — the second
+   request should have a higher max_tokens value (e.g., 64K).
+
+7. **Verify the second attempt with the escalated token budget succeeds.**
+
+### Expected Result
+
+- File write succeeds on retry with escalated token budget.
+- No tool_use block is emitted for the truncated call.
+- Claude Code automatically retries with higher max_tokens.
+
+### Verification Checklist
+
+- [ ] First attempt truncated (adapter log: "Dropping truncated tool_use block")
+- [ ] Claude Code receives truncation notice text block
+- [ ] Claude Code escalates max_tokens and retries
+- [ ] Second attempt succeeds
+
+---
+
+## Test 42: 1M Context Model Activation
+
+**Purpose:** Verify that the `anthropic-beta: context-1m-*` header triggers the adapter to append `-1m` to the model name sent to Copilot API.
+
+> **Prerequisites:**
+> - The adapter is built and authenticated
+> - A Copilot subscription with access to 1M context models
+
+### Steps
+
+1. **Start copilot-adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Start Claude Code and select "Opus (1M context)"** from the model picker.
+
+3. **Send a message** and observe the adapter logs.
+
+4. **Verify the adapter log shows:**
+   ```
+   1M context beta detected, selecting Copilot 1M model variant
+   ```
+
+5. **Verify the adapter log shows the outgoing request model:**
+   ```
+   model="claude-opus-4.6-1m"
+   ```
+
+6. **Verify the conversation works normally** with the 1M model.
+
+7. **Optionally:** Start a very long conversation and verify it doesn't hit the
+   standard 168K limit (the 1M model should support up to ~1M tokens).
+
+### Expected Result
+
+- Adapter forwards requests to `claude-opus-4.6-1m`.
+- Longer conversations are supported without hitting the standard token limit.
+
+### Verification Checklist
+
+- [ ] Adapter log shows "1M context beta detected"
+- [ ] Outgoing request uses model name with `-1m` suffix
+- [ ] Conversation works normally with 1M model
+- [ ] No double-appending of `-1m` suffix if model already contains it
+
+---
+
+## Test 43: Effort Level Forwarding
+
+**Purpose:** Verify that Claude Code's `/effort` command is translated to the OpenAI `reasoning.effort` parameter in requests to the Copilot API.
+
+> **Prerequisites:**
+> - The adapter is built and authenticated
+
+### Steps
+
+1. **Start copilot-adapter with trace logging:**
+   ```bash
+   copilot-adapter start --log-level trace
+   ```
+
+2. **Start Claude Code** and run:
+   ```
+   /effort high
+   ```
+
+3. **Send a message** and observe the adapter trace logs.
+
+4. **Verify the adapter log shows:**
+   ```
+   Translating effort level
+   ```
+   With fields: `anthropic_effort="high"` and `openai_effort="high"`.
+
+5. **Verify the outgoing request to Copilot API contains:**
+   ```json
+   "reasoning": {"effort": "high"}
+   ```
+
+6. **Verify the conversation works normally.**
+
+7. **Run `/effort low`** and send another message.
+
+8. **Verify the outgoing request contains:**
+   ```json
+   "reasoning": {"effort": "low"}
+   ```
+
+### Expected Result
+
+- Effort level is forwarded to Copilot API in the `reasoning` object.
+- The `"max"` Anthropic effort level is translated to `"high"` (OpenAI's highest level).
+- Conversations work normally with all effort levels.
+
+### Verification Checklist
+
+- [ ] `/effort high` → `reasoning.effort = "high"` in outgoing request
+- [ ] `/effort low` → `reasoning.effort = "low"` in outgoing request
+- [ ] `/effort max` → `reasoning.effort = "high"` (downgraded)
+- [ ] Conversation works normally at all effort levels
+
+---
+
+## Test 44: Thinking Blocks in Conversation History
+
+**Purpose:** Verify that thinking blocks (from Claude's extended thinking feature) in conversation history are accepted by the adapter and stripped before forwarding to the Copilot API.
+
+> **Prerequisites:**
+> - The adapter is built and authenticated
+> - A model that supports thinking (e.g., Claude Sonnet 4)
+
+### Steps
+
+1. **Start copilot-adapter with trace logging:**
+   ```bash
+   copilot-adapter start --log-level trace
+   ```
+
+2. **Start a Claude Code session** (thinking should be enabled by default for
+   supported models).
+
+3. **Have a multi-turn conversation** (at least 3 turns).
+
+4. **Observe that subsequent requests include thinking blocks** in conversation
+   history — visible in the trace logs as incoming request bodies containing
+   `"type": "thinking"` content blocks in assistant messages.
+
+5. **Verify the adapter does NOT fail** with deserialization errors.
+
+6. **Verify the outgoing requests to Copilot API do NOT contain** thinking or
+   redacted_thinking content blocks — they should be stripped.
+
+7. **Verify the conversation continues normally.**
+
+### Expected Result
+
+- Thinking blocks are accepted and stripped from the conversation history.
+- No deserialization errors or panics.
+- Outgoing requests contain only text and tool_use content (no thinking blocks).
+- Temperature is suppressed when thinking is active.
+
+### Verification Checklist
+
+- [ ] Thinking blocks accepted in incoming requests (no errors)
+- [ ] Thinking blocks stripped from outgoing requests
+- [ ] RedactedThinking blocks also stripped
+- [ ] Temperature suppressed when thinking is present
+- [ ] Conversation continues normally
