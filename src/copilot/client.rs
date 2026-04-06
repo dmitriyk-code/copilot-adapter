@@ -22,6 +22,37 @@ const COPILOT_INTEGRATION_ID: &str = "vscode-chat";
 /// Maximum number of retries for transient errors (5xx, network timeouts).
 const MAX_RETRIES: u32 = 3;
 
+/// Parse a Copilot API error body for `model_max_prompt_tokens_exceeded`.
+///
+/// Returns `(actual_tokens, limit_tokens)` if the error matches the expected format:
+/// ```json
+/// {"error":{"message":"prompt token count of 168929 exceeds the limit of 168000",
+///           "code":"model_max_prompt_tokens_exceeded"}}
+/// ```
+///
+/// Returns `None` for any unrecognized format, allowing fallback to generic error handling.
+pub fn parse_prompt_too_long(body: &str) -> Option<(u32, u32)> {
+    let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
+    let error_obj = parsed.get("error")?;
+
+    let code = error_obj.get("code")?.as_str()?;
+    if code != "model_max_prompt_tokens_exceeded" {
+        return None;
+    }
+
+    let message = error_obj.get("message")?.as_str()?;
+
+    // Parse "prompt token count of N exceeds the limit of M"
+    let actual_start = message.find("prompt token count of ")? + "prompt token count of ".len();
+    let actual_end = message[actual_start..].find(' ')? + actual_start;
+    let actual: u32 = message[actual_start..actual_end].parse().ok()?;
+
+    let limit_start = message.find("exceeds the limit of ")? + "exceeds the limit of ".len();
+    let limit: u32 = message[limit_start..].trim().parse().ok()?;
+
+    Some((actual, limit))
+}
+
 /// Client for communicating with the GitHub Copilot Chat API.
 pub struct CopilotClient {
     /// The underlying HTTP client used for requests.
@@ -89,7 +120,8 @@ impl CopilotClient {
     }
 
     /// Handle a non-success HTTP response from the Copilot API.
-    /// Returns `RateLimited` for 429, `CopilotError` for everything else.
+    /// Returns `RateLimited` for 429, `PromptTooLong` for prompt token limit
+    /// exceeded, and `CopilotError` for everything else.
     async fn handle_error_response(response: reqwest::Response) -> AppError {
         let status = response.status();
 
@@ -108,6 +140,22 @@ impl CopilotClient {
             body = %body,
             "Copilot API error response"
         );
+
+        // Detect prompt-too-long errors and translate to Anthropic format.
+        if status.as_u16() == 400 {
+            if let Some((actual, limit)) = parse_prompt_too_long(&body) {
+                tracing::info!(
+                    actual_tokens = actual,
+                    limit_tokens = limit,
+                    "Translating prompt-too-long error to Anthropic format"
+                );
+                return AppError::PromptTooLong {
+                    actual_tokens: actual,
+                    limit_tokens: limit,
+                };
+            }
+        }
+
         AppError::CopilotError(format!("Copilot API returned HTTP {status}: {body}"))
     }
 

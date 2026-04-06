@@ -115,6 +115,7 @@ fn chat_completion_request_roundtrip() {
         frequency_penalty: None,
         tools: None,
         tool_choice: None,
+        reasoning: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: ChatCompletionRequest = serde_json::from_str(&json_str).unwrap();
@@ -143,6 +144,7 @@ fn chat_completion_request_skips_none_fields() {
         frequency_penalty: None,
         tools: None,
         tool_choice: None,
+        reasoning: None,
     };
     let json = serde_json::to_value(&req).unwrap();
     // Optional fields that are None should be absent

@@ -31,6 +31,7 @@ hex = "0.4"
 base64 = "0.22"
 tiktoken-rs = "0.5"
 dirs = "5"
+colored = "2"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.5"
@@ -56,3 +57,7 @@ lto = true
 codegen-units = 1
 strip = true
 opt-level = "z"
+
+[[bin]]
+name = "protocol-spy"
+path = "src/bin/protocol_spy.rs"

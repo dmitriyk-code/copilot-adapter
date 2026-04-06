@@ -110,6 +110,8 @@ fn anthropic_request_roundtrip() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
@@ -235,6 +237,8 @@ fn request_translation_with_system_prepends_system_message() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -264,6 +268,8 @@ fn request_translation_without_system_no_extra_message() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -296,6 +302,8 @@ fn request_translation_extracts_text_from_content_blocks() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -318,6 +326,8 @@ fn request_translation_maps_fields() {
         stop_sequences: Some(vec!["END".to_string()]),
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -355,6 +365,8 @@ fn request_translation_multiple_messages() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -629,6 +641,8 @@ fn native_tools_assistant_message_with_tool_use_gets_tool_calls() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     // With native_tools=true
@@ -695,6 +709,8 @@ fn non_native_tools_assistant_message_with_tool_use_no_tool_calls() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     // With native_tools=false
@@ -764,6 +780,8 @@ fn native_tools_multiple_tool_use_blocks() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(true);
@@ -786,4 +804,192 @@ fn native_tools_multiple_tool_use_blocks() {
         openai.messages[3].tool_call_id,
         Some("toolu_02XYZ".to_string())
     );
+}
+
+// ---------------------------------------------------------------------------
+// Epic 5 Task 5.5: Effort translation and thinking block tests
+// ---------------------------------------------------------------------------
+
+/// Helper to create a request with optional effort and optional thinking.
+fn make_request_with_effort_and_thinking(
+    effort: Option<&str>,
+    thinking: Option<serde_json::Value>,
+) -> AnthropicRequest {
+    AnthropicRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        max_tokens: 1024,
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: ContentBlockInput::Text("Hello".to_string()),
+        }],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        output_config: effort.map(|e| OutputConfig {
+            effort: Some(e.to_string()),
+        }),
+        thinking,
+    }
+}
+
+/// Helper to create a request with thinking and temperature.
+fn make_request_with_thinking_and_temp(
+    thinking: Option<serde_json::Value>,
+    temperature: Option<f64>,
+) -> AnthropicRequest {
+    AnthropicRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        max_tokens: 1024,
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: ContentBlockInput::Text("Hello".to_string()),
+        }],
+        system: None,
+        stream: None,
+        temperature,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        output_config: None,
+        thinking,
+    }
+}
+
+/// Helper to create a request with thinking blocks in conversation history.
+fn make_request_with_thinking_blocks_in_history() -> AnthropicRequest {
+    AnthropicRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        max_tokens: 1024,
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("What is 2+2?".to_string()),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: ContentBlockInput::Blocks(vec![
+                    ContentBlock::Thinking {
+                        thinking: "Simple arithmetic: 2+2=4".to_string(),
+                        signature: None,
+                    },
+                    ContentBlock::Text {
+                        text: "The answer is 4.".to_string(),
+                        cache_control: None,
+                    },
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text("Thanks!".to_string()),
+            },
+        ],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        output_config: None,
+        thinking: None,
+    }
+}
+
+#[test]
+fn effort_low_translates_to_reasoning_low() {
+    let request = make_request_with_effort_and_thinking(Some("low"), None);
+    let chat_req = request.to_chat_completion_request(false);
+    assert_eq!(
+        chat_req.reasoning.unwrap().effort.unwrap(),
+        "low"
+    );
+}
+
+#[test]
+fn effort_max_translates_to_reasoning_high() {
+    let request = make_request_with_effort_and_thinking(Some("max"), None);
+    let chat_req = request.to_chat_completion_request(false);
+    assert_eq!(
+        chat_req.reasoning.unwrap().effort.unwrap(),
+        "high"
+    );
+}
+
+#[test]
+fn no_effort_produces_no_reasoning() {
+    let request = make_request_with_effort_and_thinking(None, None);
+    let chat_req = request.to_chat_completion_request(false);
+    assert!(chat_req.reasoning.is_none());
+}
+
+#[test]
+fn thinking_present_suppresses_temperature() {
+    let request = make_request_with_thinking_and_temp(
+        Some(serde_json::json!({"type": "adaptive"})),
+        Some(0.7),
+    );
+    let chat_req = request.to_chat_completion_request(false);
+    assert!(chat_req.temperature.is_none());
+}
+
+#[test]
+fn thinking_absent_preserves_temperature() {
+    let request = make_request_with_thinking_and_temp(None, Some(0.7));
+    let chat_req = request.to_chat_completion_request(false);
+    assert_eq!(chat_req.temperature, Some(0.7));
+}
+
+#[test]
+fn thinking_content_block_deserializes_epic5() {
+    let json = serde_json::json!({"type": "thinking", "thinking": "analysis"});
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    assert!(matches!(block, ContentBlock::Thinking { .. }));
+}
+
+#[test]
+fn redacted_thinking_content_block_deserializes_epic5() {
+    let json = serde_json::json!({"type": "redacted_thinking", "data": "base64data"});
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    assert!(matches!(block, ContentBlock::RedactedThinking { .. }));
+}
+
+#[test]
+fn thinking_blocks_stripped_from_messages() {
+    let request = make_request_with_thinking_blocks_in_history();
+    let chat_req = request.to_chat_completion_request(false);
+    let assistant_msg = chat_req
+        .messages
+        .iter()
+        .find(|m| m.role == "assistant")
+        .unwrap();
+    match &assistant_msg.content {
+        MessageContent::Text(t) => {
+            // Assert exact expected text so any leaked thinking content
+            // ("Simple arithmetic: 2+2=4") would cause a failure.
+            assert_eq!(t, "The answer is 4.");
+        }
+        _ => panic!("Expected text content"),
+    }
+}
+
+#[test]
+fn request_with_output_config_deserializes() {
+    let json = serde_json::json!({
+        "model": "claude-opus-4-6",
+        "max_tokens": 8192,
+        "messages": [],
+        "output_config": {"effort": "high"},
+        "thinking": {"type": "adaptive"}
+    });
+    let request: AnthropicRequest = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        request.output_config.unwrap().effort.unwrap(),
+        "high"
+    );
+    assert!(request.thinking.is_some());
 }

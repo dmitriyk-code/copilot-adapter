@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::anthropic::types::{
     build_message_start_response, ContentDelta, InputJsonDelta, MessageDeltaBody,
@@ -21,6 +21,16 @@ enum ContentBlockType {
 /// Anthropic [`StreamEvent`]s. After the upstream stream ends, call
 /// [`finalize`](Self::finalize) to close any open content blocks and emit
 /// the terminal `message_stop` event.
+///
+/// **Tool-use buffering**: Events for tool_use blocks are buffered rather
+/// than emitted immediately. When a tool call completes normally (another
+/// tool starts, or `finish_reason` is `"tool_calls"`/`"stop"`), the buffer
+/// is flushed. If `finish_reason` is `"length"` while a tool call is open,
+/// the buffer is discarded and a text block
+/// `[Tool call to "X" was truncated due to output token limit]` is emitted
+/// in its place, followed by `stop_reason: max_tokens`. This prevents
+/// Claude Code from executing incomplete tool calls and ensures the
+/// max_tokens escalation path fires.
 pub struct StreamingState {
     /// Message ID from the first chunk.
     message_id: Option<String>,
@@ -46,6 +56,17 @@ pub struct StreamingState {
     /// `handle_finish()`. Used by `finalize()` to ensure the required
     /// `message_delta` is always emitted before `message_stop`.
     finish_emitted: bool,
+    /// Events buffered during an open tool_use block. Flushed when the
+    /// block completes normally; discarded if truncated by `finish_reason`
+    /// `"length"`.
+    tool_use_buffer: Vec<StreamEvent>,
+    /// The OpenAI tool-call index of the tool currently being streamed.
+    /// Used to record which tool was truncated.
+    current_openai_tool_index: Option<u32>,
+    /// OpenAI tool-call indices whose tool_use blocks were discarded due
+    /// to output-length truncation. Exposed to the handler so the
+    /// conversation logger can exclude them.
+    truncated_openai_tool_indices: HashSet<u32>,
 }
 
 impl StreamingState {
@@ -67,6 +88,9 @@ impl StreamingState {
             message_started: false,
             block_open: false,
             finish_emitted: false,
+            tool_use_buffer: Vec::new(),
+            current_openai_tool_index: None,
+            truncated_openai_tool_indices: HashSet::new(),
         }
     }
 
@@ -136,6 +160,10 @@ impl StreamingState {
 
         let mut events = Vec::new();
 
+        // Flush any buffered tool_use events (stream ended without explicit
+        // finish — treat the tool as complete, preserving existing behavior).
+        events.extend(self.flush_tool_use_buffer());
+
         // Close any open content block.
         if self.block_open {
             events.push(StreamEvent::ContentBlockStop {
@@ -163,6 +191,13 @@ impl StreamingState {
         events
     }
 
+    /// Returns the set of OpenAI tool-call indices that were truncated
+    /// by `finish_reason: "length"`. The handler uses this to exclude
+    /// incomplete tool calls from conversation logging.
+    pub fn truncated_openai_tool_indices(&self) -> &HashSet<u32> {
+        &self.truncated_openai_tool_indices
+    }
+
     // ------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------
@@ -170,12 +205,18 @@ impl StreamingState {
     /// Translate a text delta into the appropriate Anthropic events.
     ///
     /// If the current block type is not `Text`, first closes the previous
-    /// block (if any) and opens a new text block.
+    /// block (if any) and opens a new text block. When transitioning from
+    /// a tool_use block, the tool_use buffer is flushed first (the tool
+    /// completed cleanly before text started).
     fn handle_text_delta(&mut self, text: &str) -> Vec<StreamEvent> {
         let mut events = Vec::new();
 
         // Transition to a text block if we're not already in one.
         if self.current_block_type != Some(ContentBlockType::Text) {
+            // Flush buffered tool_use events — the tool completed cleanly
+            // because the model moved on to producing text.
+            events.extend(self.flush_tool_use_buffer());
+
             // Close previous block if open.
             if self.block_open {
                 events.push(StreamEvent::ContentBlockStop {
@@ -210,6 +251,11 @@ impl StreamingState {
     /// A new tool call (identified by the presence of a function name)
     /// closes the previous block and opens a new `tool_use` block. Argument
     /// fragments are emitted as `input_json_delta` events.
+    ///
+    /// All tool_use events are **buffered** rather than returned directly.
+    /// When a new tool call starts, the buffer for the previous (now
+    /// complete) tool is flushed. The buffer is discarded if the stream
+    /// ends with `finish_reason: "length"` (truncated tool call).
     fn handle_tool_call_delta(&mut self, tc: &StreamingToolCall) -> Vec<StreamEvent> {
         let mut events = Vec::new();
         let idx = tc.index;
@@ -218,8 +264,14 @@ impl StreamingState {
         let is_new_call = tc.function.as_ref().and_then(|f| f.name.as_ref()).is_some();
 
         if is_new_call {
+            // A new tool call starting means the *previous* tool call
+            // (if any) is complete. Flush the buffer for it.
+            events.extend(self.flush_tool_use_buffer());
+
             // Close previous block if open.
             if self.block_open {
+                // This ContentBlockStop goes into the returned events
+                // (not the buffer) because it closes the *previous* block.
                 events.push(StreamEvent::ContentBlockStop {
                     index: self.current_block_index,
                 });
@@ -243,7 +295,7 @@ impl StreamingState {
                 }
             }
 
-            // Build tool_use content block.
+            // Build tool_use content block — buffer it.
             let id = self
                 .tool_call_ids
                 .get(&idx)
@@ -251,7 +303,7 @@ impl StreamingState {
                 .unwrap_or_else(|| format!("call_{}", idx));
             let name = self.tool_call_names.get(&idx).cloned().unwrap_or_default();
 
-            events.push(StreamEvent::ContentBlockStart {
+            self.tool_use_buffer.push(StreamEvent::ContentBlockStart {
                 index: self.current_block_index,
                 content_block: ResponseContentBlock::ToolUse {
                     block_type: "tool_use".to_string(),
@@ -262,13 +314,14 @@ impl StreamingState {
             });
             self.current_block_type = Some(ContentBlockType::ToolUse);
             self.block_open = true;
+            self.current_openai_tool_index = Some(idx);
         }
 
-        // Emit input_json_delta for argument fragments.
+        // Buffer input_json_delta for argument fragments.
         if let Some(func) = &tc.function {
             if let Some(args) = &func.arguments {
                 if !args.is_empty() {
-                    events.push(StreamEvent::ContentBlockDelta {
+                    self.tool_use_buffer.push(StreamEvent::ContentBlockDelta {
                         index: self.current_block_index,
                         delta: ContentDelta::InputJson(InputJsonDelta {
                             delta_type: "input_json_delta".to_string(),
@@ -284,17 +337,76 @@ impl StreamingState {
 
     /// Handle a finish_reason transition.
     ///
-    /// Closes any open block, maps the OpenAI finish reason to an Anthropic
-    /// stop reason, and emits a `message_delta` event.
+    /// When the finish reason is `"length"` and the current block is a
+    /// tool_use, the buffered tool_use events are **discarded** (the tool
+    /// call was truncated by the output token limit). A text content block
+    /// with a truncation notice is emitted in place of the incomplete
+    /// tool_use, followed by `stop_reason: "max_tokens"` so Claude Code's
+    /// escalation/recovery path fires.
+    ///
+    /// For all other finish reasons (`"tool_calls"`, `"stop"`, etc.), the
+    /// buffer is flushed first (tool completed normally), then the block is
+    /// closed and the mapped stop reason is emitted.
     fn handle_finish(&mut self, reason: &str) -> Vec<StreamEvent> {
         let mut events = Vec::new();
 
-        // Close any open content block.
-        if self.block_open {
+        if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolUse) {
+            // Retrieve the tool name before clearing the buffer (for the notice).
+            let tool_name = self
+                .current_openai_tool_index
+                .and_then(|idx| self.tool_call_names.get(&idx))
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Truncated tool call — discard the buffered events.
+            tracing::warn!(
+                block_index = self.current_block_index,
+                openai_tool_index = ?self.current_openai_tool_index,
+                tool_name = %tool_name,
+                "Dropping truncated tool_use block (finish_reason=\"length\")"
+            );
+            self.tool_use_buffer.clear();
+            if let Some(oi_idx) = self.current_openai_tool_index {
+                self.truncated_openai_tool_indices.insert(oi_idx);
+            }
+            // The block was never emitted to the consumer, so from its
+            // perspective nothing to close. Reset block state.
+            self.block_open = false;
+            self.current_block_type = None;
+
+            // Emit a text block explaining the truncation so Claude Code
+            // sees a text-only response and can fire max_tokens escalation.
+            let notice = format!(
+                "[Tool call to \"{}\" was truncated due to output token limit]",
+                tool_name
+            );
+
+            events.push(StreamEvent::ContentBlockStart {
+                index: self.current_block_index,
+                content_block: ResponseContentBlock::text(String::new()),
+            });
+            events.push(StreamEvent::ContentBlockDelta {
+                index: self.current_block_index,
+                delta: ContentDelta::Text(TextDelta {
+                    delta_type: "text_delta".to_string(),
+                    text: notice,
+                }),
+            });
             events.push(StreamEvent::ContentBlockStop {
                 index: self.current_block_index,
             });
-            self.block_open = false;
+            self.current_block_index += 1;
+        } else {
+            // Normal completion — flush any buffered tool_use events.
+            events.extend(self.flush_tool_use_buffer());
+
+            // Close any open content block.
+            if self.block_open {
+                events.push(StreamEvent::ContentBlockStop {
+                    index: self.current_block_index,
+                });
+                self.block_open = false;
+            }
         }
 
         // Map OpenAI finish_reason → Anthropic stop_reason.
@@ -319,6 +431,14 @@ impl StreamingState {
         self.finish_emitted = true;
 
         events
+    }
+
+    /// Drain the tool_use buffer and return its contents.
+    fn flush_tool_use_buffer(&mut self) -> Vec<StreamEvent> {
+        if self.tool_use_buffer.is_empty() {
+            return Vec::new();
+        }
+        std::mem::take(&mut self.tool_use_buffer)
     }
 
     /// Build the `message_start` event using the stored message ID and model.

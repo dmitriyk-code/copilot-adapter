@@ -1,5 +1,6 @@
 mod anthropic_image_tests;
 mod count_tokens_types_tests;
+mod effort_thinking_tests;
 mod health_tests;
 mod migration_tests;
 mod status_tests;
@@ -14,6 +15,7 @@ mod device_flow_tests;
 mod error_tests;
 mod guidance_tests;
 mod input_tests;
+mod messages_tests;
 mod models_cache_tests;
 mod native_storage_tests;
 mod native_tools_verification_tests;
