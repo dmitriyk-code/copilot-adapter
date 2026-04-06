@@ -1,6 +1,6 @@
 # Usage Token Counts in Streaming Responses — Implementation Plan
 
-**Status:** Not Started
+**Status:** In Progress
 **Date:** 2026-04-06
 **Based on:** [USAGE-TOKEN-COUNTS.design.md](./USAGE-TOKEN-COUNTS.design.md)
 **Prerequisite:** None
@@ -76,7 +76,7 @@ This plan implements:
 
 ### Epic 1: Core token counting helpers (Day 1, ~2 hours)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Add two new public functions to `src/token_counter.rs` that the streaming layer can call.
 
@@ -120,10 +120,10 @@ use crate::anthropic::types::AnthropicRequest;
 ```
 
 **Acceptance Criteria:**
-- [ ] `count_tokens_for_request()` returns the same value as `count_tokens()` for an equivalent `CountTokensRequest`
-- [ ] `count_output_tokens("")` returns 0
-- [ ] `count_output_tokens("Hello, world!")` returns > 0
-- [ ] Both functions return 0 (not panic / error) if called when the BPE encoder fails
+- [x] `count_tokens_for_request()` returns the same value as `count_tokens()` for an equivalent `CountTokensRequest`
+- [x] `count_output_tokens("")` returns 0
+- [x] `count_output_tokens("Hello, world!")` returns > 0
+- [x] Both functions return 0 (not panic / error) if called when the BPE encoder fails
 
 ---
 
@@ -717,7 +717,7 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
-| Epic 1: Token counting helpers | Not Started | - | - | |
+| Epic 1: Token counting helpers | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 2: `ChatCompletionChunk.usage` | Not Started | - | - | |
 | Epic 3: `build_message_start_response()` signature | Not Started | - | - | |
 | Epic 4: `StreamingState` accumulation | Not Started | - | - | Depends on Epics 1–3 |

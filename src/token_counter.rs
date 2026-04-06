@@ -1,7 +1,8 @@
 use tiktoken_rs::cl100k_base;
 
 use crate::anthropic::types::{
-    ContentBlock, ContentBlockInput, CountTokensRequest, SystemInput, ToolResultContent,
+    AnthropicRequest, ContentBlock, ContentBlockInput, CountTokensRequest, SystemInput,
+    ToolResultContent,
 };
 
 /// Fixed token estimate for image and document blocks (approximates a low-res
@@ -21,6 +22,31 @@ pub enum TokenCountError {
     EncoderInit(String),
     #[error("Failed to serialize: {0}")]
     Serialization(String),
+}
+
+/// Count input tokens for an [`AnthropicRequest`].
+///
+/// Reuses the same `cl100k_base` BPE encoder as the `count_tokens` endpoint.
+/// Returns 0 on encoder failure — token counting is best-effort and must not
+/// block the request.
+pub fn count_tokens_for_request(request: &AnthropicRequest) -> u32 {
+    let count_request = CountTokensRequest {
+        model: request.model.clone(),
+        messages: request.messages.clone(),
+        system: request.system.clone(),
+        tools: request.tools.clone(),
+    };
+    count_tokens(&count_request).unwrap_or(0)
+}
+
+/// Count output tokens for a completed response string.
+///
+/// Tokenizes `text` using `cl100k_base`. Returns 0 on encoder failure.
+pub fn count_output_tokens(text: &str) -> u32 {
+    match cl100k_base() {
+        Ok(bpe) => bpe.encode_with_special_tokens(text).len() as u32,
+        Err(_) => 0,
+    }
 }
 
 /// Count tokens for a CountTokensRequest using tiktoken cl100k_base.
@@ -203,5 +229,82 @@ mod tests {
         let req = make_text_request("The quick brown fox jumps over the lazy dog.");
         let count = count_tokens(&req).unwrap();
         assert!(count > 4, "Should count text tokens beyond overhead");
+    }
+
+    // -----------------------------------------------------------------------
+    // count_tokens_for_request tests
+    // -----------------------------------------------------------------------
+
+    fn make_anthropic_request(text: &str) -> AnthropicRequest {
+        AnthropicRequest {
+            model: "claude-sonnet-4-20250514".to_string(),
+            max_tokens: 1024,
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: ContentBlockInput::Text(text.to_string()),
+            }],
+            system: None,
+            stream: None,
+            temperature: None,
+            top_p: None,
+            stop_sequences: None,
+            tools: None,
+            tool_choice: None,
+            output_config: None,
+            thinking: None,
+        }
+    }
+
+    #[test]
+    fn count_tokens_for_request_matches_count_tokens() {
+        let text = "Hello, world!";
+        let anthropic_req = make_anthropic_request(text);
+        let count_req = make_text_request(text);
+
+        let from_request = count_tokens_for_request(&anthropic_req);
+        let from_count = count_tokens(&count_req).unwrap();
+        assert_eq!(
+            from_request, from_count,
+            "count_tokens_for_request should match count_tokens"
+        );
+    }
+
+    #[test]
+    fn count_tokens_for_request_with_system_prompt() {
+        let mut req = make_anthropic_request("test");
+        req.system = Some(SystemInput::Text("You are a helpful assistant.".to_string()));
+
+        let count = count_tokens_for_request(&req);
+        // Should include system prompt tokens + message tokens + overhead
+        assert!(count > 4, "Should include system prompt tokens, got {count}");
+    }
+
+    #[test]
+    fn count_tokens_for_request_returns_nonzero() {
+        let req = make_anthropic_request("The quick brown fox");
+        let count = count_tokens_for_request(&req);
+        assert!(count > 0, "Should return > 0 for non-empty request, got {count}");
+    }
+
+    // -----------------------------------------------------------------------
+    // count_output_tokens tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn count_output_tokens_empty_string() {
+        assert_eq!(count_output_tokens(""), 0, "Empty string should be 0 tokens");
+    }
+
+    #[test]
+    fn count_output_tokens_hello_world() {
+        let count = count_output_tokens("Hello, world!");
+        assert!(count > 0, "Non-empty text should produce > 0 tokens, got {count}");
+    }
+
+    #[test]
+    fn count_output_tokens_longer_text() {
+        let short = count_output_tokens("Hi");
+        let long = count_output_tokens("The quick brown fox jumps over the lazy dog. This is a much longer sentence with more tokens.");
+        assert!(long > short, "Longer text should produce more tokens: short={short}, long={long}");
     }
 }
