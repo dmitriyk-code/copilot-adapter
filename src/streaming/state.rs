@@ -5,6 +5,7 @@ use crate::anthropic::types::{
     MessageDeltaUsage, ResponseContentBlock, StreamEvent, TextDelta,
 };
 use crate::copilot::types::{ChatCompletionChunk, StreamingToolCall};
+use crate::token_counter;
 
 /// Tracks the kind of content block currently being generated.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,16 +68,35 @@ pub struct StreamingState {
     /// to output-length truncation. Exposed to the handler so the
     /// conversation logger can exclude them.
     truncated_openai_tool_indices: HashSet<u32>,
+
+    /// Pre-computed input token count from the Anthropic request.
+    /// Injected into the `message_start` event.
+    input_tokens: u32,
+
+    /// Accumulated output text for token counting at stream end.
+    output_text: String,
+
+    /// Accumulated tool call argument JSON for token counting at stream end.
+    output_tool_json: String,
+
+    /// Real input token count from the upstream API (if provided).
+    upstream_input_tokens: Option<u32>,
+
+    /// Real output token count from the upstream API (if provided).
+    upstream_output_tokens: Option<u32>,
 }
 
 impl StreamingState {
     /// Create a new streaming state with an optional name mapping for
-    /// truncated tool names.
+    /// truncated tool names and a pre-computed input token count.
     ///
     /// The `name_mapping` maps *truncated* names (as sent to the OpenAI API)
     /// back to the *original* Anthropic tool names. Pass an empty map when
     /// no truncation occurred.
-    pub fn new(name_mapping: HashMap<String, String>) -> Self {
+    ///
+    /// `input_tokens` is the tiktoken-estimated input token count for the
+    /// original Anthropic request, emitted in the `message_start` event.
+    pub fn new(name_mapping: HashMap<String, String>, input_tokens: u32) -> Self {
         Self {
             message_id: None,
             model: None,
@@ -91,6 +111,11 @@ impl StreamingState {
             tool_use_buffer: Vec::new(),
             current_openai_tool_index: None,
             truncated_openai_tool_indices: HashSet::new(),
+            input_tokens,
+            output_text: String::new(),
+            output_tool_json: String::new(),
+            upstream_input_tokens: None,
+            upstream_output_tokens: None,
         }
     }
 
@@ -138,6 +163,13 @@ impl StreamingState {
             }
         }
 
+        // Capture upstream usage if the chunk carries it (most providers
+        // omit this, but when present it takes precedence over local estimates).
+        if let Some(upstream_usage) = &chunk.usage {
+            self.upstream_input_tokens = Some(upstream_usage.prompt_tokens);
+            self.upstream_output_tokens = Some(upstream_usage.completion_tokens);
+        }
+
         events
     }
 
@@ -181,7 +213,7 @@ impl StreamingState {
                     stop_reason: Some("end_turn".to_string()),
                     stop_sequence: None,
                 },
-                usage: MessageDeltaUsage { output_tokens: 0 },
+                usage: MessageDeltaUsage { output_tokens: self.compute_output_tokens() },
             });
         }
 
@@ -233,6 +265,9 @@ impl StreamingState {
             self.current_block_type = Some(ContentBlockType::Text);
             self.block_open = true;
         }
+
+        // Accumulate for output token counting.
+        self.output_text.push_str(text);
 
         // Emit the text delta.
         events.push(StreamEvent::ContentBlockDelta {
@@ -317,10 +352,12 @@ impl StreamingState {
             self.current_openai_tool_index = Some(idx);
         }
 
-        // Buffer input_json_delta for argument fragments.
+        // Buffer input_json_delta for argument fragments and accumulate
+        // for output token counting.
         if let Some(func) = &tc.function {
             if let Some(args) = &func.arguments {
                 if !args.is_empty() {
+                    self.output_tool_json.push_str(args);
                     self.tool_use_buffer.push(StreamEvent::ContentBlockDelta {
                         index: self.current_block_index,
                         delta: ContentDelta::InputJson(InputJsonDelta {
@@ -374,12 +411,19 @@ impl StreamingState {
             self.block_open = false;
             self.current_block_type = None;
 
+            // Discard accumulated tool JSON — the tool call was incomplete
+            // and should not contribute to output token count.
+            self.output_tool_json.clear();
+
             // Emit a text block explaining the truncation so Claude Code
             // sees a text-only response and can fire max_tokens escalation.
             let notice = format!(
                 "[Tool call to \"{}\" was truncated due to output token limit]",
                 tool_name
             );
+
+            // Accumulate the notice text for output token counting.
+            self.output_text.push_str(&notice);
 
             events.push(StreamEvent::ContentBlockStart {
                 index: self.current_block_index,
@@ -423,8 +467,7 @@ impl StreamingState {
                 stop_sequence: None,
             },
             usage: MessageDeltaUsage {
-                // TODO: wire actual token counts once ChatCompletionChunk exposes usage
-                output_tokens: 0,
+                output_tokens: self.compute_output_tokens(),
             },
         });
 
@@ -441,14 +484,36 @@ impl StreamingState {
         std::mem::take(&mut self.tool_use_buffer)
     }
 
-    /// Build the `message_start` event using the stored message ID and model.
+    /// Build the `message_start` event using the stored message ID, model,
+    /// and real input token count.
     fn build_message_start(&self) -> StreamEvent {
         StreamEvent::MessageStart {
             message: build_message_start_response(
                 self.message_id.as_deref().unwrap_or("unknown"),
                 self.model.as_deref().unwrap_or("unknown"),
-                0,
+                self.compute_input_tokens(),
             ),
         }
+    }
+
+    /// Compute the output token count for the response.
+    ///
+    /// Prefers the upstream API's reported `completion_tokens` when available.
+    /// Falls back to a local tiktoken estimate of the accumulated output text
+    /// and tool call argument JSON.
+    fn compute_output_tokens(&self) -> u32 {
+        if let Some(tokens) = self.upstream_output_tokens {
+            return tokens;
+        }
+        let combined = format!("{}{}", self.output_text, self.output_tool_json);
+        token_counter::count_output_tokens(&combined)
+    }
+
+    /// Compute the input token count for the response.
+    ///
+    /// Prefers the upstream API's reported `prompt_tokens` when available.
+    /// Falls back to the pre-computed tiktoken estimate passed at construction.
+    fn compute_input_tokens(&self) -> u32 {
+        self.upstream_input_tokens.unwrap_or(self.input_tokens)
     }
 }

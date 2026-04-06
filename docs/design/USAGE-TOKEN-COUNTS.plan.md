@@ -394,9 +394,7 @@ Also remove the TODO comment from `handle_finish()`.
 
 ### Epic 5: Wire input counting in `src/handlers/messages.rs` (Day 1–2, ~2 hours)
 
-**Status:** Not Started
-
-**Objective:** Both streaming paths in the messages handler compute `input_tokens` before constructing `StreamingState`.
+**Status:** DONE
 
 #### Task 5.1: Add import and compute input tokens in `handle_native_tools_streaming()`
 
@@ -417,9 +415,9 @@ let mut streaming_state = StreamingState::new(name_mapping.clone(), input_tokens
 ```
 
 **Acceptance Criteria:**
-- [ ] `input_tokens` is computed exactly once, before the `async_stream::stream!` block begins
-- [ ] Value is passed into `StreamingState::new()`
-- [ ] No performance regression: computation must complete before the first chunk is requested from upstream
+- [x] `input_tokens` is computed exactly once, before the `async_stream::stream!` block begins
+- [x] Value is passed into `StreamingState::new()`
+- [x] No performance regression: computation must complete before the first chunk is requested from upstream
 
 #### Task 5.2: Wire input counting for the XML injection streaming path (`handle_streaming()` / `handle_streaming_with_tools()`)
 
@@ -436,9 +434,9 @@ For each path:
 4. Accumulate output text and call `count_output_tokens()` at finalization
 
 **Acceptance Criteria:**
-- [ ] All call sites of `build_message_start_response()` pass a non-zero `input_tokens` for a real request
-- [ ] `message_delta.usage.output_tokens` is non-zero in the XML injection streaming path after a response
-- [ ] Compiler confirms all callers of `build_message_start_response()` have been updated (three-argument form required)
+- [x] All call sites of `build_message_start_response()` pass a non-zero `input_tokens` for a real request
+- [x] `message_delta.usage.output_tokens` is non-zero in the XML injection streaming path after a response
+- [x] Compiler confirms all callers of `build_message_start_response()` have been updated (three-argument form required)
 
 **Notes:** This task may be more involved than it looks. Read `handle_streaming()` and `handle_streaming_with_tools()` fully before implementing to identify all the SSE emission points.
 
@@ -694,9 +692,9 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 - [ ] Verify `cargo build` succeeds
 
 ### Phase 3: Handler wiring (Epic 5)
-- [ ] Wire `count_tokens_for_request()` in `handle_native_tools_streaming()`
-- [ ] Wire counts in `handle_streaming()` and `handle_streaming_with_tools()`
-- [ ] Verify `cargo build` succeeds
+- [x] Wire `count_tokens_for_request()` in `handle_native_tools_streaming()`
+- [x] Wire counts in `handle_streaming()` and `handle_streaming_with_tools()`
+- [x] Verify `cargo build` succeeds
 
 ### Phase 4: Testing (Epic 6)
 - [ ] Unit tests complete and passing
@@ -721,7 +719,7 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 | Epic 2: `ChatCompletionChunk.usage` | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 3: `build_message_start_response()` signature | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 4: `StreamingState` accumulation | DONE | 2026-04-06 | 2026-04-06 | Depends on Epics 1–3 |
-| Epic 5: Handler wiring | Not Started | - | - | Depends on Epic 4 |
+| Epic 5: Handler wiring | DONE | 2026-04-06 | 2026-04-06 | Depends on Epic 4 |
 | Epic 6: Testing | Not Started | - | - | Depends on Epics 4–5 |
 | Epic 7: Documentation | Not Started | - | - | |
 

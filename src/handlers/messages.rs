@@ -20,6 +20,7 @@ use crate::copilot::types::{ChatCompletionRequest, MessageContent};
 use crate::error::AppError;
 use crate::server::AppState;
 use crate::streaming::state::StreamingState;
+use crate::token_counter;
 use crate::tools::injector;
 use crate::tools::parser;
 use crate::tools::registry::ToolRegistry;
@@ -243,6 +244,9 @@ pub async fn messages(
     if request.stream.unwrap_or(false) {
         let parse_tools = has_tools;
 
+        // Compute input tokens once before streaming begins.
+        let input_tokens = token_counter::count_tokens_for_request(&request);
+
         // TRACE: Log that we're initiating a streaming request
         if tracing::enabled!(tracing::Level::TRACE) {
             tracing::trace!(
@@ -252,6 +256,7 @@ pub async fn messages(
                 format = "OpenAI-compatible",
                 mode = "streaming",
                 parse_tools = parse_tools,
+                input_tokens = input_tokens,
                 "Initiating streaming request to GitHub Copilot API"
             );
         }
@@ -263,6 +268,7 @@ pub async fn messages(
             parse_tools,
             cycle_builder,
             tool_registry,
+            input_tokens,
         )
         .await;
     }
@@ -409,6 +415,7 @@ async fn handle_streaming(
     parse_tools: bool,
     cycle_builder: Option<ConversationCycleBuilder>,
     tool_registry: Option<ToolRegistry>,
+    input_tokens: u32,
 ) -> Result<Response, AppError> {
     let chunk_stream = state
         .copilot_client
@@ -427,6 +434,7 @@ async fn handle_streaming(
             cycle_builder,
             conversation_logger,
             tool_registry,
+            input_tokens,
         )
         .await;
     }
@@ -459,7 +467,7 @@ async fn handle_streaming(
                     }
 
                     if !message_started {
-                        let msg = build_message_start_response(&chunk.id, &model, 0);
+                        let msg = build_message_start_response(&chunk.id, &model, input_tokens);
                         let event = StreamEvent::MessageStart { message: msg };
                         let json = match serde_json::to_string(&event) {
                             Ok(j) => j,
@@ -552,17 +560,15 @@ async fn handle_streaming(
         }
 
         // Emit message_delta with stop reason and usage.
-        // TODO(Epic 5): output_tokens is hardcoded to 0 in these non-tool and
-        // XML-buffered streaming paths. Epic 5 will wire in the tiktoken-based
-        // counting from StreamingState to provide real output token counts here.
         if message_started {
             let stop_reason = map_stop_reason(last_finish_reason.as_deref());
+            let output_tokens = token_counter::count_output_tokens(&content_buffer);
             let event = StreamEvent::MessageDelta {
                 delta: MessageDeltaBody {
                     stop_reason,
                     stop_sequence: None,
                 },
-                usage: MessageDeltaUsage { output_tokens: 0 },
+                usage: MessageDeltaUsage { output_tokens },
             };
             let json = match serde_json::to_string(&event) {
                 Ok(j) => j,
@@ -629,6 +635,7 @@ async fn handle_streaming_with_tools(
     cycle_builder: Option<ConversationCycleBuilder>,
     conversation_logger: Option<crate::conversation_log::ConversationLogger>,
     tool_registry: Option<ToolRegistry>,
+    input_tokens: u32,
 ) -> Result<Response, AppError> {
     let event_stream = async_stream::stream! {
         let mut buffered_chunks: Vec<crate::copilot::types::ChatCompletionChunk> = Vec::new();
@@ -736,7 +743,7 @@ async fn handle_streaming_with_tools(
         };
 
         // === Emit message_start ===
-        let msg = build_message_start_response(&stream_id, &model, 0);
+        let msg = build_message_start_response(&stream_id, &model, input_tokens);
         let event = StreamEvent::MessageStart { message: msg };
         match serde_json::to_string(&event) {
             Ok(json) => yield Ok::<Event, Infallible>(
@@ -843,12 +850,15 @@ async fn handle_streaming_with_tools(
 
         let stop_reason_for_log = stop_reason.clone();
 
+        // Count output tokens from the full content buffer (includes text + tool call XML).
+        let output_tokens = token_counter::count_output_tokens(&content_buffer);
+
         let event = StreamEvent::MessageDelta {
             delta: MessageDeltaBody {
                 stop_reason,
                 stop_sequence: None,
             },
-            usage: MessageDeltaUsage { output_tokens: 0 },
+            usage: MessageDeltaUsage { output_tokens },
         };
         match serde_json::to_string(&event) {
             Ok(json) => yield Ok(Event::default().event("message_delta").data(json)),
@@ -993,12 +1003,16 @@ async fn handle_with_native_tools(
     }
 
     if request.stream == Some(true) {
+        // Compute input tokens once before streaming begins.
+        let input_tokens = token_counter::count_tokens_for_request(request);
+
         handle_native_tools_streaming(
             openai_request,
             translation.name_mapping,
             &token,
             state,
             cycle_builder,
+            input_tokens,
         )
         .await
     } else {
@@ -1141,6 +1155,7 @@ async fn handle_native_tools_streaming(
     token: &str,
     state: &AppState,
     cycle_builder: Option<ConversationCycleBuilder>,
+    input_tokens: u32,
 ) -> Result<Response, (AppError, Option<ConversationCycleBuilder>)> {
     let chunk_stream = match state
         .copilot_client
@@ -1155,7 +1170,7 @@ async fn handle_native_tools_streaming(
     let conversation_logger = state.conversation_logger.clone();
 
     let event_stream = async_stream::stream! {
-        let mut streaming_state = StreamingState::new(name_mapping.clone(), 0);
+        let mut streaming_state = StreamingState::new(name_mapping.clone(), input_tokens);
         let mut stream = std::pin::pin!(chunk_stream);
         let mut content_buffer = String::new();
         let mut last_finish_reason: Option<String> = None;
