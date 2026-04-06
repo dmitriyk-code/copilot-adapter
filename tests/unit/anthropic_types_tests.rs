@@ -1027,3 +1027,48 @@ fn system_input_all_non_text_blocks_produces_empty_string() {
     // All blocks are non-text, so to_text() returns empty string
     assert_eq!(input.to_text(), "");
 }
+
+// ---------------------------------------------------------------------------
+// Epic 3: build_message_start_response tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_message_start_response_passes_input_tokens() {
+    let resp = build_message_start_response("chatcmpl-abc123", "claude-sonnet-4-20250514", 42);
+    assert_eq!(resp.usage.input_tokens, 42);
+}
+
+#[test]
+fn build_message_start_response_output_tokens_always_zero() {
+    let resp = build_message_start_response("chatcmpl-abc123", "claude-sonnet-4-20250514", 999);
+    assert_eq!(resp.usage.output_tokens, 0);
+}
+
+#[test]
+fn build_message_start_response_zero_input_tokens() {
+    let resp = build_message_start_response("chatcmpl-abc123", "claude-sonnet-4-20250514", 0);
+    assert_eq!(resp.usage.input_tokens, 0);
+    assert_eq!(resp.usage.output_tokens, 0);
+}
+
+#[test]
+fn build_message_start_response_strips_chatcmpl_prefix() {
+    let resp = build_message_start_response("chatcmpl-abc123", "claude-sonnet-4-20250514", 100);
+    assert_eq!(resp.id, "msg_abc123");
+    assert_eq!(resp.usage.input_tokens, 100);
+}
+
+#[test]
+fn build_message_start_response_preserves_raw_id() {
+    let resp = build_message_start_response("raw-id-no-prefix", "claude-sonnet-4-20250514", 50);
+    assert_eq!(resp.id, "msg_raw-id-no-prefix");
+    assert_eq!(resp.usage.input_tokens, 50);
+}
+
+#[test]
+fn build_message_start_response_large_input_tokens() {
+    let resp = build_message_start_response("chatcmpl-x", "claude-opus-4-6-1m", 1_000_000);
+    assert_eq!(resp.usage.input_tokens, 1_000_000);
+    assert_eq!(resp.usage.output_tokens, 0);
+    assert_eq!(resp.model, "claude-opus-4-6-1m");
+}

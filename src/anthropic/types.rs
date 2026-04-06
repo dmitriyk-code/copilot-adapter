@@ -936,10 +936,12 @@ impl ChatCompletionResponse {
     }
 }
 
-/// Build the initial `AnthropicResponse` shell used in the `message_start`
-/// streaming event. Usage starts at zero and content is empty; they will be
-/// filled in by subsequent delta events.
-pub fn build_message_start_response(id: &str, model: &str) -> AnthropicResponse {
+/// Build the initial [`AnthropicResponse`] shell used in the `message_start`
+/// streaming event.
+///
+/// `input_tokens` is the tiktoken estimate for the full request;
+/// `output_tokens` starts at zero and is updated by the `message_delta` event.
+pub fn build_message_start_response(id: &str, model: &str, input_tokens: u32) -> AnthropicResponse {
     AnthropicResponse {
         // Strip OpenAI "chatcmpl-" prefix if present; if absent, use the raw ID.
         id: format!("msg_{}", id.trim_start_matches("chatcmpl-")),
@@ -950,7 +952,7 @@ pub fn build_message_start_response(id: &str, model: &str) -> AnthropicResponse 
         stop_reason: None,
         stop_sequence: None,
         usage: AnthropicUsage {
-            input_tokens: 0,
+            input_tokens,
             output_tokens: 0,
         },
     }

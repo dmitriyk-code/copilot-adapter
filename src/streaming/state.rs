@@ -447,6 +447,7 @@ impl StreamingState {
             message: build_message_start_response(
                 self.message_id.as_deref().unwrap_or("unknown"),
                 self.model.as_deref().unwrap_or("unknown"),
+                0,
             ),
         }
     }

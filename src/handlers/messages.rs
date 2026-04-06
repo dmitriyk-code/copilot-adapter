@@ -459,7 +459,7 @@ async fn handle_streaming(
                     }
 
                     if !message_started {
-                        let msg = build_message_start_response(&chunk.id, &model);
+                        let msg = build_message_start_response(&chunk.id, &model, 0);
                         let event = StreamEvent::MessageStart { message: msg };
                         let json = match serde_json::to_string(&event) {
                             Ok(j) => j,
@@ -736,7 +736,7 @@ async fn handle_streaming_with_tools(
         };
 
         // === Emit message_start ===
-        let msg = build_message_start_response(&stream_id, &model);
+        let msg = build_message_start_response(&stream_id, &model, 0);
         let event = StreamEvent::MessageStart { message: msg };
         match serde_json::to_string(&event) {
             Ok(json) => yield Ok::<Event, Infallible>(

@@ -167,7 +167,7 @@ pub struct ChatCompletionChunk {
 
 ### Epic 3: Update `build_message_start_response()` (Day 1, ~30 min)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Allow the function to emit a real `input_tokens` count instead of always 0.
 
@@ -202,11 +202,11 @@ pub fn build_message_start_response(id: &str, model: &str, input_tokens: u32) ->
 ```
 
 **Acceptance Criteria:**
-- [ ] Function signature updated to `(id: &str, model: &str, input_tokens: u32) -> AnthropicResponse`
-- [ ] Returned `usage.input_tokens` equals the passed-in value
-- [ ] Returned `usage.output_tokens` is always 0
-- [ ] Compiler confirms no other call sites remain with the old two-argument form
-- [ ] Existing unit tests in `tests/unit/anthropic_types_tests.rs` updated and passing
+- [x] Function signature updated to `(id: &str, model: &str, input_tokens: u32) -> AnthropicResponse`
+- [x] Returned `usage.input_tokens` equals the passed-in value
+- [x] Returned `usage.output_tokens` is always 0
+- [x] Compiler confirms no other call sites remain with the old two-argument form
+- [x] Existing unit tests in `tests/unit/anthropic_types_tests.rs` updated and passing
 
 ---
 
@@ -719,7 +719,7 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 |------|--------|------------|----------|-------|
 | Epic 1: Token counting helpers | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 2: `ChatCompletionChunk.usage` | DONE | 2026-04-06 | 2026-04-06 | |
-| Epic 3: `build_message_start_response()` signature | Not Started | - | - | |
+| Epic 3: `build_message_start_response()` signature | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 4: `StreamingState` accumulation | Not Started | - | - | Depends on Epics 1–3 |
 | Epic 5: Handler wiring | Not Started | - | - | Depends on Epic 4 |
 | Epic 6: Testing | Not Started | - | - | Depends on Epics 4–5 |
