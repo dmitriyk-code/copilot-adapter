@@ -995,47 +995,20 @@ fn request_with_output_config_deserializes() {
 }
 
 // ---------------------------------------------------------------------------
-// SystemInput::to_text() — separator tests (Epic 3, LOG-ANALYSIS-FIXES)
+// SystemInput::to_text() — edge-case tests (Epic 3, LOG-ANALYSIS-FIXES)
+// Core separator behavior is covered by inline tests in src/anthropic/types.rs.
+// These tests cover additional edge cases not present in the inline module.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn system_input_single_block_no_trailing_separator() {
-    let input = SystemInput::Blocks(vec![ContentBlock::Text {
-        text: "Hello world".to_string(),
-        cache_control: None,
-    }]);
-    assert_eq!(input.to_text(), "Hello world");
+fn system_input_empty_blocks_produces_empty_string() {
+    let input = SystemInput::Blocks(vec![]);
+    assert_eq!(input.to_text(), "");
 }
 
 #[test]
-fn system_input_multiple_blocks_joined_with_double_newline() {
+fn system_input_all_non_text_blocks_produces_empty_string() {
     let input = SystemInput::Blocks(vec![
-        ContentBlock::Text {
-            text: "Block one.".to_string(),
-            cache_control: None,
-        },
-        ContentBlock::Text {
-            text: "Block two.".to_string(),
-            cache_control: None,
-        },
-        ContentBlock::Text {
-            text: "Block three.".to_string(),
-            cache_control: None,
-        },
-    ]);
-    assert_eq!(
-        input.to_text(),
-        "Block one.\n\nBlock two.\n\nBlock three."
-    );
-}
-
-#[test]
-fn system_input_filters_non_text_blocks() {
-    let input = SystemInput::Blocks(vec![
-        ContentBlock::Text {
-            text: "Text block.".to_string(),
-            cache_control: None,
-        },
         ContentBlock::Image {
             source: ImageSource::Base64 {
                 media_type: "image/png".to_string(),
@@ -1043,17 +1016,14 @@ fn system_input_filters_non_text_blocks() {
             },
             cache_control: None,
         },
-        ContentBlock::Text {
-            text: "Another block.".to_string(),
+        ContentBlock::Image {
+            source: ImageSource::Base64 {
+                media_type: "image/jpeg".to_string(),
+                data: "def".to_string(),
+            },
             cache_control: None,
         },
     ]);
-    // Image block is skipped; adjacent text blocks still get separator
-    assert_eq!(input.to_text(), "Text block.\n\nAnother block.");
-}
-
-#[test]
-fn system_input_text_variant_is_unchanged() {
-    let input = SystemInput::Text("Plain string system prompt".to_string());
-    assert_eq!(input.to_text(), "Plain string system prompt");
+    // All blocks are non-text, so to_text() returns empty string
+    assert_eq!(input.to_text(), "");
 }

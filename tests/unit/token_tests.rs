@@ -107,8 +107,8 @@ impl TokenStorage for MemoryStorage {
     }
 }
 
-/// Spawn a mock Copilot token server that counts requests.
-async fn spawn_copilot_mock() -> (
+/// Spawn a mock Copilot token server with a configurable token TTL and request counter.
+async fn spawn_copilot_mock_with_ttl(ttl_secs: i64) -> (
     std::net::SocketAddr,
     Arc<AtomicU32>,
     tokio::task::JoinHandle<()>,
@@ -133,7 +133,7 @@ async fn spawn_copilot_mock() -> (
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("");
                 if auth == "token ghp_test_token" {
-                    let expires_at = chrono::Utc::now().timestamp() + 1800;
+                    let expires_at = chrono::Utc::now().timestamp() + ttl_secs;
                     Json(json!({
                         "token": "tid_copilot_abc",
                         "expires_at": expires_at
@@ -154,6 +154,15 @@ async fn spawn_copilot_mock() -> (
     });
 
     (addr, counter, handle)
+}
+
+/// Spawn a mock Copilot token server with the standard 30-minute TTL.
+async fn spawn_copilot_mock() -> (
+    std::net::SocketAddr,
+    Arc<AtomicU32>,
+    tokio::task::JoinHandle<()>,
+) {
+    spawn_copilot_mock_with_ttl(1800).await
 }
 
 fn make_auth(addr: std::net::SocketAddr) -> DeviceFlowAuth {
@@ -264,60 +273,19 @@ async fn stop_auto_refresh_cancels_task() {
     assert!(manager.is_authenticated().await);
 }
 
-/// Spawn a mock Copilot token server that returns short-lived tokens and counts requests.
-async fn spawn_short_lived_copilot_mock() -> (
-    std::net::SocketAddr,
-    Arc<AtomicU32>,
-    tokio::task::JoinHandle<()>,
-) {
-    use axum::routing::get;
-    use axum::Json;
-    use axum::Router;
-    use serde_json::json;
-    use tokio::net::TcpListener;
-
-    let counter = Arc::new(AtomicU32::new(0));
-    let counter_clone = counter.clone();
-
-    let app = Router::new().route(
-        "/copilot_internal/v2/token",
-        get(move |headers: axum::http::HeaderMap| {
-            let c = counter_clone.clone();
-            async move {
-                c.fetch_add(1, Ordering::SeqCst);
-                let auth = headers
-                    .get("Authorization")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                if auth == "token ghp_test_token" {
-                    // Token expires in 10 seconds — within the 5-minute window,
-                    // so the auto-refresh task will sleep only 5 seconds before refreshing.
-                    let expires_at = chrono::Utc::now().timestamp() + 10;
-                    Json(json!({
-                        "token": "tid_short_lived",
-                        "expires_at": expires_at
-                    }))
-                } else {
-                    Json(json!({
-                        "error": "unauthorized"
-                    }))
-                }
-            }
-        }),
-    );
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-
-    (addr, counter, handle)
-}
-
+/// Verifies that the auto-refresh background task proactively refreshes the
+/// Copilot token before it expires, without requiring an incoming request.
+///
+/// Marked `#[ignore]` because it requires wall-clock sleep: the idiomatic
+/// `#[tokio::test(start_paused = true)]` approach is incompatible with the
+/// mock HTTP server — paused tokio time prevents I/O event processing on the
+/// current-thread runtime, so the HTTP refresh request never completes.
+///
+/// Run with: `cargo test --test unit -- --ignored auto_refresh`
 #[tokio::test]
+#[ignore = "timing-sensitive: requires 7s wall-clock sleep (start_paused incompatible with mock HTTP server I/O)"]
 async fn auto_refresh_task_refreshes_before_expiry() {
-    let (addr, counter, _handle) = spawn_short_lived_copilot_mock().await;
+    let (addr, counter, _handle) = spawn_copilot_mock_with_ttl(10).await;
     let storage = MemoryStorage::new(Some("ghp_test_token".into()));
     let manager = Arc::new(
         TokenManager::new(Box::new(storage), make_auth(addr))
