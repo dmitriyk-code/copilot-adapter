@@ -321,3 +321,68 @@ async fn fetch_models_429_returns_rate_limited() {
 }
 
 use axum::response::IntoResponse;
+
+use copilot_adapter::copilot::client::parse_prompt_too_long;
+
+// ---------------------------------------------------------------------------
+// parse_prompt_too_long tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_prompt_too_long_standard_format() {
+    let body = r#"{"error":{"message":"prompt token count of 168929 exceeds the limit of 168000","code":"model_max_prompt_tokens_exceeded"}}"#;
+    let result = parse_prompt_too_long(body);
+    assert_eq!(result, Some((168929, 168000)));
+}
+
+#[test]
+fn parse_prompt_too_long_wrong_code() {
+    let body = r#"{"error":{"message":"prompt token count of 168929 exceeds the limit of 168000","code":"some_other_error"}}"#;
+    assert_eq!(parse_prompt_too_long(body), None);
+}
+
+#[test]
+fn parse_prompt_too_long_invalid_json() {
+    assert_eq!(parse_prompt_too_long("not json"), None);
+}
+
+#[test]
+fn parse_prompt_too_long_missing_error_field() {
+    let body = r#"{"message":"something"}"#;
+    assert_eq!(parse_prompt_too_long(body), None);
+}
+
+#[test]
+fn parse_prompt_too_long_missing_code_field() {
+    let body = r#"{"error":{"message":"prompt token count of 100 exceeds the limit of 50"}}"#;
+    assert_eq!(parse_prompt_too_long(body), None);
+}
+
+#[test]
+fn parse_prompt_too_long_missing_message_field() {
+    let body = r#"{"error":{"code":"model_max_prompt_tokens_exceeded"}}"#;
+    assert_eq!(parse_prompt_too_long(body), None);
+}
+
+#[test]
+fn parse_prompt_too_long_unparseable_numbers() {
+    let body = r#"{"error":{"message":"prompt token count of abc exceeds the limit of 168000","code":"model_max_prompt_tokens_exceeded"}}"#;
+    assert_eq!(parse_prompt_too_long(body), None);
+}
+
+#[test]
+fn parse_prompt_too_long_unexpected_message_format() {
+    let body = r#"{"error":{"message":"something totally different","code":"model_max_prompt_tokens_exceeded"}}"#;
+    assert_eq!(parse_prompt_too_long(body), None);
+}
+
+#[test]
+fn parse_prompt_too_long_empty_body() {
+    assert_eq!(parse_prompt_too_long(""), None);
+}
+
+#[test]
+fn parse_prompt_too_long_small_values() {
+    let body = r#"{"error":{"message":"prompt token count of 100 exceeds the limit of 50","code":"model_max_prompt_tokens_exceeded"}}"#;
+    assert_eq!(parse_prompt_too_long(body), Some((100, 50)));
+}

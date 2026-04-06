@@ -1,6 +1,6 @@
 # Context Window Enforcement & Truncated Tool Recovery — Implementation Plan
 
-**Status:** Not Started
+**Status:** In Progress
 **Date:** 2026-04-05
 **Based on:** [CONTEXT-WINDOW-AND-TRUNCATION.design.md](./CONTEXT-WINDOW-AND-TRUNCATION.design.md)
 **Prerequisite:** None
@@ -91,7 +91,7 @@ This plan implements:
 
 ### Epic 1: Prompt-Too-Long Error Translation (Day 1, ~0.5 day)
 
-**Status:** Not Started
+**Status:** Complete
 
 **Objective:** Translate GitHub Copilot's `model_max_prompt_tokens_exceeded` error into an Anthropic-compatible `invalid_request_error` with a message that matches Claude Code's prompt-too-long detection regex.
 
@@ -132,10 +132,10 @@ AppError::PromptTooLong { .. } => "invalid_request_error",
 ```
 
 **Acceptance Criteria:**
-- [ ] `PromptTooLong` variant compiles with correct `#[error]` format
-- [ ] `IntoResponse` returns HTTP 400 with `"type": "invalid_request_error"`
-- [ ] `error_type()` returns `"invalid_request_error"`
-- [ ] Error message exactly matches: `"prompt is too long: {actual} tokens > {limit} maximum"`
+- [x] `PromptTooLong` variant compiles with correct `#[error]` format
+- [x] `IntoResponse` returns HTTP 400 with `"type": "invalid_request_error"`
+- [x] `error_type()` returns `"invalid_request_error"`
+- [x] Error message exactly matches: `"prompt is too long: {actual} tokens > {limit} maximum"`
 
 **Notes:** The error message format is **critical** — it must match Claude Code's regex. The regex requires: the literal `prompt is too long`, followed by non-digits, followed by the actual token count, `tokens`, `>`, and the limit count.
 
@@ -182,12 +182,12 @@ pub fn parse_prompt_too_long(body: &str) -> Option<(u32, u32)> {
 ```
 
 **Acceptance Criteria:**
-- [ ] Parses `(168929, 168000)` from the standard Copilot error format
-- [ ] Returns `None` for wrong `code` field
-- [ ] Returns `None` for invalid JSON
-- [ ] Returns `None` for missing fields
-- [ ] Returns `None` for unparseable message text
-- [ ] Function is `pub` so unit tests can access it
+- [x] Parses `(168929, 168000)` from the standard Copilot error format
+- [x] Returns `None` for wrong `code` field
+- [x] Returns `None` for invalid JSON
+- [x] Returns `None` for missing fields
+- [x] Returns `None` for unparseable message text
+- [x] Function is `pub` so unit tests can access it
 
 **Notes:** String parsing is preferred over regex to keep the implementation simple and avoid adding a new usage pattern (even though `regex` is a direct dependency). The Copilot error message has a fixed format; if it changes, the parser gracefully returns `None` and the error falls through to the existing generic `CopilotError` path.
 
@@ -244,11 +244,11 @@ async fn handle_error_response(response: reqwest::Response) -> AppError {
 ```
 
 **Acceptance Criteria:**
-- [ ] HTTP 400 + `model_max_prompt_tokens_exceeded` returns `AppError::PromptTooLong`
-- [ ] HTTP 400 with other error codes still returns `AppError::CopilotError`
-- [ ] HTTP 429 handling unchanged
-- [ ] Other status codes unchanged
-- [ ] Info-level log emitted for translated errors (not error-level)
+- [x] HTTP 400 + `model_max_prompt_tokens_exceeded` returns `AppError::PromptTooLong`
+- [x] HTTP 400 with other error codes still returns `AppError::CopilotError`
+- [x] HTTP 429 handling unchanged
+- [x] Other status codes unchanged
+- [x] Info-level log emitted for translated errors (not error-level)
 
 ---
 

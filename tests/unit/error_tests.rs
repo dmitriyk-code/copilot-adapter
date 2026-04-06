@@ -114,6 +114,36 @@ async fn internal_error_returns_500_with_correct_format() {
 }
 
 #[tokio::test]
+async fn prompt_too_long_returns_400_with_correct_format() {
+    let (status, json) = error_to_parts(AppError::PromptTooLong {
+        actual_tokens: 168929,
+        limit_tokens: 168000,
+    })
+    .await;
+    assert_eq!(status, 400);
+    assert_eq!(json["error"]["type"], "invalid_request_error");
+    assert_eq!(json["error"]["code"], "prompt_too_long");
+    assert_eq!(
+        json["error"]["message"],
+        "prompt is too long: 168929 tokens > 168000 maximum"
+    );
+}
+
+#[tokio::test]
+async fn prompt_too_long_message_matches_claude_code_regex() {
+    let error = AppError::PromptTooLong {
+        actual_tokens: 200000,
+        limit_tokens: 128000,
+    };
+    let msg = error.to_string();
+    // Claude Code's regex: /prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)/i
+    let re = regex::Regex::new(r"(?i)prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)").unwrap();
+    let caps = re.captures(&msg).expect("message must match Claude Code regex");
+    assert_eq!(&caps[1], "200000");
+    assert_eq!(&caps[2], "128000");
+}
+
+#[tokio::test]
 async fn anyhow_error_converts_to_internal() {
     let anyhow_err = anyhow::anyhow!("unexpected failure");
     let app_err: AppError = anyhow_err.into();
@@ -147,6 +177,14 @@ fn error_type_returns_correct_strings() {
         "invalid_request_error"
     );
     assert_eq!(
+        AppError::PromptTooLong {
+            actual_tokens: 100,
+            limit_tokens: 50
+        }
+        .error_type(),
+        "invalid_request_error"
+    );
+    assert_eq!(
         AppError::ModelNotFound("x".into()).error_type(),
         "not_found_error"
     );
@@ -165,6 +203,10 @@ async fn all_errors_share_openai_compatible_structure() {
         AppError::CopilotError("test".into()),
         AppError::RateLimited(10),
         AppError::InvalidRequest("test".into()),
+        AppError::PromptTooLong {
+            actual_tokens: 100,
+            limit_tokens: 50,
+        },
         AppError::ModelNotFound("test".into()),
         AppError::Internal("test".into()),
     ];
