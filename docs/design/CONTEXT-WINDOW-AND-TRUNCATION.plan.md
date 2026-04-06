@@ -1,6 +1,6 @@
 ﻿# Context Window Enforcement & Truncated Tool Recovery — Implementation Plan
 
-**Status:** In Progress
+**Status:** Complete
 **Date:** 2026-04-05
 **Based on:** [CONTEXT-WINDOW-AND-TRUNCATION.design.md](./CONTEXT-WINDOW-AND-TRUNCATION.design.md)
 **Prerequisite:** None
@@ -1393,7 +1393,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 ### Epic 6: Documentation (Day 3, ~0.25 day)
 
-**Status:** Not Started
+**Status:** Complete
 
 **Objective:** Update project documentation to reflect the new error handling, streaming, effort, and thinking behavior.
 
@@ -1418,10 +1418,10 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
   - `OutputConfig`, `Reasoning` structs
 
 **Acceptance Criteria:**
-- [ ] CLAUDE.md updated with prompt-too-long error handling info
-- [ ] CLAUDE.md updated with truncation notice behavior
-- [ ] CLAUDE.md updated with 1M context model activation info
-- [ ] CLAUDE.md updated with effort/thinking support info
+- [x] CLAUDE.md updated with prompt-too-long error handling info
+- [x] CLAUDE.md updated with truncation notice behavior
+- [x] CLAUDE.md updated with 1M context model activation info
+- [x] CLAUDE.md updated with effort/thinking support info
 
 #### Task 6.2: Update known issues
 
@@ -1432,7 +1432,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - If not listed, add them as resolved items for historical reference
 
 **Acceptance Criteria:**
-- [ ] Known issues document updated
+- [x] Known issues document updated
 
 #### Task 6.3: Archive design document
 
@@ -1443,7 +1443,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - Update open questions if any were resolved during implementation
 
 **Acceptance Criteria:**
-- [ ] Design document status updated
+- [x] Design document status updated
 
 ---
 
@@ -1598,7 +1598,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 4. **Tool truncation** — Text notice block emitted; `stop_reason: max_tokens` preserved (Epic 3, validated by Task 4.4)
 5. **No regressions** — All existing streaming and error tests pass (Epic 4)
 6. **All new tests passing** — 27 new/updated tests pass (Epic 4)
-7. **Documentation complete** — CLAUDE.md, known-issues, and e2e-testing docs updated (Epic 5)
+7. **Documentation complete** — CLAUDE.md, known-issues, and e2e-testing docs updated (Epic 6)
 
 ---
 
@@ -1628,9 +1628,9 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] `cargo test --test integration` passes
 
 ### Phase 3: Documentation (Epic 6)
-- [ ] CLAUDE.md updated (Task 5.1)
-- [ ] Known issues updated (Task 5.2)
-- [ ] Design document status updated (Task 5.3)
+- [x] CLAUDE.md updated (Task 6.1)
+- [x] Known issues updated (Task 6.2)
+- [x] Design document status updated (Task 6.3)
 
 ### Phase 4: Release
 - [ ] All acceptance criteria met
@@ -1644,12 +1644,12 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
-| Epic 1: Prompt-Too-Long Error Translation | Not Started | - | - | 3 tasks |
+| Epic 1: Prompt-Too-Long Error Translation | Complete | - | 2026-04-06 | 3 tasks |
 | Epic 2: 1M Context Model Activation | Complete | - | - | 3 tasks |
 | Epic 3: Truncated Tool Call Recovery | Complete | - | - | 2 tasks |
 | Epic 4: Effort and Thinking Support | Complete | - | 2026-04-06 | 5 tasks |
 | Epic 5: Testing | Complete | 2026-04-06 | 2026-04-06 | 8 tasks, 27 tests (review fixes applied) |
-| Epic 6: Documentation | Not Started | - | - | 3 tasks |
+| Epic 6: Documentation | Complete | 2026-04-06 | 2026-04-06 | 3 tasks |
 
 ---
 
@@ -1695,7 +1695,7 @@ The recommended implementation order within each day:
 **Day 2:**
 1. Task 4.2 (parser tests — simplest) → Task 4.1 (error tests) → Task 4.3 (1M context tests) → Task 4.4 (streaming tests — most complex)
 2. Task 4.5 (integration error test) → Task 4.7 (integration 1M test) → Task 4.6 (integration streaming test)
-3. Task 4.8 (E2E docs) → Tasks 5.1-5.3 (documentation)
+3. Task 4.8 (E2E docs) → Tasks 6.1-6.3 (documentation)
 4. Full test suite: `cargo test`
 
 ### Key Invariants
