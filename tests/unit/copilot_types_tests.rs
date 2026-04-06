@@ -488,3 +488,89 @@ fn streaming_tool_call_skips_none_fields() {
     assert!(json["function"].get("name").is_none());
     assert_eq!(json["function"]["arguments"], "{\"partial\":true}");
 }
+
+// ===========================================================================
+// ChatCompletionChunk: optional usage field
+// ===========================================================================
+
+#[test]
+fn streaming_chunk_without_usage_deserializes_to_none() {
+    let json = serde_json::json!({
+        "id": "chatcmpl-no-usage",
+        "object": "chat.completion.chunk",
+        "created": 1700000000,
+        "model": "claude-sonnet-4",
+        "choices": [{
+            "index": 0,
+            "delta": {"content": "Hello"},
+            "finish_reason": null
+        }]
+    });
+
+    let chunk: ChatCompletionChunk = serde_json::from_value(json).unwrap();
+    assert!(chunk.usage.is_none(), "usage should be None when absent from JSON");
+}
+
+#[test]
+fn streaming_chunk_with_usage_deserializes_correctly() {
+    let json = serde_json::json!({
+        "id": "chatcmpl-with-usage",
+        "object": "chat.completion.chunk",
+        "created": 1700000000,
+        "model": "claude-sonnet-4",
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 17,
+            "total_tokens": 59
+        }
+    });
+
+    let chunk: ChatCompletionChunk = serde_json::from_value(json).unwrap();
+    let usage = chunk.usage.as_ref().expect("usage should be Some");
+    assert_eq!(usage.prompt_tokens, 42);
+    assert_eq!(usage.completion_tokens, 17);
+    assert_eq!(usage.total_tokens, 59);
+}
+
+#[test]
+fn streaming_chunk_usage_none_omitted_on_serialize() {
+    let chunk = ChatCompletionChunk {
+        id: "chatcmpl-ser".to_string(),
+        object: "chat.completion.chunk".to_string(),
+        created: 1700000000,
+        model: "claude-sonnet-4".to_string(),
+        choices: vec![],
+        usage: None,
+    };
+
+    let json = serde_json::to_value(&chunk).unwrap();
+    assert!(json.get("usage").is_none(), "usage: None should be omitted from JSON");
+}
+
+#[test]
+fn streaming_chunk_usage_some_included_on_serialize() {
+    let chunk = ChatCompletionChunk {
+        id: "chatcmpl-ser2".to_string(),
+        object: "chat.completion.chunk".to_string(),
+        created: 1700000000,
+        model: "claude-sonnet-4".to_string(),
+        choices: vec![],
+        usage: Some(Usage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            extra: Default::default(),
+        }),
+    };
+
+    let json = serde_json::to_value(&chunk).unwrap();
+    let usage = json.get("usage").expect("usage should be present");
+    assert_eq!(usage["prompt_tokens"], 10);
+    assert_eq!(usage["completion_tokens"], 5);
+    assert_eq!(usage["total_tokens"], 15);
+}

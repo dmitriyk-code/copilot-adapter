@@ -251,6 +251,11 @@ pub struct ChatCompletionChunk {
     pub created: i64,
     pub model: String,
     pub choices: Vec<ChunkChoice>,
+    /// Token usage statistics. Most providers (including GitHub Copilot today)
+    /// omit this field from streaming chunks; when present it takes precedence
+    /// over the local tiktoken estimate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
 }
 
 fn default_chunk_object_type() -> String {

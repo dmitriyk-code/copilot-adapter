@@ -31,6 +31,7 @@ fn text_chunk(
             },
             finish_reason: finish_reason.map(|s| s.to_string()),
         }],
+        usage: None,
     }
 }
 
@@ -50,6 +51,7 @@ fn finish_chunk(id: &str, model: &str, reason: &str) -> ChatCompletionChunk {
             },
             finish_reason: Some(reason.to_string()),
         }],
+        usage: None,
     }
 }
 
@@ -88,6 +90,7 @@ fn tool_call_start_chunk(
             },
             finish_reason: None,
         }],
+        usage: None,
     }
 }
 
@@ -120,6 +123,7 @@ fn tool_call_args_chunk(
             },
             finish_reason: None,
         }],
+        usage: None,
     }
 }
 
@@ -440,6 +444,7 @@ fn tool_call_without_id_gets_synthetic_id() {
             },
             finish_reason: None,
         }],
+        usage: None,
     };
 
     let events = state.process_chunk(&chunk);
@@ -786,6 +791,7 @@ fn chunk_with_empty_choices_is_noop() {
         created: 1700000000,
         model: "m1".to_string(),
         choices: vec![],
+        usage: None,
     };
     let events = state.process_chunk(&empty_choices_chunk);
     assert!(events.is_empty());
@@ -812,6 +818,7 @@ fn role_announcement_chunk_is_noop() {
             },
             finish_reason: None,
         }],
+        usage: None,
     };
     let events = state.process_chunk(&role_chunk);
     // Should emit exactly message_start and nothing else

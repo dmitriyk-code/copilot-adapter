@@ -199,6 +199,7 @@ async fn chunk_types_serialize_roundtrip() {
             },
             finish_reason: None,
         }],
+        usage: None,
     };
 
     let json_str = serde_json::to_string(&chunk).unwrap();

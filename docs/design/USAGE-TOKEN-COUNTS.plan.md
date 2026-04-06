@@ -129,7 +129,7 @@ use crate::anthropic::types::AnthropicRequest;
 
 ### Epic 2: Add optional `usage` field to `ChatCompletionChunk` (Day 1, ~30 min)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Future-proof the streaming struct so real usage from upstream takes precedence over tiktoken estimates when the Copilot API eventually starts returning it.
 
@@ -159,9 +159,9 @@ pub struct ChatCompletionChunk {
 ```
 
 **Acceptance Criteria:**
-- [ ] `ChatCompletionChunk` deserializes correctly when `usage` is absent (existing behaviour unchanged)
-- [ ] `ChatCompletionChunk` deserializes correctly when `usage` is present (e.g. `{"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}`)
-- [ ] Existing unit tests in `tests/unit/copilot_types_tests.rs` still pass
+- [x] `ChatCompletionChunk` deserializes correctly when `usage` is absent (existing behaviour unchanged)
+- [x] `ChatCompletionChunk` deserializes correctly when `usage` is present (e.g. `{"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}`)
+- [x] Existing unit tests in `tests/unit/copilot_types_tests.rs` still pass
 
 ---
 
@@ -718,7 +718,7 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
 | Epic 1: Token counting helpers | DONE | 2026-04-06 | 2026-04-06 | |
-| Epic 2: `ChatCompletionChunk.usage` | Not Started | - | - | |
+| Epic 2: `ChatCompletionChunk.usage` | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 3: `build_message_start_response()` signature | Not Started | - | - | |
 | Epic 4: `StreamingState` accumulation | Not Started | - | - | Depends on Epics 1–3 |
 | Epic 5: Handler wiring | Not Started | - | - | Depends on Epic 4 |
