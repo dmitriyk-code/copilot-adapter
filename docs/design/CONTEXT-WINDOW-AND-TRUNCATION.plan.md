@@ -382,11 +382,11 @@ if wants_1m && !chat_request.model.contains("-1m") {
 
 ### Epic 3: Truncated Tool Call Recovery (Day 1-2, ~0.5 day)
 
-**Status:** Not Started
+**Status:** Complete
 
-**Objective:** When a tool call is truncated by the output token limit (`finish_reason: "length"`), emit a descriptive text content block instead of silently dropping the incomplete tool_use block. This ensures Claude Code sees a text-only response and can fire max_tokens escalation.
+**Note:** Task 3.1 (`has_emitted_tool_use` field) was removed during review — the field was a dead-write (set but never read). The truncation notice behavior in Task 3.2 is uniform regardless of prior tool_use blocks, so the field added unnecessary complexity. Task 3.2 is implemented as specified.
 
-#### Task 3.1: Add `has_emitted_tool_use` tracking field
+#### Task 3.1: ~~Add `has_emitted_tool_use` tracking field~~ (Removed)
 
 **File:** `src/streaming/state.rs` (MODIFIED)
 
@@ -502,15 +502,15 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 ```
 
 **Acceptance Criteria:**
-- [ ] Truncated tool call emits `ContentBlockStart(text)` + `ContentBlockDelta(notice)` + `ContentBlockStop`
-- [ ] Notice text is `[Tool call to "ToolName" was truncated due to output token limit]`
-- [ ] Tool name extracted from `tool_call_names` map; defaults to `"unknown"` if not found
-- [ ] `current_block_index` incremented after the text block
-- [ ] `stop_reason: max_tokens` still emitted after the text block (existing behavior in the code path that follows)
-- [ ] Truncation still recorded in `truncated_openai_tool_indices`
-- [ ] Incomplete tool_use buffer still cleared
-- [ ] `block_open` and `current_block_type` still reset
-- [ ] Log message updated with tool name and block index for better diagnostics
+- [x] Truncated tool call emits `ContentBlockStart(text)` + `ContentBlockDelta(notice)` + `ContentBlockStop`
+- [x] Notice text is `[Tool call to "ToolName" was truncated due to output token limit]`
+- [x] Tool name extracted from `tool_call_names` map; defaults to `"unknown"` if not found
+- [x] `current_block_index` incremented after the text block
+- [x] `stop_reason: max_tokens` still emitted after the text block (existing behavior in the code path that follows)
+- [x] Truncation still recorded in `truncated_openai_tool_indices`
+- [x] Incomplete tool_use buffer still cleared
+- [x] `block_open` and `current_block_type` still reset
+- [x] Log message updated with tool name and block index for better diagnostics
 
 **Notes:**
 - `ResponseContentBlock::text(String::new())` is the existing constructor (line 302-308 in state.rs) — the empty string is the initial text for the block start; the actual content comes via the delta.
@@ -1613,8 +1613,8 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] Add `has_1m_context_beta()` helper (Task 2.1)
 - [ ] Extract `HeaderMap` in messages handler (Task 2.2)
 - [ ] Apply `-1m` suffix based on beta header (Task 2.3)
-- [ ] Add `has_emitted_tool_use` field (Task 3.1)
-- [ ] Implement truncation text block emission (Task 3.2)
+- [x] ~~Add `has_emitted_tool_use` field (Task 3.1)~~ (Removed — dead-write field)
+- [x] Implement truncation text block emission (Task 3.2)
 - [ ] Verify `cargo build` succeeds
 
 ### Phase 2: Testing (Epic 4)
@@ -1648,7 +1648,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 |------|--------|------------|----------|-------|
 | Epic 1: Prompt-Too-Long Error Translation | Not Started | - | - | 3 tasks |
 | Epic 2: 1M Context Model Activation | Complete | - | - | 3 tasks |
-| Epic 3: Truncated Tool Call Recovery | Not Started | - | - | 2 tasks |
+| Epic 3: Truncated Tool Call Recovery | Complete | - | - | 2 tasks |
 | Epic 4: Testing | Not Started | - | - | 8 tasks, 27 tests |
 | Epic 5: Documentation | Not Started | - | - | 3 tasks |
 

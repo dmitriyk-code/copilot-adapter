@@ -865,8 +865,9 @@ fn events_serialize_to_valid_json() {
 // ===========================================================================
 
 /// When a single tool call is truncated by finish_reason="length",
-/// the tool_use block should be completely dropped. Only message_start
-/// and message_delta("max_tokens") should be emitted.
+/// the tool_use block should be completely dropped and replaced with a
+/// text block containing a truncation notice, followed by
+/// message_delta("max_tokens").
 #[test]
 fn tool_call_truncated_by_length() {
     let mut state = StreamingState::new(HashMap::new());
@@ -884,10 +885,17 @@ fn tool_call_truncated_by_length() {
     ));
     assert_eq!(events.len(), 0); // all buffered
 
-    // Truncated by length — tool_use block discarded
+    // Truncated by length — tool_use block discarded, text notice emitted
     let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
-    assert_eq!(events.len(), 1); // only message_delta("max_tokens")
-    assert_message_delta(&events[0], "max_tokens");
+    assert_eq!(events.len(), 4); // text_start + text_delta + text_stop + message_delta
+    assert_text_block_start(&events[0], 0);
+    assert_text_delta(
+        &events[1],
+        0,
+        "[Tool call to \"Write\" was truncated due to output token limit]",
+    );
+    assert_block_stop(&events[2], 0);
+    assert_message_delta(&events[3], "max_tokens");
 
     // Verify truncation was tracked
     assert!(state.truncated_openai_tool_indices().contains(&0));
@@ -899,7 +907,8 @@ fn tool_call_truncated_by_length() {
 }
 
 /// Text block followed by a tool call that gets truncated by length.
-/// The text block should be emitted normally; the tool_use block dropped.
+/// The text block should be emitted normally; the tool_use block dropped
+/// and replaced with a truncation notice text block.
 #[test]
 fn text_then_tool_truncated_by_length() {
     let mut state = StreamingState::new(HashMap::new());
@@ -924,10 +933,17 @@ fn text_then_tool_truncated_by_length() {
     let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, "_path\": \"x\"}"));
     assert_eq!(events.len(), 0);
 
-    // Truncated by length — tool_use block dropped
+    // Truncated by length — tool_use block dropped, truncation notice emitted
     let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
-    assert_eq!(events.len(), 1);
-    assert_message_delta(&events[0], "max_tokens");
+    assert_eq!(events.len(), 4); // text_start + text_delta + text_stop + message_delta
+    assert_text_block_start(&events[0], 1); // index 1 (after the original text block at 0)
+    assert_text_delta(
+        &events[1],
+        1,
+        "[Tool call to \"Write\" was truncated due to output token limit]",
+    );
+    assert_block_stop(&events[2], 1);
+    assert_message_delta(&events[3], "max_tokens");
 
     // Verify truncation tracked
     assert!(state.truncated_openai_tool_indices().contains(&0));
@@ -938,7 +954,7 @@ fn text_then_tool_truncated_by_length() {
 }
 
 /// Two parallel tool calls: first completes, second is truncated.
-/// First tool_use should be fully emitted; second dropped.
+/// First tool_use should be fully emitted; second dropped with truncation notice.
 #[test]
 fn first_tool_complete_second_truncated() {
     let mut state = StreamingState::new(HashMap::new());
@@ -966,10 +982,17 @@ fn first_tool_complete_second_truncated() {
     let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 1, "_path\": \"b\"}"));
     assert_eq!(events.len(), 0);
 
-    // Truncated by length — second tool dropped
+    // Truncated by length — second tool dropped, truncation notice emitted
     let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
-    assert_eq!(events.len(), 1);
-    assert_message_delta(&events[0], "max_tokens");
+    assert_eq!(events.len(), 4); // text_start + text_delta + text_stop + message_delta
+    assert_text_block_start(&events[0], 1); // index 1 (first tool was at 0)
+    assert_text_delta(
+        &events[1],
+        1,
+        "[Tool call to \"Write\" was truncated due to output token limit]",
+    );
+    assert_block_stop(&events[2], 1);
+    assert_message_delta(&events[3], "max_tokens");
 
     // Only second tool was truncated
     assert!(!state.truncated_openai_tool_indices().contains(&0));
@@ -981,7 +1004,7 @@ fn first_tool_complete_second_truncated() {
 }
 
 /// Even if the tool call has complete-looking JSON, finish_reason="length"
-/// always causes the tool_use block to be dropped.
+/// always causes the tool_use block to be dropped with a truncation notice.
 #[test]
 fn tool_call_with_length_finish_but_complete_json() {
     let mut state = StreamingState::new(HashMap::new());
@@ -994,16 +1017,107 @@ fn tool_call_with_length_finish_but_complete_json() {
     assert_eq!(events.len(), 1); // message_start
     assert_message_start(&events[0]);
 
-    // Finish with "length" — tool is STILL dropped (always-drop policy)
+    // Finish with "length" — tool is STILL dropped (always-drop policy) + notice
     let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
-    assert_eq!(events.len(), 1);
-    assert_message_delta(&events[0], "max_tokens");
+    assert_eq!(events.len(), 4); // text_start + text_delta + text_stop + message_delta
+    assert_text_block_start(&events[0], 0);
+    assert_text_delta(
+        &events[1],
+        0,
+        "[Tool call to \"Bash\" was truncated due to output token limit]",
+    );
+    assert_block_stop(&events[2], 0);
+    assert_message_delta(&events[3], "max_tokens");
 
     assert!(state.truncated_openai_tool_indices().contains(&0));
 
     let events = state.finalize();
     assert_eq!(events.len(), 1);
     assert_message_stop(&events[0]);
+}
+
+/// Single tool call truncated by length — verifies the truncation notice
+/// includes the actual tool name. This is a simpler variant of
+/// `tool_call_truncated_by_length` (no intermediate arg chunks).
+///
+/// Note: the "unknown" fallback path (where `tool_call_names` has no entry
+/// for the index) is defensive-only and not reachable via the public API
+/// because `is_new_call` requires a function name, which always populates
+/// `tool_call_names`.
+#[test]
+fn tool_call_truncated_single_tool_name_in_notice() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // First, send a tool call start to establish ToolUse mode
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_1", "Write", "{\"file",
+    ));
+    assert_eq!(events.len(), 1);
+    assert_message_start(&events[0]);
+
+    // Truncated by length — notice should include the tool name "Write"
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 4);
+    assert_text_delta(
+        &events[1],
+        0,
+        "[Tool call to \"Write\" was truncated due to output token limit]",
+    );
+    assert_message_delta(&events[3], "max_tokens");
+}
+
+/// Truncation notice uses the restored (original) tool name, not the
+/// truncated OpenAI name, when a name mapping is provided.
+#[test]
+fn truncated_tool_uses_restored_name_in_notice() {
+    let mut name_mapping = HashMap::new();
+    name_mapping.insert(
+        "mcp__codemogger__code_08a3f".to_string(),
+        "mcp__codemogger__codemogger_search".to_string(),
+    );
+    let mut state = StreamingState::new(name_mapping);
+
+    // Tool call with a truncated name that should be restored
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1",
+        "m1",
+        0,
+        "call_1",
+        "mcp__codemogger__code_08a3f",
+        "{\"query",
+    ));
+    assert_eq!(events.len(), 1);
+    assert_message_start(&events[0]);
+
+    // Truncated by length — notice should use the RESTORED name
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 4);
+    assert_text_delta(
+        &events[1],
+        0,
+        "[Tool call to \"mcp__codemogger__codemogger_search\" was truncated due to output token limit]",
+    );
+    assert_message_delta(&events[3], "max_tokens");
+}
+
+/// finish_reason="length" during a text block (not tool_use) should NOT
+/// emit a truncation notice — only tool_use blocks get special treatment.
+#[test]
+fn length_finish_during_text_block_no_notice() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // Text block with finish_reason="length" on the same chunk
+    let events = state.process_chunk(&text_chunk("c1", "m1", "Hello world", Some("length")));
+    // message_start + text_start + text_delta + text_stop + message_delta
+    assert_eq!(events.len(), 5);
+    assert_message_start(&events[0]);
+    assert_text_block_start(&events[1], 0);
+    assert_text_delta(&events[2], 0, "Hello world");
+    assert_block_stop(&events[3], 0);
+    assert_message_delta(&events[4], "max_tokens");
+
+    // No truncation recorded
+    assert!(state.truncated_openai_tool_indices().is_empty());
 }
 
 /// Tool calls that finish normally (finish_reason="tool_calls") should

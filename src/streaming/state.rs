@@ -26,9 +26,11 @@ enum ContentBlockType {
 /// than emitted immediately. When a tool call completes normally (another
 /// tool starts, or `finish_reason` is `"tool_calls"`/`"stop"`), the buffer
 /// is flushed. If `finish_reason` is `"length"` while a tool call is open,
-/// the buffer is discarded — the truncated tool_use block never reaches
-/// the consumer. This prevents Claude Code from executing incomplete tool
-/// calls when the Copilot API hits its output token limit.
+/// the buffer is discarded and a text block
+/// `[Tool call to "X" was truncated due to output token limit]` is emitted
+/// in its place, followed by `stop_reason: max_tokens`. This prevents
+/// Claude Code from executing incomplete tool calls and ensures the
+/// max_tokens escalation path fires.
 pub struct StreamingState {
     /// Message ID from the first chunk.
     message_id: Option<String>,
@@ -337,8 +339,9 @@ impl StreamingState {
     ///
     /// When the finish reason is `"length"` and the current block is a
     /// tool_use, the buffered tool_use events are **discarded** (the tool
-    /// call was truncated by the output token limit). The block is not
-    /// closed, and `stop_reason` is set to `"max_tokens"` so Claude Code's
+    /// call was truncated by the output token limit). A text content block
+    /// with a truncation notice is emitted in place of the incomplete
+    /// tool_use, followed by `stop_reason: "max_tokens"` so Claude Code's
     /// escalation/recovery path fires.
     ///
     /// For all other finish reasons (`"tool_calls"`, `"stop"`, etc.), the
@@ -348,10 +351,18 @@ impl StreamingState {
         let mut events = Vec::new();
 
         if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolUse) {
+            // Retrieve the tool name before clearing the buffer (for the notice).
+            let tool_name = self
+                .current_openai_tool_index
+                .and_then(|idx| self.tool_call_names.get(&idx))
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+
             // Truncated tool call — discard the buffered events.
             tracing::warn!(
                 block_index = self.current_block_index,
                 openai_tool_index = ?self.current_openai_tool_index,
+                tool_name = %tool_name,
                 "Dropping truncated tool_use block (finish_reason=\"length\")"
             );
             self.tool_use_buffer.clear();
@@ -362,10 +373,29 @@ impl StreamingState {
             // perspective nothing to close. Reset block state.
             self.block_open = false;
             self.current_block_type = None;
-            // Rewind the block index so the next block (if any) reuses
-            // the index that the discarded block would have occupied.
-            // (Not strictly necessary since we emit message_delta next,
-            // but keeps the state consistent.)
+
+            // Emit a text block explaining the truncation so Claude Code
+            // sees a text-only response and can fire max_tokens escalation.
+            let notice = format!(
+                "[Tool call to \"{}\" was truncated due to output token limit]",
+                tool_name
+            );
+
+            events.push(StreamEvent::ContentBlockStart {
+                index: self.current_block_index,
+                content_block: ResponseContentBlock::text(String::new()),
+            });
+            events.push(StreamEvent::ContentBlockDelta {
+                index: self.current_block_index,
+                delta: ContentDelta::Text(TextDelta {
+                    delta_type: "text_delta".to_string(),
+                    text: notice,
+                }),
+            });
+            events.push(StreamEvent::ContentBlockStop {
+                index: self.current_block_index,
+            });
+            self.current_block_index += 1;
         } else {
             // Normal completion — flush any buffered tool_use events.
             events.extend(self.flush_tool_use_buffer());
