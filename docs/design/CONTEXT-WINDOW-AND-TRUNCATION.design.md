@@ -1,6 +1,6 @@
 # Context Window Enforcement & Truncated Tool Recovery — Design Document
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-04-05 (updated)
 **Severity:** High
 **Related:** `LARGE-FILE-WRITE-BUG-RESEARCH.md`, `ERROR_INVESTIGATION_REPORT.md`
@@ -1919,13 +1919,13 @@ fn request_with_output_config_deserializes() {
 | 1 | What is the per-model prompt token limit on the Copilot API? Is 168K the same for all Claude models? | Partially answered — observed 168K for `claude-opus-4.6`; the `claude-opus-4.6-1m` model presumably accepts ~1M (not yet tested) |
 | 2 | Should we also translate other Copilot 400 errors (e.g., content policy violations)? | Deferred — only prompt-too-long is addressed in this design |
 | 3 | Should Option B (pre-flight token validation) be implemented as a follow-up? | Deferred — would prevent the wasted round-trip |
-| 4 | Should the truncation notice include partial argument data (e.g., file_path)? | No — keeping it minimal reduces confusion |
+| 4 | Should the truncation notice include partial argument data (e.g., file_path)? | **Resolved** — No. The truncation notice uses the format `[Tool call to "X" was truncated due to output token limit]` with only the tool name. Keeping it minimal reduces confusion. |
 | 5 | Will `claude-sonnet-4.6-1m` appear in the Copilot models list in the future? | Open — currently only `claude-opus-4.6-1m` exists. The adapter will automatically support new 1M models when they appear. |
-| 6 | What happens when `-1m` is appended to a model that Copilot doesn't have a 1M variant for? | Expected: Copilot API returns a model-not-found error. The adapter passes this through as an error to Claude Code. |
-| 7 | Does the Copilot API forward `reasoning.effort` to Claude models? | **Unconfirmed** — needs testing with `--log-level trace`. If ignored, effort has no effect (same as today). If rejected, need to add a `--disable-reasoning` flag. |
-| 8 | Should `"max"` map to `"xhigh"` instead of `"high"`? | Deferred — `"high"` is the safe default. Can be revisited if testing shows `"xhigh"` is supported and beneficial for Claude Opus 4.6 via Copilot. |
-| 9 | Should the adapter return synthetic `thinking` content blocks in responses? | No for now — the Copilot API doesn't return thinking blocks, and Claude Code already handles their absence gracefully. |
-| 10 | Are there other Anthropic API fields the adapter should accept but currently rejects? | Open — `betas` (HTTP header, not body) is handled by Option C for `context-1m`. Other betas like `effort-2026-03-13` and `interleaved-thinking-*` are informational and don't require adapter-side processing. |
+| 6 | What happens when `-1m` is appended to a model that Copilot doesn't have a 1M variant for? | **Resolved** — Copilot API returns a model-not-found error. The adapter passes this through as an error to Claude Code. Guard `!model.contains("-1m")` prevents double-append. |
+| 7 | Does the Copilot API forward `reasoning.effort` to Claude models? | **Implemented** — `reasoning.effort` is translated and sent. Needs runtime testing with `--log-level trace` to confirm Copilot forwards it. If ignored, effort has no effect (same as today). If rejected, need to add a `--disable-reasoning` flag. |
+| 8 | Should `"max"` map to `"xhigh"` instead of `"high"`? | **Resolved** — `"max"` maps to `"high"`. This is the safe default. Can be revisited if testing shows `"xhigh"` is supported and beneficial. |
+| 9 | Should the adapter return synthetic `thinking` content blocks in responses? | **Resolved** — No. The Copilot API doesn't return thinking blocks, and Claude Code handles their absence gracefully. Thinking/redacted_thinking blocks in *input* messages are accepted and stripped during translation. |
+| 10 | Are there other Anthropic API fields the adapter should accept but currently rejects? | **Partially resolved** — `output_config`, `thinking`, and `anthropic-beta` (HTTP header) are now handled. Other betas like `effort-2026-03-13` and `interleaved-thinking-*` are informational and don't require adapter-side processing. |
 
 ---
 
