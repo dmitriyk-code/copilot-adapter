@@ -307,7 +307,7 @@ fn request_translation_extracts_text_from_content_blocks() {
     };
 
     let openai = req.to_chat_completion_request(false);
-    assert_eq!(openai.messages[0].content.as_text(), "Hello world!");
+    assert_eq!(openai.messages[0].content.as_text(), "Hello \n\nworld!");
 }
 
 #[test]

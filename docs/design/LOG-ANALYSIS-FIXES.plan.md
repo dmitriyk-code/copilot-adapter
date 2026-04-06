@@ -168,7 +168,7 @@ tracing::debug!("Token auto-refresh task cancelled");
 
 ### Epic 2: System Prompt Separator Fix (Day 1, 0.5 days)
 
-**Status:** Not Started
+**Status:** Done
 
 **Objective:** Add `"\n\n"` as the separator when joining multiple system text blocks in `SystemInput::to_text()` and the `extract_text()` helper.
 
@@ -216,11 +216,11 @@ impl SystemInput {
 ```
 
 **Acceptance Criteria:**
-- [ ] `SystemInput::Blocks` with 2+ text blocks are joined with `"\n\n"`
-- [ ] `SystemInput::Text` (single string) is unchanged
-- [ ] Single-block arrays produce no trailing separator
-- [ ] Trace logs show clean block boundaries in the outgoing OpenAI `system` content
-- [ ] Unit tests passing
+- [x] `SystemInput::Blocks` with 2+ text blocks are joined with `"\n\n"`
+- [x] `SystemInput::Text` (single string) is unchanged
+- [x] Single-block arrays produce no trailing separator
+- [x] Trace logs show clean block boundaries in the outgoing OpenAI `system` content
+- [x] Unit tests passing
 
 **Notes:** Claude Code's system prompt routinely has 3–5 text blocks: billing header, identity, instructions, session-specific guidance, and tool descriptions. `"\n\n"` is the standard Markdown paragraph separator and is the natural choice for delimiting independent instruction blocks.
 
@@ -274,9 +274,9 @@ fn extract_text(content: &ContentBlockInput) -> String {
 ```
 
 **Acceptance Criteria:**
-- [ ] Multiple text blocks in message content are joined with `"\n\n"`
-- [ ] Image and Document placeholder strings are separated from adjacent text blocks
-- [ ] Unit tests passing
+- [x] Multiple text blocks in message content are joined with `"\n\n"`
+- [x] Image and Document placeholder strings are separated from adjacent text blocks
+- [x] Unit tests passing
 
 ---
 
@@ -463,7 +463,7 @@ No new integration test files needed — the existing request/response translati
 | File | Change | Epic | Description |
 |------|--------|------|-------------|
 | `src/server.rs` | Modified | Epic 1 | Start `start_auto_refresh()` at server startup; call `stop_auto_refresh()` on shutdown |
-| `src/anthropic/types.rs` | Modified | Epic 2 | Change `.join("")` to `.join("\n\n")` in `SystemInput::to_text()` and `extract_text()` |
+| `src/anthropic/types.rs` | Modified | Epic 2 | Change `.join("")` to `.join("\n\n")` in `SystemInput::to_text()`, `extract_text()`, and `extract_tool_result_messages()` |
 | `tests/unit/` | Modified | Epic 3 | Add unit tests for separator fix and auto-refresh task |
 | `docs/e2e-testing.md` | Modified | Epic 3 | Add E2E test procedures |
 | `CLAUDE.md` | Modified | Epic 4 | Update token refresh documentation |
@@ -532,7 +532,7 @@ None — both fixes use only existing crates and internal modules.
 
 ### Phase 1: Development (Epics 1-2)
 - [x] Start auto-refresh in `src/server.rs`
-- [ ] Change `.join("")` → `.join("\n\n")` in two locations in `src/anthropic/types.rs`
+- [x] Change `.join("")` → `.join("\n\n")` in three locations in `src/anthropic/types.rs`
 - [ ] Code review
 
 ### Phase 2: Testing (Epic 3)
@@ -555,7 +555,7 @@ None — both fixes use only existing crates and internal modules.
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
 | Epic 1: Token Refresh Background Task | Done | 2026-04-06 | 2026-04-06 | stop_auto_refresh() called after axum::serve() returns (better than inside shutdown_signal()) |
-| Epic 2: System Prompt Separator Fix | Not Started | - | - | |
+| Epic 2: System Prompt Separator Fix | Done | 2026-04-06 | 2026-04-06 | Changed .join("") to .join("\n\n") in three locations: SystemInput::to_text(), extract_text(), and extract_tool_result_messages() |
 | Epic 3: Testing | Not Started | - | - | |
 | Epic 4: Documentation | Not Started | - | - | |
 
@@ -566,7 +566,7 @@ None — both fixes use only existing crates and internal modules.
 | # | Question | Status | Blocker For |
 |---|----------|--------|-------------|
 | 1 | Does `CopilotToken::seconds_until_expiry()` handle the underflow case (already expired)? | Open | Epic 1 |
-| 2 | Should `extract_tool_result_messages()` inner join (line 603) also be fixed with `"\n\n"`? | Deferred | — |
+| 2 | Should `extract_tool_result_messages()` inner join (line 603) also be fixed with `"\n\n"`? | Resolved — implemented in Epic 2 | — |
 
 ---
 

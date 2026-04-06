@@ -570,7 +570,7 @@ fn translate_text_block_in_array_without_images() {
     let openai = req.to_chat_completion_request(false);
     // Text-only blocks (no images) should still use Text path
     match &openai.messages[0].content {
-        openai::MessageContent::Text(t) => assert_eq!(t, "Hello world"),
+        openai::MessageContent::Text(t) => assert_eq!(t, "Hello \n\nworld"),
         _ => panic!("Expected Text variant for text-only blocks"),
     }
 }

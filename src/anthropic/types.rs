@@ -85,7 +85,7 @@ impl SystemInput {
                     _ => None,
                 })
                 .collect::<Vec<_>>()
-                .join(""),
+                .join("\n\n"),
         }
     }
 }
@@ -550,7 +550,7 @@ fn extract_text(content: &ContentBlockInput) -> String {
                 _ => None,
             })
             .collect::<Vec<_>>()
-            .join(""),
+            .join("\n\n"),
     }
 }
 
@@ -670,7 +670,7 @@ fn extract_tool_result_messages(content: &ContentBlockInput) -> Vec<Message> {
                                 _ => None,
                             })
                             .collect::<Vec<_>>()
-                            .join(""),
+                            .join("\n\n"),
                     };
                     Some(Message {
                         role: "tool".to_string(),
@@ -970,7 +970,7 @@ mod tests {
     fn extract_text_from_blocks() {
         let input = ContentBlockInput::Blocks(vec![
             ContentBlock::Text {
-                text: "Hello ".into(),
+                text: "Hello".into(),
                 cache_control: None,
             },
             ContentBlock::Text {
@@ -978,7 +978,95 @@ mod tests {
                 cache_control: None,
             },
         ]);
-        assert_eq!(extract_text(&input), "Hello world");
+        assert_eq!(extract_text(&input), "Hello\n\nworld");
+    }
+
+    #[test]
+    fn extract_text_single_block() {
+        let input = ContentBlockInput::Blocks(vec![ContentBlock::Text {
+            text: "only one".into(),
+            cache_control: None,
+        }]);
+        assert_eq!(extract_text(&input), "only one");
+    }
+
+    #[test]
+    fn extract_text_with_image_and_document() {
+        let input = ContentBlockInput::Blocks(vec![
+            ContentBlock::Text {
+                text: "Before image".into(),
+                cache_control: None,
+            },
+            ContentBlock::Image {
+                source: ImageSource::Base64 {
+                    media_type: "image/png".into(),
+                    data: "abc".into(),
+                },
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "Between".into(),
+                cache_control: None,
+            },
+            ContentBlock::Document {
+                source: DocumentSource::Base64 {
+                    media_type: "application/pdf".into(),
+                    data: "ZmFrZQ==".into(),
+                },
+                title: Some("README.pdf".into()),
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "After document".into(),
+                cache_control: None,
+            },
+        ]);
+        assert_eq!(
+            extract_text(&input),
+            "Before image\n\n[Image]\n\nBetween\n\nREADME.pdf\n\nAfter document"
+        );
+    }
+
+    #[test]
+    fn extract_text_document_without_title() {
+        let input = ContentBlockInput::Blocks(vec![
+            ContentBlock::Text {
+                text: "Intro".into(),
+                cache_control: None,
+            },
+            ContentBlock::Document {
+                source: DocumentSource::Base64 {
+                    media_type: "application/pdf".into(),
+                    data: "ZmFrZQ==".into(),
+                },
+                title: None,
+                cache_control: None,
+            },
+        ]);
+        assert_eq!(extract_text(&input), "Intro\n\n[Document]");
+    }
+
+    #[test]
+    fn system_input_filters_non_text_blocks() {
+        let input = SystemInput::Blocks(vec![
+            ContentBlock::Text {
+                text: "Identity block".into(),
+                cache_control: None,
+            },
+            ContentBlock::Image {
+                source: ImageSource::Base64 {
+                    media_type: "image/png".into(),
+                    data: "abc".into(),
+                },
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "Instructions block".into(),
+                cache_control: None,
+            },
+        ]);
+        // Non-text blocks are silently filtered; remaining text blocks get "\n\n" separator
+        assert_eq!(input.to_text(), "Identity block\n\nInstructions block");
     }
 
     #[test]
@@ -991,7 +1079,7 @@ mod tests {
     fn system_input_from_blocks() {
         let input = SystemInput::Blocks(vec![
             ContentBlock::Text {
-                text: "You are ".into(),
+                text: "You are".into(),
                 cache_control: None,
             },
             ContentBlock::Text {
@@ -999,7 +1087,38 @@ mod tests {
                 cache_control: None,
             },
         ]);
-        assert_eq!(input.to_text(), "You are helpful");
+        assert_eq!(input.to_text(), "You are\n\nhelpful");
+    }
+
+    #[test]
+    fn system_input_single_block() {
+        let input = SystemInput::Blocks(vec![ContentBlock::Text {
+            text: "single block".into(),
+            cache_control: None,
+        }]);
+        assert_eq!(input.to_text(), "single block");
+    }
+
+    #[test]
+    fn system_input_multiple_blocks_separator() {
+        let input = SystemInput::Blocks(vec![
+            ContentBlock::Text {
+                text: "Block 1: Identity".into(),
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "Block 2: Instructions".into(),
+                cache_control: None,
+            },
+            ContentBlock::Text {
+                text: "Block 3: Tools".into(),
+                cache_control: None,
+            },
+        ]);
+        assert_eq!(
+            input.to_text(),
+            "Block 1: Identity\n\nBlock 2: Instructions\n\nBlock 3: Tools"
+        );
     }
 
     #[test]
@@ -1014,5 +1133,42 @@ mod tests {
         let json = r#"{"model":"claude-3","max_tokens":1024,"messages":[],"system":[{"type":"text","text":"Hello"}]}"#;
         let req: AnthropicRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.system.unwrap().to_text(), "Hello");
+    }
+
+    #[test]
+    fn tool_result_multi_block_separator() {
+        let content = ContentBlockInput::Blocks(vec![ContentBlock::ToolResult {
+            tool_use_id: "call_123".into(),
+            content: ToolResultContent::Blocks(vec![
+                ContentBlock::Text {
+                    text: "stdout: OK".into(),
+                    cache_control: None,
+                },
+                ContentBlock::Text {
+                    text: "stderr: (empty)".into(),
+                    cache_control: None,
+                },
+            ]),
+            cache_control: None,
+        }]);
+        let messages = extract_tool_result_messages(&content);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content.as_text(), "stdout: OK\n\nstderr: (empty)");
+        assert_eq!(messages[0].tool_call_id, Some("call_123".into()));
+    }
+
+    #[test]
+    fn tool_result_single_block_no_trailing_separator() {
+        let content = ContentBlockInput::Blocks(vec![ContentBlock::ToolResult {
+            tool_use_id: "call_456".into(),
+            content: ToolResultContent::Blocks(vec![ContentBlock::Text {
+                text: "result".into(),
+                cache_control: None,
+            }]),
+            cache_control: None,
+        }]);
+        let messages = extract_tool_result_messages(&content);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content.as_text(), "result");
     }
 }
