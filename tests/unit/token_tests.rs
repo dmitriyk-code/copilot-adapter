@@ -233,3 +233,61 @@ async fn clear_tokens_cancels_auto_refresh() {
     // Verify state is cleared
     assert!(!manager.is_authenticated().await);
 }
+
+#[tokio::test]
+async fn stop_auto_refresh_cancels_task() {
+    let (addr, _counter, _handle) = spawn_copilot_mock().await;
+    let storage = MemoryStorage::new(Some("ghp_test_token".into()));
+    let manager = Arc::new(
+        TokenManager::new(Box::new(storage), make_auth(addr))
+            .await
+            .unwrap(),
+    );
+
+    // Populate copilot token so auto-refresh has something to work with
+    manager.get_valid_token().await.unwrap();
+
+    // Start auto-refresh
+    let handle = Arc::clone(&manager).start_auto_refresh();
+
+    // stop_auto_refresh() should cancel the background task without clearing tokens
+    manager.stop_auto_refresh();
+
+    // The JoinHandle should complete within a short time
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "auto-refresh task should have been cancelled by stop_auto_refresh()"
+    );
+
+    // Unlike clear_tokens(), the manager should still be authenticated
+    assert!(manager.is_authenticated().await);
+}
+
+#[tokio::test]
+async fn auto_refresh_no_panic_without_token() {
+    let (addr, _counter, _handle) = spawn_copilot_mock().await;
+    // No GitHub token — simulates first startup before authentication
+    let storage = MemoryStorage::new(None);
+    let manager = Arc::new(
+        TokenManager::new(Box::new(storage), make_auth(addr))
+            .await
+            .unwrap(),
+    );
+
+    // Start auto-refresh without any token — should not panic
+    let handle = Arc::clone(&manager).start_auto_refresh();
+
+    // Let the task run briefly (it should be waiting 60s, not panicking)
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Cancel the task
+    manager.stop_auto_refresh();
+
+    // The JoinHandle should complete within a short time
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "auto-refresh task should have been cancelled"
+    );
+}

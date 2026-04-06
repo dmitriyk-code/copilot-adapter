@@ -165,7 +165,11 @@ pub async fn run(
         conversation_logger,
     });
 
-    let app = build_router(state);
+    // Start background token refresh task
+    let _refresh_handle = state.token_manager.clone().start_auto_refresh();
+    tracing::info!("Token auto-refresh task started");
+
+    let app = build_router(state.clone());
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
@@ -184,6 +188,10 @@ pub async fn run(
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    // Stop the background token refresh task
+    state.token_manager.stop_auto_refresh();
+    tracing::debug!("Token auto-refresh task cancelled");
 
     // Clean up all status files on graceful shutdown
     if write_pid {

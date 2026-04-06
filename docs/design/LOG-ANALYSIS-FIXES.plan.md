@@ -1,6 +1,6 @@
 # Log Analysis Fixes — Implementation Plan
 
-**Status:** Not Started
+**Status:** In Progress
 **Date:** 2026-04-06
 **Based on:** [Log analysis findings](../../log-analysis-2026-04-06.md) — Issues 2 and 3
 **Prerequisite:** None
@@ -85,7 +85,7 @@ This plan implements:
 
 ### Epic 1: Token Refresh Background Task (Day 1, 0.5 days)
 
-**Status:** Not Started
+**Status:** Complete
 
 **Objective:** Start the `start_auto_refresh()` background task during server startup so tokens are refreshed proactively.
 
@@ -143,11 +143,11 @@ tracing::debug!("Token auto-refresh task cancelled");
 ```
 
 **Acceptance Criteria:**
-- [ ] Server startup log includes `"Token auto-refresh task started"`
-- [ ] First token refresh is proactive (fires before expiry, not triggered by a request)
-- [ ] Shutdown log includes cancellation of the refresh task (no task leak)
-- [ ] No race condition between background refresh and request-driven `get_valid_token()`
-- [ ] Unit tests passing
+- [x] Server startup log includes `"Token auto-refresh task started"`
+- [x] First token refresh is proactive (fires before expiry, not triggered by a request)
+- [x] Shutdown log includes cancellation of the refresh task (no task leak)
+- [x] No race condition between background refresh and request-driven `get_valid_token()`
+- [x] Unit tests passing
 
 **Notes:** The `refresh_lock` Mutex in `TokenManager` already serializes background and request-driven refresh calls — no additional synchronization needed.
 
@@ -160,9 +160,9 @@ tracing::debug!("Token auto-refresh task cancelled");
 **Description:** Confirm that `CopilotToken::seconds_until_expiry()` (called by `start_auto_refresh()`) returns a `u64` correctly and handles the edge case where the token is already expired (returns 0 rather than underflowing). Verify the task handles a missing initial token gracefully (no token yet — the task should wait 60 seconds and retry).
 
 **Acceptance Criteria:**
-- [ ] `seconds_until_expiry()` returns `0` (not underflow) when token is already expired
-- [ ] Background task logs at DEBUG level when no token is present and it waits 60s
-- [ ] No panic on first startup before a token is acquired
+- [x] `seconds_until_expiry()` returns `0` (not underflow) when token is already expired
+- [x] Background task logs at DEBUG level when no token is present and it waits 60s
+- [x] No panic on first startup before a token is acquired
 
 ---
 
@@ -531,7 +531,7 @@ None — both fixes use only existing crates and internal modules.
 ## Rollout / Migration Plan
 
 ### Phase 1: Development (Epics 1-2)
-- [ ] Start auto-refresh in `src/server.rs`
+- [x] Start auto-refresh in `src/server.rs`
 - [ ] Change `.join("")` → `.join("\n\n")` in two locations in `src/anthropic/types.rs`
 - [ ] Code review
 
@@ -554,7 +554,7 @@ None — both fixes use only existing crates and internal modules.
 
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
-| Epic 1: Token Refresh Background Task | Not Started | - | - | |
+| Epic 1: Token Refresh Background Task | Done | 2026-04-06 | 2026-04-06 | stop_auto_refresh() called after axum::serve() returns (better than inside shutdown_signal()) |
 | Epic 2: System Prompt Separator Fix | Not Started | - | - | |
 | Epic 3: Testing | Not Started | - | - | |
 | Epic 4: Documentation | Not Started | - | - | |

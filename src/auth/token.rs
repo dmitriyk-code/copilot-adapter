@@ -138,11 +138,10 @@ impl TokenManager {
     }
 
     /// Spawn a background task that refreshes the Copilot token 5 minutes before expiry.
-    /// The task respects the internal cancellation token and will stop on `clear_tokens()`.
+    /// The task respects the internal cancellation token and will stop on `stop_auto_refresh()`
+    /// or `clear_tokens()`.
     ///
-    /// **Note:** This method is not yet called in production code paths.
-    /// Server-mode integration (calling `start_auto_refresh()` from `server::run` and
-    /// cancelling on shutdown) is deferred to Epic 5.
+    /// Called automatically during server startup in `server::run()`.
     pub fn start_auto_refresh(self: Arc<Self>) -> JoinHandle<()> {
         let cancel = self
             .cancel
@@ -164,6 +163,7 @@ impl TokenManager {
                         }
                     } else {
                         // No token yet — wait before checking again
+                        tracing::debug!("No Copilot token yet, waiting 60s before retry");
                         Duration::from_secs(60)
                     }
                 };
@@ -199,6 +199,15 @@ impl TokenManager {
                 }
             }
         })
+    }
+
+    /// Cancel the auto-refresh background task without clearing tokens.
+    /// Used during graceful server shutdown to stop the background loop.
+    pub fn stop_auto_refresh(&self) {
+        let mut cancel = self.cancel.lock().unwrap_or_else(|e| e.into_inner());
+        cancel.cancel();
+        // Replace with a fresh token so start_auto_refresh() can be called again.
+        *cancel = CancellationToken::new();
     }
 
     /// Clear all tokens from memory and storage (for logout).
