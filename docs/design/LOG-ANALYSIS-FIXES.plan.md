@@ -282,7 +282,7 @@ fn extract_text(content: &ContentBlockInput) -> String {
 
 ### Epic 3: Testing (Day 2, 0.5 days)
 
-**Status:** Not Started
+**Status:** Done
 
 **Objective:** Ensure both fixes are tested correctly.
 
@@ -556,7 +556,7 @@ None — both fixes use only existing crates and internal modules.
 |------|--------|------------|----------|-------|
 | Epic 1: Token Refresh Background Task | Done | 2026-04-06 | 2026-04-06 | stop_auto_refresh() called after axum::serve() returns (better than inside shutdown_signal()) |
 | Epic 2: System Prompt Separator Fix | Done | 2026-04-06 | 2026-04-06 | Changed .join("") to .join("\n\n") in three locations: SystemInput::to_text(), extract_text(), and extract_tool_result_messages() |
-| Epic 3: Testing | Not Started | - | - | |
+| Epic 3: Testing | Done | 2026-04-06 | 2026-04-06 | 5 new unit tests (4 SystemInput, 1 auto-refresh proactive); 2 E2E test procedures (Tests 45-46); existing stop_auto_refresh test already covered Task 3.1 #2 |
 | Epic 4: Documentation | Not Started | - | - | |
 
 ---

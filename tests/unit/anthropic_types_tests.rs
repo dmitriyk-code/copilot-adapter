@@ -993,3 +993,67 @@ fn request_with_output_config_deserializes() {
     );
     assert!(request.thinking.is_some());
 }
+
+// ---------------------------------------------------------------------------
+// SystemInput::to_text() — separator tests (Epic 3, LOG-ANALYSIS-FIXES)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn system_input_single_block_no_trailing_separator() {
+    let input = SystemInput::Blocks(vec![ContentBlock::Text {
+        text: "Hello world".to_string(),
+        cache_control: None,
+    }]);
+    assert_eq!(input.to_text(), "Hello world");
+}
+
+#[test]
+fn system_input_multiple_blocks_joined_with_double_newline() {
+    let input = SystemInput::Blocks(vec![
+        ContentBlock::Text {
+            text: "Block one.".to_string(),
+            cache_control: None,
+        },
+        ContentBlock::Text {
+            text: "Block two.".to_string(),
+            cache_control: None,
+        },
+        ContentBlock::Text {
+            text: "Block three.".to_string(),
+            cache_control: None,
+        },
+    ]);
+    assert_eq!(
+        input.to_text(),
+        "Block one.\n\nBlock two.\n\nBlock three."
+    );
+}
+
+#[test]
+fn system_input_filters_non_text_blocks() {
+    let input = SystemInput::Blocks(vec![
+        ContentBlock::Text {
+            text: "Text block.".to_string(),
+            cache_control: None,
+        },
+        ContentBlock::Image {
+            source: ImageSource::Base64 {
+                media_type: "image/png".to_string(),
+                data: "abc".to_string(),
+            },
+            cache_control: None,
+        },
+        ContentBlock::Text {
+            text: "Another block.".to_string(),
+            cache_control: None,
+        },
+    ]);
+    // Image block is skipped; adjacent text blocks still get separator
+    assert_eq!(input.to_text(), "Text block.\n\nAnother block.");
+}
+
+#[test]
+fn system_input_text_variant_is_unchanged() {
+    let input = SystemInput::Text("Plain string system prompt".to_string());
+    assert_eq!(input.to_text(), "Plain string system prompt");
+}

@@ -2588,3 +2588,118 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 - [ ] RedactedThinking blocks also stripped
 - [ ] Temperature suppressed when thinking is present
 - [ ] Conversation continues normally
+
+---
+
+## Test 45: Proactive Token Refresh
+
+**Purpose:** Verify that the background auto-refresh task proactively refreshes the
+Copilot token before it expires, even when no requests are being processed.
+
+### Steps
+
+1. **Start the adapter with debug logging:**
+   ```bash
+   copilot-adapter start --log-level debug
+   ```
+
+2. **Verify the auto-refresh task started** — look for this log entry at startup:
+   ```
+   Token auto-refresh task started
+   ```
+
+3. **Make one request** to trigger the initial token acquisition:
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{"model": "claude-sonnet-4-20250514", "max_tokens": 64, "messages": [{"role": "user", "content": "Say hi"}]}'
+   ```
+
+4. **Wait approximately 25 minutes** without making any further requests.
+   (Copilot tokens expire after ~30 minutes; the auto-refresh fires 5 minutes before.)
+
+5. **Check the logs for a proactive refresh:**
+   ```
+   Copilot token auto-refreshed successfully
+   ```
+   This should appear ~25 minutes after the initial request, before the token expires.
+
+6. **After the auto-refresh fires, make another request:**
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{"model": "claude-sonnet-4-20250514", "max_tokens": 64, "messages": [{"role": "user", "content": "Still here?"}]}'
+   ```
+   This request should succeed immediately (no 401 retry).
+
+### Expected Result
+
+- The auto-refresh log appears ~5 minutes before the token's 30-minute expiry.
+- No 401 errors occur during or after the idle period.
+- The second request succeeds without triggering a lazy token refresh.
+
+### Verification Checklist
+
+- [ ] `"Token auto-refresh task started"` appears in startup logs
+- [ ] `"Copilot token auto-refreshed successfully"` appears ~25 minutes after first request
+- [ ] No 401 errors in the logs during the idle period
+- [ ] Subsequent request succeeds without a visible token refresh
+
+---
+
+## Test 46: System Prompt Block Separation
+
+**Purpose:** Verify that multi-block system prompts are separated by `"\n\n"` in the
+outgoing OpenAI request, not concatenated without separators.
+
+### Steps
+
+1. **Start the adapter with trace logging:**
+   ```bash
+   copilot-adapter start --log-level trace
+   ```
+
+2. **Make any request through Claude Code** (or send a request with a multi-block
+   system prompt):
+   ```bash
+   curl -s -X POST http://127.0.0.1:6767/v1/messages \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: dummy" \
+     -H "anthropic-version: 2023-06-01" \
+     -d '{
+       "model": "claude-sonnet-4-20250514",
+       "max_tokens": 64,
+       "system": [
+         {"type": "text", "text": "Block A: billing header cch=00000;"},
+         {"type": "text", "text": "Block B: You are Claude Code."}
+       ],
+       "messages": [{"role": "user", "content": "Hello"}]
+     }'
+   ```
+
+3. **In the trace log, find the `OUTGOING` direction entry** for the request to the
+   Copilot API. Look for the system message content.
+
+4. **Verify the system blocks are separated by `\n\n`:**
+   ```
+   "content": "Block A: billing header cch=00000;\n\nBlock B: You are Claude Code."
+   ```
+   NOT:
+   ```
+   "content": "Block A: billing header cch=00000;Block B: You are Claude Code."
+   ```
+
+### Expected Result
+
+- The outgoing system message shows `"\n\n"` between blocks.
+- No run-on concatenation of adjacent blocks.
+
+### Verification Checklist
+
+- [ ] Trace log shows `OUTGOING` request to Copilot API
+- [ ] System message content has `"\n\n"` between blocks
+- [ ] No run-on text between adjacent system blocks

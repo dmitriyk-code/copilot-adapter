@@ -264,6 +264,90 @@ async fn stop_auto_refresh_cancels_task() {
     assert!(manager.is_authenticated().await);
 }
 
+/// Spawn a mock Copilot token server that returns short-lived tokens and counts requests.
+async fn spawn_short_lived_copilot_mock() -> (
+    std::net::SocketAddr,
+    Arc<AtomicU32>,
+    tokio::task::JoinHandle<()>,
+) {
+    use axum::routing::get;
+    use axum::Json;
+    use axum::Router;
+    use serde_json::json;
+    use tokio::net::TcpListener;
+
+    let counter = Arc::new(AtomicU32::new(0));
+    let counter_clone = counter.clone();
+
+    let app = Router::new().route(
+        "/copilot_internal/v2/token",
+        get(move |headers: axum::http::HeaderMap| {
+            let c = counter_clone.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                let auth = headers
+                    .get("Authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                if auth == "token ghp_test_token" {
+                    // Token expires in 10 seconds — within the 5-minute window,
+                    // so the auto-refresh task will sleep only 5 seconds before refreshing.
+                    let expires_at = chrono::Utc::now().timestamp() + 10;
+                    Json(json!({
+                        "token": "tid_short_lived",
+                        "expires_at": expires_at
+                    }))
+                } else {
+                    Json(json!({
+                        "error": "unauthorized"
+                    }))
+                }
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (addr, counter, handle)
+}
+
+#[tokio::test]
+async fn auto_refresh_task_refreshes_before_expiry() {
+    let (addr, counter, _handle) = spawn_short_lived_copilot_mock().await;
+    let storage = MemoryStorage::new(Some("ghp_test_token".into()));
+    let manager = Arc::new(
+        TokenManager::new(Box::new(storage), make_auth(addr))
+            .await
+            .unwrap(),
+    );
+
+    // Populate copilot token (1 HTTP request) — returns a 10-second token
+    manager.get_valid_token().await.unwrap();
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+    // Start auto-refresh — token has <=300 seconds left, so task sleeps 5s then refreshes
+    let handle = Arc::clone(&manager).start_auto_refresh();
+
+    // Wait 7 seconds — the auto-refresh should have fired after ~5 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+
+    // Verify the auto-refresh triggered a proactive refresh
+    let refresh_count = counter.load(Ordering::SeqCst);
+    assert!(
+        refresh_count >= 2,
+        "Expected auto-refresh to trigger at least 1 proactive refresh, but total API calls = {refresh_count}"
+    );
+
+    // Clean up
+    manager.stop_auto_refresh();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(result.is_ok(), "auto-refresh task should have been cancelled");
+}
+
 #[tokio::test]
 async fn auto_refresh_no_panic_without_token() {
     let (addr, _counter, _handle) = spawn_copilot_mock().await;
