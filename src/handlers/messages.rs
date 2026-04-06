@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -37,6 +38,7 @@ use crate::tools::translator;
 /// blocks in the text response.
 pub async fn messages(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<AnthropicRequest>,
 ) -> Result<Response, AppError> {
     tracing::debug!(
@@ -113,6 +115,7 @@ pub async fn messages(
     });
 
     let has_tools = request.tools.as_ref().is_some_and(|t| !t.is_empty());
+    let wants_1m = has_1m_context_beta(&headers);
 
     // --- Native tools path ---
     // When native_tools is enabled and the request has tools, try the native
@@ -121,7 +124,7 @@ pub async fn messages(
     if has_tools && state.config.native_tools {
         tracing::debug!("Native tools enabled, attempting native function calling path");
 
-        match handle_with_native_tools(&request, &state, cycle_builder).await {
+        match handle_with_native_tools(&request, &state, cycle_builder, wants_1m).await {
             Ok(response) => return Ok(response),
             Err((e, returned_builder)) => {
                 if is_tools_not_supported_error(&e) {
@@ -152,6 +155,16 @@ pub async fn messages(
     // Translate to Copilot API format (OpenAI-compatible)
     // XML injection path does not need native tool_calls translation
     let mut openai_request = request.to_chat_completion_request(false);
+
+    // If Claude Code requested 1M context via the anthropic-beta header,
+    // select the Copilot API's 1M model variant.
+    if wants_1m && !openai_request.model.contains("-1m") {
+        tracing::info!(
+            original_model = %openai_request.model,
+            "1M context beta detected, selecting Copilot 1M model variant"
+        );
+        openai_request.model = format!("{}-1m", openai_request.model);
+    }
 
     // Log model normalization if it happened
     if openai_request.model != request.model {
@@ -909,6 +922,7 @@ async fn handle_with_native_tools(
     request: &AnthropicRequest,
     state: &AppState,
     cycle_builder: Option<ConversationCycleBuilder>,
+    wants_1m: bool,
 ) -> Result<Response, (AppError, Option<ConversationCycleBuilder>)> {
     let tools = match request.tools.as_ref() {
         Some(t) => t,
@@ -935,6 +949,17 @@ async fn handle_with_native_tools(
     // Build OpenAI request with native tools attached.
     // Native tools mode: translate assistant tool_use blocks to proper tool_calls format
     let mut openai_request = request.to_chat_completion_request(true);
+
+    // If Claude Code requested 1M context via the anthropic-beta header,
+    // select the Copilot API's 1M model variant.
+    if wants_1m && !openai_request.model.contains("-1m") {
+        tracing::info!(
+            original_model = %openai_request.model,
+            "1M context beta detected, selecting Copilot 1M model variant"
+        );
+        openai_request.model = format!("{}-1m", openai_request.model);
+    }
+
     openai_request.tools = Some(translation.tools);
     openai_request.tool_choice = Some(serde_json::json!("auto"));
 
@@ -1374,5 +1399,99 @@ fn is_tools_not_supported_error(error: &AppError) -> bool {
                 || (msg_lower.contains("\\\"tool_choice\\\"") && msg_lower.contains("not supported"))
         }
         _ => false,
+    }
+}
+
+/// Check if the `anthropic-beta` header contains the 1M context beta.
+///
+/// Claude Code sends beta headers as a comma-separated list:
+///   `anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...`
+///
+/// Uses prefix matching (`context-1m`) to be forward-compatible with
+/// future date suffixes (the date portion may change across Claude Code versions).
+fn has_1m_context_beta(headers: &HeaderMap) -> bool {
+    headers
+        .get_all("anthropic-beta")
+        .iter()
+        .any(|value| {
+            value.to_str().ok().map_or(false, |s| {
+                s.split(',')
+                    .any(|beta| beta.trim().starts_with("context-1m"))
+            })
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn has_1m_context_beta_with_single_beta() {
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-beta", "context-1m-2025-08-07".parse().unwrap());
+        assert!(has_1m_context_beta(&headers));
+    }
+
+    #[test]
+    fn has_1m_context_beta_with_comma_separated() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "anthropic-beta",
+            "interleaved-thinking-2025-05-14,context-1m-2025-08-07,prompt-caching-2024-07-31"
+                .parse()
+                .unwrap(),
+        );
+        assert!(has_1m_context_beta(&headers));
+    }
+
+    #[test]
+    fn has_1m_context_beta_with_spaces() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "anthropic-beta",
+            "interleaved-thinking-2025-05-14, context-1m-2025-08-07, prompt-caching-2024-07-31"
+                .parse()
+                .unwrap(),
+        );
+        assert!(has_1m_context_beta(&headers));
+    }
+
+    #[test]
+    fn has_1m_context_beta_with_multiple_headers() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            "anthropic-beta",
+            "interleaved-thinking-2025-05-14".parse().unwrap(),
+        );
+        headers.append(
+            "anthropic-beta",
+            "context-1m-2025-08-07".parse().unwrap(),
+        );
+        assert!(has_1m_context_beta(&headers));
+    }
+
+    #[test]
+    fn has_1m_context_beta_absent() {
+        let headers = HeaderMap::new();
+        assert!(!has_1m_context_beta(&headers));
+    }
+
+    #[test]
+    fn has_1m_context_beta_other_betas_only() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "anthropic-beta",
+            "interleaved-thinking-2025-05-14,prompt-caching-2024-07-31"
+                .parse()
+                .unwrap(),
+        );
+        assert!(!has_1m_context_beta(&headers));
+    }
+
+    #[test]
+    fn has_1m_context_beta_future_date_suffix() {
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-beta", "context-1m-2027-01-01".parse().unwrap());
+        assert!(has_1m_context_beta(&headers));
     }
 }

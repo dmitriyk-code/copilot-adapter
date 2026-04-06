@@ -717,3 +717,184 @@ async fn messages_streaming_event_order_is_correct() {
     assert!(content_stop_idx < msg_delta_idx);
     assert!(msg_delta_idx < msg_stop_idx);
 }
+
+// ---------------------------------------------------------------------------
+// 1M context beta header tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn messages_1m_context_beta_appends_suffix_non_streaming() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_api().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-opus-4-6-20251120",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .header("anthropic-beta", "context-1m-2025-08-07,interleaved-thinking-2025-05-14")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
+
+    // The mock echoes back the model name it received — should have -1m suffix
+    assert_eq!(resp.model, "claude-opus-4.6-1m");
+}
+
+#[tokio::test]
+async fn messages_without_1m_beta_no_suffix() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_api().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-opus-4-6-20251120",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
+
+    // Without beta header, model should be normalized but no -1m suffix
+    assert_eq!(resp.model, "claude-opus-4.6");
+}
+
+#[tokio::test]
+async fn messages_1m_beta_no_double_append() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_api().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    // Model already has -1m in its name
+    let body = json!({
+        "model": "claude-opus-4-6-1m-20251120",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .header("anthropic-beta", "context-1m-2025-08-07")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
+
+    // Should not double-append: still just -1m, not -1m-1m
+    assert_eq!(resp.model, "claude-opus-4.6-1m");
+}
+
+#[tokio::test]
+async fn messages_1m_context_beta_streaming() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_api().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-opus-4-6-20251120",
+        "max_tokens": 1024,
+        "stream": true,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .header("anthropic-beta", "context-1m-2025-08-07")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_text = String::from_utf8(bytes.to_vec()).unwrap();
+    let events = parse_anthropic_sse(&body_text);
+
+    // Find message_start event and verify the model has -1m suffix
+    let msg_start = events
+        .iter()
+        .find(|(t, _)| t == "message_start")
+        .expect("message_start event");
+    let model = msg_start.1["message"]["model"]
+        .as_str()
+        .expect("model field");
+    assert_eq!(model, "claude-opus-4.6-1m");
+}

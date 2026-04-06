@@ -254,9 +254,7 @@ async fn handle_error_response(response: reqwest::Response) -> AppError {
 
 ### Epic 2: 1M Context Model Activation (Day 1, ~0.5 day)
 
-**Status:** Not Started
-
-**Objective:** Detect Claude Code's `anthropic-beta: context-1m-*` HTTP header and append `-1m` to the normalized Copilot model name, enabling 1M context windows via the Copilot API's distinct model ID (e.g., `claude-opus-4.6-1m`).
+**Status:** Complete
 
 #### Task 2.1: Add `has_1m_context_beta()` helper function
 
@@ -294,12 +292,12 @@ fn has_1m_context_beta(headers: &HeaderMap) -> bool {
 ```
 
 **Acceptance Criteria:**
-- [ ] Returns `true` when `anthropic-beta` contains `context-1m-2025-08-07` (or any `context-1m-*` value)
-- [ ] Returns `false` when `anthropic-beta` is absent
-- [ ] Returns `false` when `anthropic-beta` contains other betas but not `context-1m-*`
-- [ ] Handles comma-separated values in a single header value
-- [ ] Handles multiple `anthropic-beta` headers (HTTP allows repeated headers)
-- [ ] Handles whitespace around comma-separated values
+- [x] Returns `true` when `anthropic-beta` contains `context-1m-2025-08-07` (or any `context-1m-*` value)
+- [x] Returns `false` when `anthropic-beta` is absent
+- [x] Returns `false` when `anthropic-beta` contains other betas but not `context-1m-*`
+- [x] Handles comma-separated values in a single header value
+- [x] Handles multiple `anthropic-beta` headers (HTTP allows repeated headers)
+- [x] Handles whitespace around comma-separated values
 
 **Notes:**
 - The `anthropic-beta` header value format is `beta1,beta2,beta3` (comma-separated, may have spaces after commas)
@@ -331,9 +329,9 @@ pub async fn messages(
 ```
 
 **Acceptance Criteria:**
-- [ ] Handler compiles with `HeaderMap` extractor
-- [ ] Existing request routing unchanged (axum route registration in `server.rs` doesn't need changes)
-- [ ] `Json<AnthropicRequest>` extraction still works (ordering: `HeaderMap` before `Json`)
+- [x] Handler compiles with `HeaderMap` extractor
+- [x] Existing request routing unchanged (axum route registration in `server.rs` doesn't need changes)
+- [x] `Json<AnthropicRequest>` extraction still works (ordering: `HeaderMap` before `Json`)
 
 **Notes:** axum's `HeaderMap` extractor is zero-copy — it passes a reference to the already-parsed header map. No performance impact.
 
@@ -367,12 +365,12 @@ if wants_1m && !chat_request.model.contains("-1m") {
 ```
 
 **Acceptance Criteria:**
-- [ ] `claude-opus-4-6` with `context-1m-*` beta → `claude-opus-4.6-1m` sent to Copilot
-- [ ] `claude-opus-4-6` without beta → `claude-opus-4.6` sent to Copilot (no change)
-- [ ] `claude-opus-4-6-1m` with beta → `claude-opus-4.6-1m` (no double-append, guard `!contains("-1m")`)
-- [ ] Applied in both streaming and non-streaming code paths
-- [ ] Info-level log emitted when 1M model is selected
-- [ ] TRACE-level log (existing) shows the final model name sent to Copilot
+- [x] `claude-opus-4-6` with `context-1m-*` beta → `claude-opus-4.6-1m` sent to Copilot
+- [x] `claude-opus-4-6` without beta → `claude-opus-4.6` sent to Copilot (no change)
+- [x] `claude-opus-4-6-1m` with beta → `claude-opus-4.6-1m` (no double-append, guard `!contains("-1m")`)
+- [x] Applied in both streaming and non-streaming code paths
+- [x] Info-level log emitted when 1M model is selected
+- [x] TRACE-level log (existing) shows the final model name sent to Copilot
 
 **Notes:**
 - The guard `!chat_request.model.contains("-1m")` prevents double-appending if someone manually sets a model name with `-1m`
@@ -943,7 +941,7 @@ ChatCompletionRequest {
        assert!(has_1m_context_beta(&headers));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 2. **`has_1m_context_beta_absent`** — Header doesn't contain the beta:
    ```rust
@@ -954,7 +952,7 @@ ChatCompletionRequest {
        assert!(!has_1m_context_beta(&headers));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 3. **`has_1m_context_beta_no_header`** — No `anthropic-beta` header at all:
    ```rust
@@ -964,7 +962,7 @@ ChatCompletionRequest {
        assert!(!has_1m_context_beta(&headers));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 4. **`has_1m_context_beta_comma_separated`** — Mixed with other betas:
    ```rust
@@ -978,7 +976,7 @@ ChatCompletionRequest {
        assert!(has_1m_context_beta(&headers));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 5. **`has_1m_context_beta_future_date`** — Forward-compatible with new date suffix:
    ```rust
@@ -989,7 +987,7 @@ ChatCompletionRequest {
        assert!(has_1m_context_beta(&headers));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 6. **`model_name_with_1m_beta_appends_suffix`** — End-to-end model name:
    ```rust
@@ -1002,7 +1000,7 @@ ChatCompletionRequest {
        assert_eq!(with_1m, "claude-opus-4.6-1m");
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 7. **`model_name_no_double_append`** — Guard prevents double-appending:
    ```rust
@@ -1013,11 +1011,11 @@ ChatCompletionRequest {
        // Guard should prevent appending again
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] All 7 new 1M context tests pass
-- [ ] `has_1m_context_beta` is accessible to tests (either `pub(crate)` or tested via the handler)
+- [x] All 7 new 1M context tests pass
+- [x] `has_1m_context_beta` is accessible to tests (either `pub(crate)` or tested via the handler)
 
 **Notes:** If `has_1m_context_beta()` is private to the handler module, tests can either: (a) make it `pub(crate)` for test access, or (b) test it indirectly via integration tests (Task 4.6). Prefer (a) for faster feedback.
 
@@ -1295,9 +1293,9 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] Both scenarios pass
 
 **Acceptance Criteria:**
-- [ ] 1M beta header → model name has `-1m` suffix
-- [ ] No beta header → model name unchanged
-- [ ] Existing integration message tests still pass
+- [x] 1M beta header → model name has `-1m` suffix
+- [x] No beta header → model name unchanged
+- [x] Existing integration message tests still pass
 
 #### Task 5.9: Integration Tests — Effort Forwarding
 
@@ -1649,7 +1647,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | Epic | Status | Start Date | End Date | Notes |
 |------|--------|------------|----------|-------|
 | Epic 1: Prompt-Too-Long Error Translation | Not Started | - | - | 3 tasks |
-| Epic 2: 1M Context Model Activation | Not Started | - | - | 3 tasks |
+| Epic 2: 1M Context Model Activation | Complete | - | - | 3 tasks |
 | Epic 3: Truncated Tool Call Recovery | Not Started | - | - | 2 tasks |
 | Epic 4: Testing | Not Started | - | - | 8 tasks, 27 tests |
 | Epic 5: Documentation | Not Started | - | - | 3 tasks |
