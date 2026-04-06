@@ -129,6 +129,27 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+
+    /// Thinking content block from a prior assistant turn.
+    ///
+    /// Accepted during deserialization to avoid request failures when
+    /// conversation history includes thinking blocks. Stripped during
+    /// translation to OpenAI format (no equivalent exists).
+    #[serde(rename = "thinking")]
+    Thinking {
+        thinking: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Redacted thinking content block from a prior assistant turn.
+    ///
+    /// Contains opaque base64-encoded data. Like `Thinking`, accepted
+    /// during deserialization and stripped during translation.
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking {
+        data: String,
+    },
 }
 
 /// Content within a tool_result block — either a plain string or nested blocks.
@@ -217,6 +238,17 @@ impl ToolDefinition {
     }
 }
 
+/// Anthropic output configuration.
+///
+/// Currently only `effort` is used by the adapter. Other fields (`format`,
+/// `task_budget`) are accepted via serde's default behavior and not forwarded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputConfig {
+    /// Effort level: "low", "medium", "high", or "max".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
 /// Anthropic Messages API request body.
 ///
 /// **Note on `tool_choice`:** The Anthropic API supports a `tool_choice` field
@@ -249,6 +281,21 @@ pub struct AnthropicRequest {
     /// calling behaviour at the API level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<serde_json::Value>,
+
+    /// Output configuration including effort level.
+    ///
+    /// Claude Code sends `output_config.effort` to control model reasoning depth.
+    /// Translated to `reasoning.effort` in the OpenAI request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<OutputConfig>,
+
+    /// Thinking configuration.
+    ///
+    /// The adapter notes its presence (to suppress temperature forwarding) but
+    /// does not translate it to OpenAI format — effort level is the closest
+    /// approximation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +512,29 @@ pub struct MessageDeltaUsage {
 // Request translation: Anthropic → OpenAI
 // ---------------------------------------------------------------------------
 
+/// Filter out thinking content blocks from a content block input.
+///
+/// Thinking and redacted_thinking blocks from prior assistant turns
+/// have no OpenAI equivalent and must be stripped before translation.
+fn strip_thinking_blocks(content: &ContentBlockInput) -> ContentBlockInput {
+    match content {
+        ContentBlockInput::Text(s) => ContentBlockInput::Text(s.clone()),
+        ContentBlockInput::Blocks(blocks) => {
+            let filtered: Vec<ContentBlock> = blocks
+                .iter()
+                .filter(|b| {
+                    !matches!(
+                        b,
+                        ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
+                    )
+                })
+                .cloned()
+                .collect();
+            ContentBlockInput::Blocks(filtered)
+        }
+    }
+}
+
 /// Extract plain text from an Anthropic content block input.
 fn extract_text(content: &ContentBlockInput) -> String {
     match content {
@@ -644,6 +714,9 @@ impl AnthropicRequest {
 
         // Convert each Anthropic message
         for msg in &self.messages {
+            // Strip thinking/redacted_thinking blocks before any content inspection
+            let content = strip_thinking_blocks(&msg.content);
+
             // Check if this message contains tool_result blocks.
             // If so, extract them as separate tool-role messages.
             // Note: tool-role messages are inserted *before* any remaining
@@ -651,12 +724,12 @@ impl AnthropicRequest {
             // original message mixes text and tool_result blocks, but this
             // is acceptable because the Anthropic API does not typically
             // combine text and tool_result in the same user message.
-            if has_tool_result_blocks(&msg.content) {
-                let tool_messages = extract_tool_result_messages(&msg.content);
+            if has_tool_result_blocks(&content) {
+                let tool_messages = extract_tool_result_messages(&content);
                 messages.extend(tool_messages);
 
                 // Also include any non-tool-result text as a regular message
-                let text = extract_text(&msg.content);
+                let text = extract_text(&content);
                 if !text.is_empty() {
                     messages.push(Message {
                         role: msg.role.clone(),
@@ -666,10 +739,10 @@ impl AnthropicRequest {
                         tool_call_id: None,
                     });
                 }
-            } else if has_multimodal_blocks(&msg.content) {
+            } else if has_multimodal_blocks(&content) {
                 // Message contains image or document blocks — build multimodal
                 // content with OpenAI-format content blocks.
-                if let ContentBlockInput::Blocks(blocks) = &msg.content {
+                if let ContentBlockInput::Blocks(blocks) = &content {
                     let translated: Vec<crate::copilot::types::ContentBlock> =
                         blocks.iter().filter_map(translate_content_block).collect();
                     if !translated.is_empty() {
@@ -682,13 +755,13 @@ impl AnthropicRequest {
                         });
                     }
                 }
-            } else if native_tools && msg.role == "assistant" && has_tool_use_blocks(&msg.content) {
+            } else if native_tools && msg.role == "assistant" && has_tool_use_blocks(&content) {
                 // Native tools mode: assistant messages with tool_use blocks must be
                 // translated with proper OpenAI `tool_calls` format. This is required
                 // for subsequent `tool` role messages to have valid `tool_call_id`
                 // references.
-                let tool_calls = extract_tool_calls(&msg.content);
-                let text = extract_text(&msg.content);
+                let tool_calls = extract_tool_calls(&content);
+                let text = extract_text(&content);
 
                 // OpenAI API expects content to be null or empty when there are tool_calls
                 // but some models handle non-empty content. We include the text if present.
@@ -714,7 +787,7 @@ impl AnthropicRequest {
                 // represent tool_use blocks in the upstream request format.
                 messages.push(Message {
                     role: msg.role.clone(),
-                    content: MessageContent::Text(extract_text(&msg.content)),
+                    content: MessageContent::Text(extract_text(&content)),
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
@@ -730,11 +803,38 @@ impl AnthropicRequest {
             )
         });
 
+        // Map Anthropic effort to OpenAI reasoning
+        let reasoning = self
+            .output_config
+            .as_ref()
+            .and_then(|oc| oc.effort.as_ref())
+            .map(|effort| {
+                let mapped_effort = match effort.as_str() {
+                    "max" => "high".to_string(),
+                    other => other.to_string(),
+                };
+                tracing::debug!(
+                    anthropic_effort = %effort,
+                    openai_effort = %mapped_effort,
+                    "Translating effort level"
+                );
+                crate::copilot::types::Reasoning {
+                    effort: Some(mapped_effort),
+                }
+            });
+
+        // Suppress temperature when thinking is active
+        let temperature = if self.thinking.is_some() {
+            None
+        } else {
+            self.temperature
+        };
+
         ChatCompletionRequest {
             model: crate::model_mapper::normalize_model_name(&self.model),
             messages,
             stream: self.stream,
-            temperature: self.temperature,
+            temperature,
             max_tokens: Some(self.max_tokens),
             top_p: self.top_p,
             n: None,
@@ -743,6 +843,7 @@ impl AnthropicRequest {
             frequency_penalty: None,
             tools: None,
             tool_choice: None,
+            reasoning,
         }
     }
 }

@@ -1,5 +1,6 @@
 mod anthropic_image_tests;
 mod count_tokens_types_tests;
+mod effort_thinking_tests;
 mod health_tests;
 mod migration_tests;
 mod status_tests;

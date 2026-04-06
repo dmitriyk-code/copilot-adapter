@@ -153,6 +153,7 @@ fn request_with_openai_tools_serializes_correctly() {
             },
         ]),
         tool_choice: Some(serde_json::json!("auto")),
+        reasoning: None,
     };
 
     let json = serde_json::to_value(&req).unwrap();
@@ -191,6 +192,7 @@ fn request_without_tools_omits_tools_fields() {
         frequency_penalty: None,
         tools: None,
         tool_choice: None,
+        reasoning: None,
     };
 
     let json = serde_json::to_value(&req).unwrap();
@@ -235,6 +237,7 @@ fn request_with_specific_tool_choice_serializes() {
             "type": "function",
             "function": {"name": "bash"}
         })),
+        reasoning: None,
     };
 
     let json = serde_json::to_value(&req).unwrap();

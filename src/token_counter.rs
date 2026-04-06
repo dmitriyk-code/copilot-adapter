@@ -157,6 +157,10 @@ fn count_block_tokens(
             .map_err(|e| TokenCountError::Serialization(e.to_string()))?;
             Ok(bpe.encode_with_special_tokens(&json).len())
         }
+        // Thinking blocks are internal reasoning artifacts; they contribute
+        // negligible tokens to the prompt since they're stripped during
+        // translation. Count zero tokens.
+        ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. } => Ok(0),
     }
 }
 

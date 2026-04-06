@@ -114,6 +114,7 @@ async fn copilot_client_receives_native_tool_call_non_streaming() {
             },
         }]),
         tool_choice: Some(json!("auto")),
+        reasoning: None,
     };
 
     let response = client
@@ -223,6 +224,7 @@ async fn copilot_client_receives_multiple_native_tool_calls() {
             },
         ]),
         tool_choice: Some(json!("auto")),
+        reasoning: None,
     };
 
     let response = client
@@ -306,6 +308,7 @@ async fn copilot_client_streams_native_tool_call() {
         frequency_penalty: None,
         tools: None,
         tool_choice: None,
+        reasoning: None,
     };
 
     let stream = client
@@ -417,6 +420,7 @@ async fn copilot_client_streams_text_then_native_tool_call() {
         frequency_penalty: None,
         tools: None,
         tool_choice: None,
+        reasoning: None,
     };
 
     let stream = client
@@ -518,6 +522,7 @@ async fn copilot_client_forwards_tools_in_request_body() {
             },
         }]),
         tool_choice: Some(json!("auto")),
+        reasoning: None,
     };
 
     let _response = client

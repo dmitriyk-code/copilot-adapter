@@ -110,6 +110,8 @@ fn anthropic_request_roundtrip() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
     let json_str = serde_json::to_string(&req).unwrap();
     let deserialized: AnthropicRequest = serde_json::from_str(&json_str).unwrap();
@@ -235,6 +237,8 @@ fn request_translation_with_system_prepends_system_message() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -264,6 +268,8 @@ fn request_translation_without_system_no_extra_message() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -296,6 +302,8 @@ fn request_translation_extracts_text_from_content_blocks() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -318,6 +326,8 @@ fn request_translation_maps_fields() {
         stop_sequences: Some(vec!["END".to_string()]),
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -355,6 +365,8 @@ fn request_translation_multiple_messages() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(false);
@@ -629,6 +641,8 @@ fn native_tools_assistant_message_with_tool_use_gets_tool_calls() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     // With native_tools=true
@@ -695,6 +709,8 @@ fn non_native_tools_assistant_message_with_tool_use_no_tool_calls() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     // With native_tools=false
@@ -764,6 +780,8 @@ fn native_tools_multiple_tool_use_blocks() {
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        output_config: None,
+        thinking: None,
     };
 
     let openai = req.to_chat_completion_request(true);

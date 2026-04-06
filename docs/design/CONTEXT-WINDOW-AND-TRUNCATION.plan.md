@@ -521,9 +521,7 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 
 ### Epic 4: Effort and Thinking Support (Day 2, ~0.5 day)
 
-**Status:** Not Started
-
-**Objective:** Accept `output_config.effort` and `thinking` parameters from Claude Code, translate effort to `reasoning.effort` in the OpenAI request, handle `thinking`/`redacted_thinking` content blocks in conversation history, and suppress temperature when thinking is active.
+**Status:** Complete
 
 #### Task 4.1: Add `OutputConfig` struct and fields to `AnthropicRequest`
 
@@ -566,11 +564,11 @@ pub thinking: Option<serde_json::Value>,
 ```
 
 **Acceptance Criteria:**
-- [ ] `AnthropicRequest` with `output_config` and `thinking` deserializes correctly
-- [ ] `AnthropicRequest` without these fields still deserializes (backward compatible)
-- [ ] `OutputConfig` captures `effort` field
-- [ ] Extra fields in `output_config` (e.g., `format`, `task_budget`) are silently ignored
-- [ ] `thinking` captures any JSON value shape
+- [x] `AnthropicRequest` with `output_config` and `thinking` deserializes correctly
+- [x] `AnthropicRequest` without these fields still deserializes (backward compatible)
+- [x] `OutputConfig` captures `effort` field
+- [x] Extra fields in `output_config` (e.g., `format`, `task_budget`) are silently ignored
+- [x] `thinking` captures any JSON value shape
 
 **Notes:** `thinking` is `Option<serde_json::Value>` rather than a typed struct because the adapter only needs to detect its presence (for temperature suppression), not interpret its structure.
 
@@ -607,11 +605,11 @@ RedactedThinking {
 ```
 
 **Acceptance Criteria:**
-- [ ] `{"type": "thinking", "thinking": "analysis text"}` deserializes to `ContentBlock::Thinking`
-- [ ] `{"type": "thinking", "thinking": "text", "signature": "sig"}` deserializes (with optional signature)
-- [ ] `{"type": "redacted_thinking", "data": "base64data"}` deserializes to `ContentBlock::RedactedThinking`
-- [ ] Existing content block types (`text`, `image`, `document`, `tool_use`, `tool_result`) unaffected
-- [ ] Full request with thinking blocks in conversation history deserializes without error
+- [x] `{"type": "thinking", "thinking": "analysis text"}` deserializes to `ContentBlock::Thinking`
+- [x] `{"type": "thinking", "thinking": "text", "signature": "sig"}` deserializes (with optional signature)
+- [x] `{"type": "redacted_thinking", "data": "base64data"}` deserializes to `ContentBlock::RedactedThinking`
+- [x] Existing content block types (`text`, `image`, `document`, `tool_use`, `tool_result`) unaffected
+- [x] Full request with thinking blocks in conversation history deserializes without error
 
 **Notes:** The `signature` field on `Thinking` is optional and may be present in some API versions. Including it prevents deserialization failures. The `RedactedThinking` variant uses `data` (opaque base64 content).
 
@@ -649,10 +647,10 @@ pub reasoning: Option<Reasoning>,
 ```
 
 **Acceptance Criteria:**
-- [ ] `ChatCompletionRequest` with `reasoning` serializes correctly
-- [ ] `reasoning` field omitted from JSON when `None` (via `skip_serializing_if`)
-- [ ] `Reasoning { effort: Some("high") }` serializes as `{"effort": "high"}`
-- [ ] Existing `ChatCompletionRequest` construction sites compile (need `reasoning: None`)
+- [x] `ChatCompletionRequest` with `reasoning` serializes correctly
+- [x] `reasoning` field omitted from JSON when `None` (via `skip_serializing_if`)
+- [x] `Reasoning { effort: Some("high") }` serializes as `{"effort": "high"}`
+- [x] Existing `ChatCompletionRequest` construction sites compile (need `reasoning: None`)
 
 #### Task 4.4: Update `to_chat_completion_request()` for effort translation and thinking handling
 
@@ -747,17 +745,17 @@ ChatCompletionRequest {
 ```
 
 **Acceptance Criteria:**
-- [ ] `output_config.effort: "low"` → `reasoning.effort: "low"`
-- [ ] `output_config.effort: "medium"` → `reasoning.effort: "medium"`
-- [ ] `output_config.effort: "high"` → `reasoning.effort: "high"`
-- [ ] `output_config.effort: "max"` → `reasoning.effort: "high"` (downgraded)
-- [ ] No `output_config` → no `reasoning` field (backward compatible)
-- [ ] `thinking` present → temperature is `None` in output
-- [ ] `thinking` absent + temperature present → temperature forwarded
-- [ ] Messages with `Thinking` content blocks → thinking blocks stripped, only text/tool blocks forwarded
-- [ ] Messages with only thinking blocks (no text) → empty content, message skipped or produces empty text
-- [ ] Existing message translation for text, image, tool_use, tool_result unaffected
-- [ ] Debug log emitted for effort translation
+- [x] `output_config.effort: "low"` → `reasoning.effort: "low"`
+- [x] `output_config.effort: "medium"` → `reasoning.effort: "medium"`
+- [x] `output_config.effort: "high"` → `reasoning.effort: "high"`
+- [x] `output_config.effort: "max"` → `reasoning.effort: "high"` (downgraded)
+- [x] No `output_config` → no `reasoning` field (backward compatible)
+- [x] `thinking` present → temperature is `None` in output
+- [x] `thinking` absent + temperature present → temperature forwarded
+- [x] Messages with `Thinking` content blocks → thinking blocks stripped, only text/tool blocks forwarded
+- [x] Messages with only thinking blocks (no text) → empty content, message skipped or produces empty text
+- [x] Existing message translation for text, image, tool_use, tool_result unaffected
+- [x] Debug log emitted for effort translation
 
 **Notes:**
 - The `strip_thinking_blocks` function must be called before all existing content inspection functions (`has_tool_result_blocks`, `has_multimodal_blocks`, `has_tool_use_blocks`, `extract_text`) to ensure thinking blocks don't interfere with translation logic.
@@ -771,9 +769,9 @@ ChatCompletionRequest {
 **Description:** Anywhere `ChatCompletionRequest` is constructed directly (outside `to_chat_completion_request()`), add the new `reasoning: None` field. Search for `ChatCompletionRequest {` across the codebase to find all construction sites.
 
 **Acceptance Criteria:**
-- [ ] All `ChatCompletionRequest` construction sites include `reasoning` field
-- [ ] Project compiles without errors
-- [ ] No test regressions
+- [x] All `ChatCompletionRequest` construction sites include `reasoning` field
+- [x] Project compiles without errors
+- [x] No test regressions
 
 ---
 
@@ -1617,19 +1615,19 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [x] Implement truncation text block emission (Task 3.2)
 - [ ] Verify `cargo build` succeeds
 
-### Phase 2: Testing (Epic 4)
-- [ ] Unit tests for error translation (Task 4.1)
-- [ ] Unit tests for error parsing (Task 4.2)
-- [ ] Unit tests for 1M context beta detection (Task 4.3)
-- [ ] Unit tests for streaming truncation (Task 4.4)
-- [ ] Integration test for prompt-too-long (Task 4.5)
-- [ ] Integration test for streaming truncation (Task 4.6)
-- [ ] Integration test for 1M model selection (Task 4.7)
-- [ ] Manual E2E procedures documented (Task 4.8)
+### Phase 2: Testing (Epic 5)
+- [ ] Unit tests for error translation (Task 5.1)
+- [ ] Unit tests for error parsing (Task 5.2)
+- [ ] Unit tests for 1M context beta detection (Task 5.3)
+- [ ] Unit tests for streaming truncation (Task 5.4)
+- [ ] Integration test for prompt-too-long (Task 5.5)
+- [ ] Integration test for streaming truncation (Task 5.6)
+- [ ] Integration test for 1M model selection (Task 5.7)
+- [ ] Manual E2E procedures documented (Task 5.8)
 - [ ] `cargo test --test unit` passes
 - [ ] `cargo test --test integration` passes
 
-### Phase 3: Documentation (Epic 5)
+### Phase 3: Documentation (Epic 6)
 - [ ] CLAUDE.md updated (Task 5.1)
 - [ ] Known issues updated (Task 5.2)
 - [ ] Design document status updated (Task 5.3)
@@ -1649,8 +1647,9 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | Epic 1: Prompt-Too-Long Error Translation | Not Started | - | - | 3 tasks |
 | Epic 2: 1M Context Model Activation | Complete | - | - | 3 tasks |
 | Epic 3: Truncated Tool Call Recovery | Complete | - | - | 2 tasks |
-| Epic 4: Testing | Not Started | - | - | 8 tasks, 27 tests |
-| Epic 5: Documentation | Not Started | - | - | 3 tasks |
+| Epic 4: Effort and Thinking Support | Complete | - | 2026-04-06 | 5 tasks |
+| Epic 5: Testing | Not Started | - | - | 8 tasks, 27 tests |
+| Epic 6: Documentation | Not Started | - | - | 3 tasks |
 
 ---
 
