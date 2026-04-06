@@ -4,28 +4,33 @@
 **Date:** 2026-04-05
 **Based on:** [CONTEXT-WINDOW-AND-TRUNCATION.design.md](./CONTEXT-WINDOW-AND-TRUNCATION.design.md)
 **Prerequisite:** None
-**Estimated Time:** 1-2 days
+**Estimated Time:** 2-3 days
 
 ---
 
 ## Executive Summary
 
-The copilot-adapter has three related issues that cause Claude Code sessions to fail or underperform during long conversations, large file writes, or 1M context usage. This plan implements three targeted fixes designed in the companion design document:
+The copilot-adapter has four related issues that cause Claude Code sessions to fail or underperform during long conversations, large file writes, 1M context usage, or when effort/thinking parameters are configured. This plan implements four targeted fixes designed in the companion design document:
 
 1. **Option A — Prompt-too-long error translation:** Translate GitHub Copilot's `model_max_prompt_tokens_exceeded` HTTP 400 error into an Anthropic-format `invalid_request_error` with a message matching Claude Code's prompt-too-long regex, so Claude Code triggers automatic context compaction.
 2. **Option C — 1M context model activation:** Detect Claude Code's `anthropic-beta: context-1m-*` HTTP header and append `-1m` to the normalized Copilot model name (e.g., `claude-opus-4.6` → `claude-opus-4.6-1m`), enabling true 1M context windows via the Copilot API's distinct model ID.
-3. **Option E — Truncated tool call recovery:** When a tool call is truncated by `finish_reason: "length"`, emit a descriptive text content block instead of silently dropping the incomplete tool_use block, so Claude Code sees a text-only response and can fire its max_tokens escalation logic (8K → 64K retry).
+3. **Option D — Effort and thinking support:** Accept `output_config.effort` and `thinking` parameters from Claude Code, translate effort to `reasoning.effort` in the OpenAI request, handle `thinking`/`redacted_thinking` content blocks in conversation history (strip during translation), and suppress temperature when thinking is active.
+4. **Option E — Truncated tool call recovery:** When a tool call is truncated by `finish_reason: "length"`, emit a descriptive text content block instead of silently dropping the incomplete tool_use block, so Claude Code sees a text-only response and can fire its max_tokens escalation logic (8K → 64K retry).
 
 This plan implements:
 - New `PromptTooLong` error variant with Anthropic-compatible HTTP 400 response
 - Copilot API error body parser for `model_max_prompt_tokens_exceeded`
 - `anthropic-beta` header extraction and `context-1m-*` detection in the messages handler
 - Model name `-1m` suffix appending for 1M context activation
+- `OutputConfig` struct and `output_config` / `thinking` fields on `AnthropicRequest`
+- `Thinking` and `RedactedThinking` content block variants for conversation history
+- `Reasoning` struct and effort translation in `to_chat_completion_request()`
+- Temperature suppression when thinking is active
 - Streaming state machine changes to emit truncation notice text blocks
 - New `has_emitted_tool_use` tracking field in `StreamingState`
 - Comprehensive unit, integration, and manual E2E tests
 
-**Total estimated time:** 1.5-2.5 days
+**Total estimated time:** 2-3 days
 
 ---
 
@@ -39,7 +44,9 @@ This plan implements:
 - **`StreamingState` struct (`src/streaming/state.rs`, lines 32-68):** 13 fields. No tracking of whether complete tool_use blocks have been emitted.
 - **`regex` crate:** Already a direct dependency in `Cargo.toml` (line 27: `regex = "1"`).
 - **Messages handler (`src/handlers/messages.rs`, line 38-41):** Extracts only `State` and `Json<AnthropicRequest>`. Does not extract HTTP headers. No access to `anthropic-beta` or any other header.
-- **`AnthropicRequest` struct (`src/anthropic/types.rs`, lines 228-252):** No `betas` field. The Anthropic SDK sends betas as the `anthropic-beta` HTTP header, not in the JSON body.
+- **`AnthropicRequest` struct (`src/anthropic/types.rs`, lines 228-252):** No `betas` field. The Anthropic SDK sends betas as the `anthropic-beta` HTTP header, not in the JSON body. No `output_config` or `thinking` fields — these are silently discarded during deserialization.
+- **`ContentBlock` enum (`src/anthropic/types.rs`, lines 93-132):** No `Thinking` or `RedactedThinking` variants. Requests with these content block types in conversation history cause serde deserialization failures.
+- **`ChatCompletionRequest` struct (`src/copilot/types.rs`, lines 104-133):** No `reasoning` field for OpenAI reasoning effort.
 - **`model_mapper.rs` (lines 18-85):** Has context marker preservation logic for `-1m`/`-200k` in model names, but this code is unreachable from Claude Code — Claude Code strips `[1m]` before sending and uses the beta header instead.
 - **Copilot API models:** Live query to `GET https://api.githubcopilot.com/models` confirms `claude-opus-4.6-1m` exists as a distinct model ID alongside `claude-opus-4.6`.
 
@@ -47,6 +54,9 @@ This plan implements:
 
 - Copilot API 400 `model_max_prompt_tokens_exceeded` → adapter returns HTTP 400 with `"type": "invalid_request_error"` and message `"prompt is too long: N tokens > M maximum"` → Claude Code triggers context compaction.
 - `anthropic-beta: context-1m-*` header → adapter appends `-1m` to normalized model name → Copilot API receives 1M model ID (e.g., `claude-opus-4.6-1m`) → 1M context window activated.
+- `output_config.effort` → adapter translates to `reasoning.effort` in the OpenAI request → Copilot API receives effort preference.
+- `thinking` / `redacted_thinking` content blocks in conversation history → adapter accepts and strips during translation → no deserialization errors.
+- `thinking` parameter present → adapter suppresses temperature forwarding → compatible with thinking-enabled models.
 - Tool call truncated by `finish_reason: "length"` → adapter emits a text block `[Tool call to "ToolName" was truncated due to output token limit]` + `stop_reason: max_tokens` → Claude Code fires max_tokens escalation.
 - All existing tests continue to pass. Normal streaming and error paths unchanged.
 
@@ -63,6 +73,8 @@ This plan implements:
 | G3 | No regressions in normal streaming or tool call flows | All existing tests pass; non-error paths unchanged |
 | G4 | Works without Claude Code modifications | Adapter-only changes |
 | G5 | 1M context models are activated when Claude Code requests them | `anthropic-beta: context-1m-*` → model name has `-1m` suffix → Copilot API receives 1M model ID |
+| G6 | Effort level is forwarded to the Copilot API | `output_config.effort` → `reasoning.effort` in OpenAI request |
+| G7 | Thinking content blocks in history don't break deserialization | `thinking` and `redacted_thinking` content blocks accepted and stripped |
 
 ### Non-Goals
 
@@ -250,7 +262,7 @@ async fn handle_error_response(response: reqwest::Response) -> AppError {
 
 **File:** `src/handlers/messages.rs` (MODIFIED)
 
-**Description:** Add a helper function that checks whether the `anthropic-beta` HTTP header contains a `context-1m-*` beta. Uses prefix matching (`context-1m-`) to be forward-compatible with future date suffixes. Handles both comma-separated values in a single header and multiple repeated headers.
+**Description:** Add a helper function that checks whether the `anthropic-beta` HTTP header contains a `context-1m-*` beta. Uses prefix matching (`context-1m`) to be forward-compatible with future date suffixes. Handles both comma-separated values in a single header and multiple repeated headers.
 
 **Implementation:**
 
@@ -266,7 +278,7 @@ Add as a module-level function:
 /// Claude Code sends beta headers as a comma-separated list:
 ///   `anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...`
 ///
-/// Uses prefix matching (`context-1m-`) to be forward-compatible with
+/// Uses prefix matching (`context-1m`) to be forward-compatible with
 /// future date suffixes (the date portion may change across Claude Code versions).
 fn has_1m_context_beta(headers: &HeaderMap) -> bool {
     headers
@@ -275,7 +287,7 @@ fn has_1m_context_beta(headers: &HeaderMap) -> bool {
         .any(|value| {
             value.to_str().ok().map_or(false, |s| {
                 s.split(',')
-                    .any(|beta| beta.trim().starts_with("context-1m-"))
+                    .any(|beta| beta.trim().starts_with("context-1m"))
             })
         })
 }
@@ -292,7 +304,7 @@ fn has_1m_context_beta(headers: &HeaderMap) -> bool {
 **Notes:**
 - The `anthropic-beta` header value format is `beta1,beta2,beta3` (comma-separated, may have spaces after commas)
 - The specific beta value is `context-1m-2025-08-07` as of April 2026, defined in Claude Code's `src/constants/betas.ts:6`
-- Prefix matching on `context-1m-` ensures the adapter doesn't need updates when the beta version date changes
+- Prefix matching on `context-1m` ensures the adapter doesn't need updates when the beta version date changes
 
 #### Task 2.2: Extract `HeaderMap` in messages handler
 
@@ -509,13 +521,271 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 
 ---
 
-### Epic 4: Testing (Day 2, ~0.75 day)
+### Epic 4: Effort and Thinking Support (Day 2, ~0.5 day)
 
 **Status:** Not Started
 
-**Objective:** Ensure all three fixes are thoroughly tested with unit tests, integration tests, and documented manual E2E test procedures.
+**Objective:** Accept `output_config.effort` and `thinking` parameters from Claude Code, translate effort to `reasoning.effort` in the OpenAI request, handle `thinking`/`redacted_thinking` content blocks in conversation history, and suppress temperature when thinking is active.
 
-#### Task 4.1: Unit Tests — Error Translation
+#### Task 4.1: Add `OutputConfig` struct and fields to `AnthropicRequest`
+
+**File:** `src/anthropic/types.rs` (MODIFIED)
+
+**Description:** Add an `OutputConfig` struct with an `effort` field, and add `output_config` and `thinking` fields to `AnthropicRequest`. The `thinking` field uses `serde_json::Value` for forward-compatibility.
+
+**Implementation:**
+
+Add the `OutputConfig` struct (before `AnthropicRequest`):
+```rust
+/// Anthropic output configuration.
+///
+/// Currently only `effort` is used by the adapter. Other fields (`format`,
+/// `task_budget`) are accepted via serde's default behavior and not forwarded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputConfig {
+    /// Effort level: "low", "medium", "high", or "max".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+```
+
+Add fields to `AnthropicRequest` (after `tool_choice`):
+```rust
+/// Output configuration including effort level.
+///
+/// Claude Code sends `output_config.effort` to control model reasoning depth.
+/// Translated to `reasoning.effort` in the OpenAI request.
+#[serde(skip_serializing_if = "Option::is_none")]
+pub output_config: Option<OutputConfig>,
+
+/// Thinking configuration.
+///
+/// The adapter notes its presence (to suppress temperature forwarding) but
+/// does not translate it to OpenAI format — effort level is the closest
+/// approximation.
+#[serde(skip_serializing_if = "Option::is_none")]
+pub thinking: Option<serde_json::Value>,
+```
+
+**Acceptance Criteria:**
+- [ ] `AnthropicRequest` with `output_config` and `thinking` deserializes correctly
+- [ ] `AnthropicRequest` without these fields still deserializes (backward compatible)
+- [ ] `OutputConfig` captures `effort` field
+- [ ] Extra fields in `output_config` (e.g., `format`, `task_budget`) are silently ignored
+- [ ] `thinking` captures any JSON value shape
+
+**Notes:** `thinking` is `Option<serde_json::Value>` rather than a typed struct because the adapter only needs to detect its presence (for temperature suppression), not interpret its structure.
+
+#### Task 4.2: Add `Thinking` and `RedactedThinking` variants to `ContentBlock`
+
+**File:** `src/anthropic/types.rs` (MODIFIED)
+
+**Description:** Add new variants to the `ContentBlock` enum to handle `thinking` and `redacted_thinking` content blocks that appear in conversation history. These blocks are accepted during deserialization but stripped during translation to OpenAI format.
+
+**Implementation:**
+
+Add variants to `ContentBlock` enum (after `ToolResult`):
+```rust
+/// Thinking content block from a prior assistant turn.
+///
+/// Accepted during deserialization to avoid request failures when
+/// conversation history includes thinking blocks. Stripped during
+/// translation to OpenAI format (no equivalent exists).
+#[serde(rename = "thinking")]
+Thinking {
+    thinking: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature: Option<String>,
+},
+
+/// Redacted thinking content block from a prior assistant turn.
+///
+/// Contains opaque base64-encoded data. Like `Thinking`, accepted
+/// during deserialization and stripped during translation.
+#[serde(rename = "redacted_thinking")]
+RedactedThinking {
+    data: String,
+},
+```
+
+**Acceptance Criteria:**
+- [ ] `{"type": "thinking", "thinking": "analysis text"}` deserializes to `ContentBlock::Thinking`
+- [ ] `{"type": "thinking", "thinking": "text", "signature": "sig"}` deserializes (with optional signature)
+- [ ] `{"type": "redacted_thinking", "data": "base64data"}` deserializes to `ContentBlock::RedactedThinking`
+- [ ] Existing content block types (`text`, `image`, `document`, `tool_use`, `tool_result`) unaffected
+- [ ] Full request with thinking blocks in conversation history deserializes without error
+
+**Notes:** The `signature` field on `Thinking` is optional and may be present in some API versions. Including it prevents deserialization failures. The `RedactedThinking` variant uses `data` (opaque base64 content).
+
+#### Task 4.3: Add `Reasoning` struct and field to `ChatCompletionRequest`
+
+**File:** `src/copilot/types.rs` (MODIFIED)
+
+**Description:** Add a `Reasoning` struct with an `effort` field, and add a `reasoning` field to `ChatCompletionRequest` for the OpenAI reasoning parameter.
+
+**Implementation:**
+
+Add `Reasoning` struct:
+```rust
+/// OpenAI reasoning configuration.
+///
+/// Controls model reasoning behavior. Currently only `effort` is supported.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reasoning {
+    /// Reasoning effort level.
+    ///
+    /// Model-dependent values: "none", "minimal", "low", "medium", "high", "xhigh".
+    /// For Claude models via Copilot, typically "low", "medium", or "high".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+```
+
+Add field to `ChatCompletionRequest` (after `tool_choice`):
+```rust
+/// Reasoning configuration (effort level).
+///
+/// Translated from Anthropic's `output_config.effort`.
+#[serde(skip_serializing_if = "Option::is_none")]
+pub reasoning: Option<Reasoning>,
+```
+
+**Acceptance Criteria:**
+- [ ] `ChatCompletionRequest` with `reasoning` serializes correctly
+- [ ] `reasoning` field omitted from JSON when `None` (via `skip_serializing_if`)
+- [ ] `Reasoning { effort: Some("high") }` serializes as `{"effort": "high"}`
+- [ ] Existing `ChatCompletionRequest` construction sites compile (need `reasoning: None`)
+
+#### Task 4.4: Update `to_chat_completion_request()` for effort translation and thinking handling
+
+**File:** `src/anthropic/types.rs` (MODIFIED)
+
+**Description:** Modify `to_chat_completion_request()` to:
+1. Translate `output_config.effort` → `reasoning.effort` (with `"max"` → `"high"` mapping)
+2. Strip `Thinking` and `RedactedThinking` content blocks from messages
+3. Suppress temperature when `thinking` is present
+
+**Implementation:**
+
+**4.4a — Effort translation** (add before `ChatCompletionRequest` construction):
+```rust
+// Map Anthropic effort to OpenAI reasoning
+let reasoning = self.output_config.as_ref()
+    .and_then(|oc| oc.effort.as_ref())
+    .map(|effort| {
+        let mapped_effort = match effort.as_str() {
+            "max" => "high".to_string(),
+            other => other.to_string(),
+        };
+        tracing::debug!(
+            anthropic_effort = %effort,
+            openai_effort = %mapped_effort,
+            "Translating effort level"
+        );
+        crate::copilot::types::Reasoning {
+            effort: Some(mapped_effort),
+        }
+    });
+```
+
+**4.4b — Thinking block stripping** (add as a helper function):
+```rust
+/// Filter out thinking content blocks from a content block input.
+///
+/// Thinking and redacted_thinking blocks from prior assistant turns
+/// have no OpenAI equivalent and must be stripped before translation.
+fn strip_thinking_blocks(content: &ContentBlockInput) -> ContentBlockInput {
+    match content {
+        ContentBlockInput::Text(s) => ContentBlockInput::Text(s.clone()),
+        ContentBlockInput::Blocks(blocks) => {
+            let filtered: Vec<ContentBlock> = blocks.iter()
+                .filter(|b| !matches!(
+                    b,
+                    ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
+                ))
+                .cloned()
+                .collect();
+            ContentBlockInput::Blocks(filtered)
+        }
+    }
+}
+```
+
+Apply in the message translation loop:
+```rust
+for msg in &self.messages {
+    let content = strip_thinking_blocks(&msg.content);
+    // ... existing translation logic using `content` instead of `msg.content` ...
+}
+```
+
+**4.4c — Temperature suppression:**
+```rust
+// Suppress temperature when thinking is active
+let temperature = if self.thinking.is_some() {
+    None
+} else {
+    self.temperature
+};
+```
+
+**4.4d — Updated `ChatCompletionRequest` construction:**
+```rust
+ChatCompletionRequest {
+    model: crate::model_mapper::normalize_model_name(&self.model),
+    messages,
+    stream: self.stream,
+    temperature,          // may be None when thinking is active
+    max_tokens: Some(self.max_tokens),
+    top_p: self.top_p,
+    n: None,
+    stop,
+    presence_penalty: None,
+    frequency_penalty: None,
+    tools: None,
+    tool_choice: None,
+    reasoning,            // NEW
+}
+```
+
+**Acceptance Criteria:**
+- [ ] `output_config.effort: "low"` → `reasoning.effort: "low"`
+- [ ] `output_config.effort: "medium"` → `reasoning.effort: "medium"`
+- [ ] `output_config.effort: "high"` → `reasoning.effort: "high"`
+- [ ] `output_config.effort: "max"` → `reasoning.effort: "high"` (downgraded)
+- [ ] No `output_config` → no `reasoning` field (backward compatible)
+- [ ] `thinking` present → temperature is `None` in output
+- [ ] `thinking` absent + temperature present → temperature forwarded
+- [ ] Messages with `Thinking` content blocks → thinking blocks stripped, only text/tool blocks forwarded
+- [ ] Messages with only thinking blocks (no text) → empty content, message skipped or produces empty text
+- [ ] Existing message translation for text, image, tool_use, tool_result unaffected
+- [ ] Debug log emitted for effort translation
+
+**Notes:**
+- The `strip_thinking_blocks` function must be called before all existing content inspection functions (`has_tool_result_blocks`, `has_multimodal_blocks`, `has_tool_use_blocks`, `extract_text`) to ensure thinking blocks don't interfere with translation logic.
+- The temperature suppression is defensive — Claude Code already omits temperature when thinking is enabled, but the adapter should handle the case where both are present.
+- Messages where all content blocks are stripped (only thinking blocks) should result in either an empty text message or be skipped entirely. Empty text messages are acceptable — the upstream API will handle them.
+
+#### Task 4.5: Update all `ChatCompletionRequest` construction sites
+
+**File:** Multiple files (MODIFIED)
+
+**Description:** Anywhere `ChatCompletionRequest` is constructed directly (outside `to_chat_completion_request()`), add the new `reasoning: None` field. Search for `ChatCompletionRequest {` across the codebase to find all construction sites.
+
+**Acceptance Criteria:**
+- [ ] All `ChatCompletionRequest` construction sites include `reasoning` field
+- [ ] Project compiles without errors
+- [ ] No test regressions
+
+---
+
+### Epic 5: Testing (Day 2-3, ~0.75 day)
+
+**Status:** Not Started
+
+**Objective:** Ensure all four fixes are thoroughly tested with unit tests, integration tests, and documented manual E2E test procedures.
+
+#### Task 5.1: Unit Tests — Error Translation
 
 **File:** `tests/unit/error_tests.rs` (MODIFIED)
 
@@ -588,7 +858,7 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 
 **Notes:** The regex test is the most important — it validates the end-to-end error message chain from adapter through Anthropic SDK to Claude Code's detection logic.
 
-#### Task 4.2: Unit Tests — Copilot Error Parsing
+#### Task 5.2: Unit Tests — Copilot Error Parsing
 
 **File:** `tests/unit/copilot_client_tests.rs` (MODIFIED)
 
@@ -656,7 +926,7 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 - [ ] All 6 new parsing tests pass
 - [ ] Existing copilot client tests still pass
 
-#### Task 4.3: Unit Tests — 1M Context Beta Detection
+#### Task 5.3: Unit Tests — 1M Context Beta Detection
 
 **File:** `tests/unit/messages_tests.rs` (NEW or MODIFIED)
 
@@ -751,7 +1021,7 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 
 **Notes:** If `has_1m_context_beta()` is private to the handler module, tests can either: (a) make it `pub(crate)` for test access, or (b) test it indirectly via integration tests (Task 4.6). Prefer (a) for faster feedback.
 
-#### Task 4.4: Unit Tests — Streaming Truncation
+#### Task 5.4: Unit Tests — Streaming Truncation
 
 **File:** `tests/unit/streaming_tests.rs` (MODIFIED)
 
@@ -815,7 +1085,134 @@ if reason == "length" && self.current_block_type == Some(ContentBlockType::ToolU
 - [ ] 2 new truncation edge-case tests pass
 - [ ] All other existing streaming tests still pass (non-truncation paths unchanged)
 
-#### Task 4.5: Integration Tests — Prompt-Too-Long Translation
+#### Task 5.5: Unit Tests — Effort Translation and Thinking Blocks
+
+**File:** `tests/unit/anthropic_types_tests.rs` (NEW or MODIFIED)
+
+**Description:** Test effort translation, thinking block handling, and temperature suppression in `to_chat_completion_request()`.
+
+**Tests to implement:**
+
+1. **`effort_low_translates_to_reasoning_low`** — Direct mapping:
+   ```rust
+   #[test]
+   fn effort_low_translates_to_reasoning_low() {
+       let request = make_request_with_effort(Some("low"), None);
+       let chat_req = request.to_chat_completion_request(false);
+       assert_eq!(chat_req.reasoning.unwrap().effort.unwrap(), "low");
+   }
+   ```
+   - [ ] Test passes
+
+2. **`effort_max_translates_to_reasoning_high`** — Downgrade mapping:
+   ```rust
+   #[test]
+   fn effort_max_translates_to_reasoning_high() {
+       let request = make_request_with_effort(Some("max"), None);
+       let chat_req = request.to_chat_completion_request(false);
+       assert_eq!(chat_req.reasoning.unwrap().effort.unwrap(), "high");
+   }
+   ```
+   - [ ] Test passes
+
+3. **`no_effort_produces_no_reasoning`** — Backward compatibility:
+   ```rust
+   #[test]
+   fn no_effort_produces_no_reasoning() {
+       let request = make_request_with_effort(None, None);
+       let chat_req = request.to_chat_completion_request(false);
+       assert!(chat_req.reasoning.is_none());
+   }
+   ```
+   - [ ] Test passes
+
+4. **`thinking_present_suppresses_temperature`** — Temperature interaction:
+   ```rust
+   #[test]
+   fn thinking_present_suppresses_temperature() {
+       let request = make_request_with_thinking_and_temp(
+           Some(json!({"type": "adaptive"})),
+           Some(0.7),
+       );
+       let chat_req = request.to_chat_completion_request(false);
+       assert!(chat_req.temperature.is_none());
+   }
+   ```
+   - [ ] Test passes
+
+5. **`thinking_absent_preserves_temperature`** — Normal temperature forwarding:
+   ```rust
+   #[test]
+   fn thinking_absent_preserves_temperature() {
+       let request = make_request_with_thinking_and_temp(None, Some(0.7));
+       let chat_req = request.to_chat_completion_request(false);
+       assert_eq!(chat_req.temperature, Some(0.7));
+   }
+   ```
+   - [ ] Test passes
+
+6. **`thinking_content_block_deserializes`** — serde acceptance:
+   ```rust
+   #[test]
+   fn thinking_content_block_deserializes() {
+       let json = json!({"type": "thinking", "thinking": "analysis"});
+       let block: ContentBlock = serde_json::from_value(json).unwrap();
+       assert!(matches!(block, ContentBlock::Thinking { .. }));
+   }
+   ```
+   - [ ] Test passes
+
+7. **`redacted_thinking_content_block_deserializes`**:
+   ```rust
+   #[test]
+   fn redacted_thinking_content_block_deserializes() {
+       let json = json!({"type": "redacted_thinking", "data": "base64data"});
+       let block: ContentBlock = serde_json::from_value(json).unwrap();
+       assert!(matches!(block, ContentBlock::RedactedThinking { .. }));
+   }
+   ```
+   - [ ] Test passes
+
+8. **`thinking_blocks_stripped_from_messages`** — Translation stripping:
+   ```rust
+   #[test]
+   fn thinking_blocks_stripped_from_messages() {
+       let request = make_request_with_thinking_blocks_in_history();
+       let chat_req = request.to_chat_completion_request(false);
+       // Verify assistant message content contains only the text, not thinking
+       let assistant_msg = chat_req.messages.iter()
+           .find(|m| m.role == "assistant").unwrap();
+       match &assistant_msg.content {
+           MessageContent::Text(t) => assert!(!t.contains("thinking")),
+           _ => panic!("Expected text content"),
+       }
+   }
+   ```
+   - [ ] Test passes
+
+9. **`request_with_output_config_deserializes`** — Full request deserialization:
+   ```rust
+   #[test]
+   fn request_with_output_config_deserializes() {
+       let json = json!({
+           "model": "claude-opus-4-6",
+           "max_tokens": 8192,
+           "messages": [],
+           "output_config": {"effort": "high"},
+           "thinking": {"type": "adaptive"}
+       });
+       let request: AnthropicRequest = serde_json::from_value(json).unwrap();
+       assert_eq!(request.output_config.unwrap().effort.unwrap(), "high");
+       assert!(request.thinking.is_some());
+   }
+   ```
+   - [ ] Test passes
+
+**Acceptance Criteria:**
+- [ ] All 9 effort/thinking tests pass
+- [ ] Existing anthropic types tests still pass
+
+#### Task 5.6: Integration Tests — Prompt-Too-Long Translation
 
 **File:** `tests/integration/error_tests.rs` (MODIFIED)
 
@@ -856,7 +1253,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] Integration test passes
 - [ ] Existing integration error tests still pass
 
-#### Task 4.6: Integration Tests — Streaming Truncation
+#### Task 5.7: Integration Tests — Streaming Truncation
 
 **File:** `tests/integration/streaming_tests.rs` (NEW or MODIFIED — check if file exists)
 
@@ -877,7 +1274,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] SSE stream validated end-to-end
 - [ ] No tool_use blocks in output
 
-#### Task 4.7: Integration Tests — 1M Context Model Selection
+#### Task 5.8: Integration Tests — 1M Context Model Selection
 
 **File:** `tests/integration/messages_tests.rs` (MODIFIED)
 
@@ -902,7 +1299,26 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 - [ ] No beta header → model name unchanged
 - [ ] Existing integration message tests still pass
 
-#### Task 4.8: Manual E2E Test Procedures
+#### Task 5.9: Integration Tests — Effort Forwarding
+
+**File:** `tests/integration/messages_tests.rs` (MODIFIED)
+
+**Description:** Add an integration test that sends a request with `output_config.effort` through the adapter and verifies the mock Copilot API receives `reasoning.effort` in the request body.
+
+**Scenario:**
+1. **Setup:** Spawn a mock Copilot API that captures the request body.
+2. **Action:** Send `POST /v1/messages` with `output_config: {"effort": "high"}` and `model: "claude-opus-4-6"`.
+3. **Verification:**
+   - The mock Copilot receives `reasoning: {"effort": "high"}` in the request body
+   - The response is successful
+
+- [ ] Test passes
+
+**Acceptance Criteria:**
+- [ ] Effort forwarding verified end-to-end
+- [ ] Existing integration tests still pass
+
+#### Task 5.10: Manual E2E Test Procedures
 
 **File:** `docs/development/e2e-testing.md` (MODIFIED)
 
@@ -946,19 +1362,46 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    - Expected: Adapter forwards requests to `claude-opus-4.6-1m`; longer conversations are supported
    - [ ] Documented
 
+4. **Effort level forwarding:**
+   ```
+   1. Start copilot-adapter with --log-level trace
+   2. Start Claude Code and run /effort high
+   3. Send a message and observe the adapter trace logs
+   4. Verify the adapter log shows "Translating effort level" with anthropic_effort="high" and openai_effort="high"
+   5. Verify the outgoing request to Copilot API contains "reasoning":{"effort":"high"}
+   6. Verify the conversation works normally
+   7. Run /effort low and send another message
+   8. Verify the outgoing request contains "reasoning":{"effort":"low"}
+   ```
+   - Expected: Effort level is forwarded to Copilot API in the `reasoning` object
+   - [ ] Documented
+
+5. **Thinking blocks in conversation history:**
+   ```
+   1. Start copilot-adapter with --log-level trace
+   2. Start a Claude Code session (thinking should be enabled by default for supported models)
+   3. Have a multi-turn conversation (at least 3 turns)
+   4. Observe that subsequent requests include thinking blocks in conversation history
+   5. Verify the adapter does NOT fail with deserialization errors
+   6. Verify the outgoing requests to Copilot API do NOT contain thinking content blocks
+   7. Verify the conversation continues normally
+   ```
+   - Expected: Thinking blocks accepted and stripped; no errors
+   - [ ] Documented
+
 **Acceptance Criteria:**
-- [ ] Both E2E test procedures documented
+- [ ] All 5 E2E test procedures documented
 - [ ] Steps are reproducible
 
 ---
 
-### Epic 5: Documentation (Day 2-3, ~0.25 day)
+### Epic 6: Documentation (Day 3, ~0.25 day)
 
 **Status:** Not Started
 
-**Objective:** Update project documentation to reflect the new error handling and streaming behavior.
+**Objective:** Update project documentation to reflect the new error handling, streaming, effort, and thinking behavior.
 
-#### Task 5.1: Update CLAUDE.md
+#### Task 6.1: Update CLAUDE.md
 
 **File:** `CLAUDE.md` (MODIFIED)
 
@@ -971,24 +1414,31 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
   - The `anthropic-beta: context-1m-*` header detection mechanism
   - How `-1m` is appended to the Copilot model name
   - The relationship between Claude Code's `[1m]` suffix, the beta header, and the Copilot model ID
+- Add a note about effort and thinking support:
+  - `output_config.effort` → `reasoning.effort` translation
+  - Effort value mapping (`"max"` → `"high"`)
+  - `thinking` and `redacted_thinking` content block handling (accepted, stripped)
+  - Temperature suppression when thinking is active
+  - `OutputConfig`, `Reasoning` structs
 
 **Acceptance Criteria:**
 - [ ] CLAUDE.md updated with prompt-too-long error handling info
 - [ ] CLAUDE.md updated with truncation notice behavior
 - [ ] CLAUDE.md updated with 1M context model activation info
+- [ ] CLAUDE.md updated with effort/thinking support info
 
-#### Task 5.2: Update known issues
+#### Task 6.2: Update known issues
 
 **File:** `docs/known-issues.md` (MODIFIED)
 
 **Changes:**
-- If the prompt-too-long and truncation issues are listed as known issues, mark them as resolved with a reference to this implementation
+- If the prompt-too-long, truncation, and effort issues are listed as known issues, mark them as resolved with a reference to this implementation
 - If not listed, add them as resolved items for historical reference
 
 **Acceptance Criteria:**
 - [ ] Known issues document updated
 
-#### Task 5.3: Archive design document
+#### Task 6.3: Archive design document
 
 **File:** `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md` (MODIFIED)
 
@@ -1016,6 +1466,12 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | FR7 | Truncated tool call emits text block with `[Tool call to "X" was truncated due to output token limit]` | Design doc §Option E.2 | Epic 3 |
 | FR8 | `stop_reason: max_tokens` preserved after truncation notice | Design doc §Option E.2 | Epic 3 |
 | FR9 | Unrecognized Copilot 400 errors still return HTTP 502 `upstream_error` (existing behavior) | Design doc §NG3, NG4 | Epic 1 |
+| FR10 | `output_config.effort` → `reasoning.effort` in OpenAI request | Design doc §Option D | Epic 4 |
+| FR11 | `"max"` effort maps to `"high"` in OpenAI format | Design doc §Option D.6a | Epic 4 |
+| FR12 | No `output_config` → no `reasoning` field (backward compatible) | Design doc §Option D.8 | Epic 4 |
+| FR13 | `thinking` and `redacted_thinking` content blocks accepted in conversation history | Design doc §Option D.3 | Epic 4 |
+| FR14 | Thinking content blocks stripped during translation to OpenAI format | Design doc §Option D.6b | Epic 4 |
+| FR15 | Temperature suppressed when `thinking` parameter is present | Design doc §Option D.6c | Epic 4 |
 
 ### Non-Functional Requirements
 
@@ -1024,7 +1480,9 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | NFR1 | No new crate dependencies | Zero new dependencies | All |
 | NFR2 | Error translation adds negligible latency | <1ms additional parsing | Epic 1 |
 | NFR3 | No changes to non-error streaming paths | Identical SSE output for successful requests | Epic 3 |
-| NFR4 | Beta header detection is forward-compatible | Prefix match `context-1m-` works for future dates | Epic 2 |
+| NFR4 | Beta header detection is forward-compatible | Prefix match `context-1m` works for future dates | Epic 2 |
+| NFR5 | Effort translation adds negligible latency | <1ms additional mapping | Epic 4 |
+| NFR6 | Backward-compatible with requests lacking effort/thinking fields | Existing requests produce identical output | Epic 4 |
 
 ---
 
@@ -1036,17 +1494,20 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | `src/copilot/client.rs` | Modified | Epic 1 | Add `parse_prompt_too_long()` function, update `handle_error_response()` |
 | `src/handlers/messages.rs` | Modified | Epic 2 | Add `HeaderMap` extraction, `has_1m_context_beta()`, append `-1m` to model name |
 | `src/streaming/state.rs` | Modified | Epic 3 | Add `has_emitted_tool_use` field, emit text block on truncation |
-| `tests/unit/error_tests.rs` | Modified | Epic 4 | Add 3 tests: HTTP response format, regex match, error_type |
-| `tests/unit/copilot_client_tests.rs` | Modified | Epic 4 | Add 6 tests: prompt-too-long parsing (valid, edge cases, failures) |
-| `tests/unit/messages_tests.rs` | New/Modified | Epic 4 | Add 7 tests: 1M beta detection, model name transformation |
-| `tests/unit/streaming_tests.rs` | Modified | Epic 4 | Update 4 existing truncation tests, add 2 new edge-case tests |
-| `tests/integration/error_tests.rs` | Modified | Epic 4 | Add 1 integration test: prompt-too-long end-to-end |
-| `tests/integration/messages_tests.rs` | Modified | Epic 4 | Add 2 integration tests: 1M model selection with/without beta |
-| `tests/integration/streaming_tests.rs` | Modified/New | Epic 4 | Add 1 integration test: truncation notice in SSE stream |
-| `docs/development/e2e-testing.md` | Modified | Epic 4 | Add 3 manual E2E test procedures |
-| `CLAUDE.md` | Modified | Epic 5 | Add development notes for prompt-too-long, 1M context, and truncation handling |
-| `docs/known-issues.md` | Modified | Epic 5 | Update/add resolved issue entries |
-| `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md` | Modified | Epic 5 | Update status to "Implemented" |
+| `src/anthropic/types.rs` | Modified | Epic 4 | Add `OutputConfig` struct, `output_config`/`thinking` fields, `Thinking`/`RedactedThinking` content block variants, `strip_thinking_blocks()`, effort→reasoning translation, temperature suppression |
+| `src/copilot/types.rs` | Modified | Epic 4 | Add `Reasoning` struct, `reasoning` field on `ChatCompletionRequest` |
+| `tests/unit/error_tests.rs` | Modified | Epic 5 | Add 3 tests: HTTP response format, regex match, error_type |
+| `tests/unit/copilot_client_tests.rs` | Modified | Epic 5 | Add 6 tests: prompt-too-long parsing (valid, edge cases, failures) |
+| `tests/unit/messages_tests.rs` | New/Modified | Epic 5 | Add 7 tests: 1M beta detection, model name transformation |
+| `tests/unit/streaming_tests.rs` | Modified | Epic 5 | Update 4 existing truncation tests, add 2 new edge-case tests |
+| `tests/unit/anthropic_types_tests.rs` | New/Modified | Epic 5 | Add 9 tests: effort translation, thinking block deserialization/stripping, temperature suppression |
+| `tests/integration/error_tests.rs` | Modified | Epic 5 | Add 1 integration test: prompt-too-long end-to-end |
+| `tests/integration/messages_tests.rs` | Modified | Epic 5 | Add 2 integration tests: 1M model selection + effort forwarding |
+| `tests/integration/streaming_tests.rs` | Modified/New | Epic 5 | Add 1 integration test: truncation notice in SSE stream |
+| `docs/development/e2e-testing.md` | Modified | Epic 5 | Add 5 manual E2E test procedures |
+| `CLAUDE.md` | Modified | Epic 6 | Add development notes for prompt-too-long, 1M context, effort/thinking, and truncation handling |
+| `docs/known-issues.md` | Modified | Epic 6 | Update/add resolved issue entries |
+| `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md` | Modified | Epic 6 | Update status to "Implemented" |
 
 ---
 
@@ -1056,13 +1517,18 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 | Component | Unit Tests | Integration Tests | E2E Tests |
 |-----------|------------|-------------------|-----------|
-| `PromptTooLong` error variant | Task 4.1 (3 tests) | Task 4.5 (1 test) | Task 4.8 (procedure 1) |
-| `parse_prompt_too_long()` parser | Task 4.2 (6 tests) | Task 4.5 (1 test) | — |
-| `handle_error_response()` 400 path | — | Task 4.5 (1 test) | Task 4.8 (procedure 1) |
-| `has_1m_context_beta()` detection | Task 4.3 (7 tests) | Task 4.7 (2 tests) | Task 4.8 (procedure 3) |
-| Model name `-1m` appending | Task 4.3 (2 tests) | Task 4.7 (2 tests) | Task 4.8 (procedure 3) |
-| Truncation text notice | Task 4.4 (6 tests) | Task 4.6 (1 test) | Task 4.8 (procedure 2) |
-| `has_emitted_tool_use` tracking | Task 4.4 (implicit) | — | — |
+| `PromptTooLong` error variant | Task 5.1 (3 tests) | Task 5.6 (1 test) | Task 5.10 (procedure 1) |
+| `parse_prompt_too_long()` parser | Task 5.2 (6 tests) | Task 5.6 (1 test) | — |
+| `handle_error_response()` 400 path | — | Task 5.6 (1 test) | Task 5.10 (procedure 1) |
+| `has_1m_context_beta()` detection | Task 5.3 (7 tests) | Task 5.8 (2 tests) | Task 5.10 (procedure 3) |
+| Model name `-1m` appending | Task 5.3 (2 tests) | Task 5.8 (2 tests) | Task 5.10 (procedure 3) |
+| Truncation text notice | Task 5.4 (6 tests) | Task 5.7 (1 test) | Task 5.10 (procedure 2) |
+| `has_emitted_tool_use` tracking | Task 5.4 (implicit) | — | — |
+| Effort translation | Task 5.5 (4 tests) | Task 5.9 (1 test) | Task 5.10 (procedure 4) |
+| Thinking block deserialization | Task 5.5 (3 tests) | — | Task 5.10 (procedure 5) |
+| Thinking block stripping | Task 5.5 (1 test) | — | Task 5.10 (procedure 5) |
+| Temperature suppression | Task 5.5 (2 tests) | — | — |
+| `OutputConfig` deserialization | Task 5.5 (1 test) | — | — |
 
 ### Test Files
 
@@ -1072,10 +1538,11 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | `tests/unit/copilot_client_tests.rs` | Unit | Error body parsing (6 cases) |
 | `tests/unit/messages_tests.rs` | Unit | 1M beta detection + model name transformation (7 tests) |
 | `tests/unit/streaming_tests.rs` | Unit | Truncation notice emission (6 tests) |
+| `tests/unit/anthropic_types_tests.rs` | Unit | Effort translation, thinking blocks, temperature (9 tests) |
 | `tests/integration/error_tests.rs` | Integration | Full HTTP round-trip for prompt-too-long |
-| `tests/integration/messages_tests.rs` | Integration | 1M model selection (2 scenarios) |
+| `tests/integration/messages_tests.rs` | Integration | 1M model selection (2 scenarios) + effort forwarding (1 scenario) |
 | `tests/integration/streaming_tests.rs` | Integration | Full SSE stream with truncation |
-| `docs/development/e2e-testing.md` | Manual E2E | Long conversation + large file write + 1M context |
+| `docs/development/e2e-testing.md` | Manual E2E | Long conversation + large file write + 1M context + effort forwarding + thinking blocks |
 
 ---
 
@@ -1100,6 +1567,10 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | `src/streaming/state.rs` (`StreamingState`) | Epic 3 | ✅ Exists — adding field + modifying method |
 | `src/streaming/state.rs` (`ResponseContentBlock::text()`) | Epic 3 | ✅ Exists — constructor already defined |
 | `src/streaming/state.rs` (`StreamEvent` variants) | Epic 3 | ✅ Exists — using existing event types |
+| `src/anthropic/types.rs` (`AnthropicRequest`) | Epic 4 | ✅ Exists — adding `output_config`, `thinking` fields |
+| `src/anthropic/types.rs` (`ContentBlock`) | Epic 4 | ✅ Exists — adding `Thinking`, `RedactedThinking` variants |
+| `src/copilot/types.rs` (`ChatCompletionRequest`) | Epic 4 | ✅ Exists — adding `reasoning` field |
+| `serde_json::Value` | Epic 4 | ✅ Exists — already used throughout codebase |
 
 ---
 
@@ -1107,15 +1578,19 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 
 | Risk | Impact | Probability | Mitigation | Epic |
 |------|--------|-------------|------------|------|
-| Anthropic SDK doesn't match `prompt is too long` in JSON-stringified body | High | Low | Task 4.1 test 2 validates exact SDK behavior with regex | Epic 1 |
+| Anthropic SDK doesn't match `prompt is too long` in JSON-stringified body | High | Low | Task 5.1 test 2 validates exact SDK behavior with regex | Epic 1 |
 | Copilot API changes error message format | Medium | Low | `parse_prompt_too_long` returns `None` → falls through to generic `CopilotError` | Epic 1 |
 | Copilot API doesn't have 1M variant for a model Claude Code requests | Medium | Medium | API returns a clear error for unknown model IDs; no silent downgrade | Epic 2 |
-| Beta header date format changes | Low | Low | Prefix matching on `context-1m-` is forward-compatible | Epic 2 |
+| Beta header date format changes | Low | Low | Prefix matching on `context-1m` is forward-compatible | Epic 2 |
 | Non-Claude model gets `-1m` appended | Low | Very Low | Claude Code only sends `context-1m-*` for Claude models; Copilot rejects unknown IDs | Epic 2 |
 | Truncation text block confuses the model on retry | Low | Medium | Square-bracket format is clearly system-level; model has seen similar patterns | Epic 3 |
-| Updated streaming tests break other streaming tests | Medium | Low | Additive changes only; existing event sequences extended, not replaced | Epic 4 |
+| Updated streaming tests break other streaming tests | Medium | Low | Additive changes only; existing event sequences extended, not replaced | Epic 5 |
 | `has_emitted_tool_use` tracking has off-by-one or state leak | Low | Low | Simple boolean, set in one place, tested explicitly | Epic 3 |
 | Copilot API 400 errors from other causes wrongly matched as prompt-too-long | Low | Very Low | Checks `code` field specifically, not message text | Epic 1 |
+| Copilot API ignores `reasoning.effort` for Claude models | Medium | Medium | If ignored, behavior is unchanged from today (default effort). Verifiable via trace logging. | Epic 4 |
+| Copilot API rejects `reasoning.effort` for Claude models | Medium | Low | `skip_serializing_if = "Option::is_none"` means absent effort produces no field; `--disable-reasoning` flag can be added as escape hatch. | Epic 4 |
+| Unknown content block types beyond `thinking`/`redacted_thinking` | Low | Low | serde still fails on truly unknown types; can add more variants as discovered | Epic 4 |
+| Thinking blocks needed for model context | Low | Medium | Thinking blocks are internal reasoning artifacts; stripping is consistent with 3P proxy behavior | Epic 4 |
 
 ---
 
@@ -1232,7 +1707,7 @@ The recommended implementation order within each day:
 - The truncation notice format `[Tool call to "X" was truncated due to output token limit]` should use square brackets to distinguish from model text
 - `parse_prompt_too_long()` must return `None` (not panic) for any unexpected input
 - Existing `CopilotError` behavior must be preserved for all non-matching 400 errors
-- `has_1m_context_beta()` must use prefix matching (`context-1m-`) not exact string matching, to be forward-compatible with future beta date suffixes
+- `has_1m_context_beta()` must use prefix matching (`context-1m`) not exact string matching, to be forward-compatible with future beta date suffixes
 - The `-1m` suffix must be appended AFTER `normalize_model_name()`, not before, to ensure correct Copilot model ID format
 - The guard `!model.contains("-1m")` must prevent double-appending in all code paths
 

@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The copilot-adapter has three related issues that cause Claude Code sessions to fail or underperform during long conversations, large file writes, or 1M context usage:
+The copilot-adapter has four related issues that cause Claude Code sessions to fail or underperform during long conversations, large file writes, 1M context usage, or when effort/thinking parameters are configured:
 
 1. **Context window mismatch** — Claude Code believes `claude-opus-4-6` has a 200K context window (its built-in default), but the GitHub Copilot API enforces a 168K prompt-token limit. When the prompt exceeds this, the Copilot API returns HTTP 400 `model_max_prompt_tokens_exceeded`. The adapter wraps this as a generic 502 `upstream_error`, which Claude Code treats as an opaque connection failure rather than a "prompt too long" error that would trigger automatic context compaction.
 
@@ -17,9 +17,12 @@ The copilot-adapter has three related issues that cause Claude Code sessions to 
 
 3. **1M context models not activated** — When Claude Code's user selects "Opus (1M context)" or "Sonnet (1M context)", Claude Code communicates this via the `anthropic-beta: context-1m-2025-08-07` HTTP header, **not** via the model name. The adapter currently ignores this header. Meanwhile, the GitHub Copilot API exposes 1M context as a **separate model** (e.g., `claude-opus-4.6-1m`). The adapter needs to detect the beta header and select the correct Copilot model name.
 
-This document designs three targeted fixes:
+4. **Effort and thinking parameters silently dropped** — Claude Code sends `output_config.effort` (e.g., `"low"`, `"medium"`, `"high"`) and `thinking` configuration (e.g., `{"type": "adaptive"}` or `{"type": "enabled", "budget_tokens": 8000}`) to control model reasoning behavior. The adapter's `AnthropicRequest` struct has no fields for these parameters, so they are silently discarded during deserialization. Additionally, prior assistant messages may contain `thinking` and `redacted_thinking` content blocks from earlier turns; the `ContentBlock` enum has no variants for these, causing deserialization failures. The OpenAI/Copilot API uses a `reasoning` object (`{"effort": "low"}`) for similar functionality — the adapter needs to translate between formats.
+
+This document designs four targeted fixes:
 - **Option A**: Translate Copilot 400 `model_max_prompt_tokens_exceeded` into an Anthropic-format `invalid_request_error` with a message that matches Claude Code's prompt-too-long regex, returning HTTP 400.
 - **Option C**: Detect the `anthropic-beta: context-1m-*` header and append `-1m` to the normalized Copilot model name, enabling 1M context window passthrough.
+- **Option D**: Accept effort and thinking parameters from Claude Code, translate `output_config.effort` to OpenAI's `reasoning.effort`, gracefully handle `thinking` content blocks in conversation history, and silently omit temperature when thinking is active.
 - **Option E**: When a tool call is truncated, emit a text content block explaining the truncation instead of dropping it silently, so Claude Code sees a text-only response and can fire max_tokens escalation.
 
 ---
@@ -157,12 +160,168 @@ With the adapter's buffering, tool_use events are held in `tool_use_buffer` and 
 
 For the single-tool case (the most common truncation scenario), the adapter currently works correctly — Claude Code sees only text + `max_tokens`, and escalation should fire. But the conversation logs show it doesn't always fire, suggesting there may be more nuance in Claude Code's `needsFollowUp` detection. **Option E improves this by adding explicit truncation context regardless.**
 
+#### Effort and thinking: How Claude Code sends effort/thinking parameters
+
+Claude Code sends two separate but related parameters to control model reasoning:
+
+**1. Effort (`output_config.effort`)** — controls the model's reasoning depth.
+
+**`claude-code/src/services/api/claude.ts` (lines 440-466) — `configureEffortParams()`:**
+```typescript
+function configureEffortParams(effortValue, outputConfig, extraBodyParams, betas, model) {
+  if (!modelSupportsEffort(model) || 'effort' in outputConfig) return;
+  if (effortValue === undefined) {
+    betas.push(EFFORT_BETA_HEADER)         // 'effort-2026-03-13'
+  } else if (typeof effortValue === 'string') {
+    outputConfig.effort = effortValue       // 'low' | 'medium' | 'high' | 'max'
+    betas.push(EFFORT_BETA_HEADER)
+  } else if (process.env.USER_TYPE === 'ant') {
+    extraBodyParams.anthropic_internal = { effort_override: effortValue }
+  }
+}
+```
+
+The resulting API request includes:
+```json
+{
+  "output_config": { "effort": "medium" },
+  "betas": ["effort-2026-03-13"]
+}
+```
+
+**Valid effort values:** `"low"`, `"medium"`, `"high"`, `"max"` (max = Opus 4.6 only).
+
+**Supported models:** Opus 4.6, Sonnet 4.6 (see `claude-code/src/utils/effort.ts`).
+
+**Resolution priority:** `CLAUDE_CODE_EFFORT_LEVEL` env var → `/effort` command state → model default (Opus 4.6 defaults to `"medium"`).
+
+**2. Thinking (`thinking`)** — controls the model's internal reasoning process.
+
+**`claude-code/src/services/api/claude.ts` (lines 1596-1630):**
+```typescript
+if (hasThinking && modelSupportsThinking(options.model)) {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING)
+      && modelSupportsAdaptiveThinking(options.model)) {
+    thinking = { type: 'adaptive' }     // Opus 4.6+, Sonnet 4.6+
+  } else {
+    let thinkingBudget = getMaxThinkingTokensForModel(options.model)
+    thinkingBudget = Math.min(maxOutputTokens - 1, thinkingBudget)
+    thinking = { type: 'enabled', budget_tokens: thinkingBudget }
+  }
+}
+```
+
+**Key interactions:**
+- When thinking is enabled, Claude Code **omits temperature** from the request (the API requires temperature=1 as default with thinking).
+- The `betas` array (including `effort-2026-03-13`) is sent as the `anthropic-beta` HTTP header by the SDK, NOT in the JSON body.
+- `output_config` and `thinking` are top-level fields in the Anthropic request JSON body.
+
+**3. Thinking content blocks in conversation history**
+
+Prior assistant messages may contain `thinking` and `redacted_thinking` content blocks:
+```json
+{
+  "role": "assistant",
+  "content": [
+    {"type": "thinking", "thinking": "Let me analyze this..."},
+    {"type": "redacted_thinking", "data": "..."},
+    {"type": "text", "text": "Here's my answer..."}
+  ]
+}
+```
+
+Claude Code sends these blocks back in subsequent requests as part of the conversation history (line 659: filtering logic for cache control, but blocks are preserved).
+
+#### Effort and thinking: Current adapter behavior
+
+The adapter has **zero support** for effort, thinking, or the related content blocks:
+
+**`AnthropicRequest` struct (`src/anthropic/types.rs`, lines 228-252):**
+```rust
+pub struct AnthropicRequest {
+    pub model: String,
+    pub max_tokens: u32,
+    pub messages: Vec<AnthropicMessage>,
+    pub system: Option<SystemInput>,
+    pub stream: Option<bool>,
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub stop_sequences: Option<Vec<String>>,
+    pub tools: Option<Vec<ToolDefinition>>,
+    pub tool_choice: Option<serde_json::Value>,
+    // MISSING: output_config, thinking, betas
+}
+```
+
+**`ContentBlock` enum (`src/anthropic/types.rs`, lines 93-132):**
+```rust
+pub enum ContentBlock {
+    Text { text: String, ... },
+    Image { source: ImageSource, ... },
+    Document { source: DocumentSource, ... },
+    ToolUse { id: String, name: String, input: Value, ... },
+    ToolResult { tool_use_id: String, content: ToolResultContent, ... },
+    // MISSING: Thinking, RedactedThinking
+}
+```
+
+**`ChatCompletionRequest` struct (`src/copilot/types.rs`, lines 104-133):**
+```rust
+pub struct ChatCompletionRequest {
+    pub model: String,
+    pub messages: Vec<Message>,
+    pub stream: Option<bool>,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<u32>,
+    // ... other fields ...
+    // MISSING: reasoning
+}
+```
+
+**Consequences:**
+- `output_config` and `thinking` fields in incoming requests are silently discarded by serde (no `#[serde(deny_unknown_fields)]`).
+- If a prior conversation turn includes `thinking` or `redacted_thinking` content blocks, deserialization of the `ContentBlock` enum **fails** with a serde error because no matching variant exists, causing HTTP 400 back to Claude Code.
+- Effort level has no effect — the model always runs at its default reasoning depth.
+- Temperature is always forwarded, even when Claude Code has omitted it for thinking-enabled requests (not currently an issue since thinking params are dropped, but would conflict if thinking were partially supported).
+
+#### Effort and thinking: OpenAI/Copilot API target format
+
+The OpenAI API uses a `reasoning` object for controlling reasoning behavior:
+
+```json
+{
+  "model": "claude-sonnet-4.6",
+  "messages": [...],
+  "reasoning": {
+    "effort": "medium"
+  }
+}
+```
+
+**`reasoning` object fields:**
+- `effort` — string, model-dependent values: `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`
+- `summary` — optional, controls reasoning summaries: `"auto"`, `"concise"`, `"detailed"`
+
+**Key differences from Anthropic format:**
+| Anthropic | OpenAI/Copilot |
+|-----------|---------------|
+| `output_config.effort: "low"` | `reasoning.effort: "low"` |
+| `output_config.effort: "medium"` | `reasoning.effort: "medium"` |
+| `output_config.effort: "high"` | `reasoning.effort: "high"` |
+| `output_config.effort: "max"` | `reasoning.effort: "high"` (best approximation) |
+| `thinking.type: "adaptive"` | No direct equivalent — effort controls this implicitly |
+| `thinking.type: "enabled"` + `budget_tokens` | No direct equivalent |
+
+**Whether the Copilot API forwards `reasoning.effort` to Claude models is unconfirmed** — this is an OpenAI API parameter; the Copilot API may or may not translate it to Claude's native `output_config.effort` / `thinking` parameters. Testing is required.
+
 ### Target State / Desired Behavior
 
 1. When the Copilot API rejects a request for exceeding its prompt token limit, Claude Code receives a "prompt is too long" error and triggers automatic context compaction
 2. When a tool call is truncated by the output token limit, Claude Code receives an informative text block and `stop_reason: max_tokens`, enabling max_tokens escalation
 3. When Claude Code sends the `anthropic-beta: context-1m-*` header, the adapter selects the Copilot API's 1M model variant (e.g., `claude-opus-4.6-1m`), enabling true 1M context windows
-4. No changes required to Claude Code
+4. When Claude Code sends `output_config.effort`, the adapter translates it to `reasoning.effort` in the OpenAI request, preserving the user's effort preference
+5. When conversation history contains `thinking` or `redacted_thinking` content blocks, the adapter accepts them gracefully (strips them from the translated request since OpenAI format has no equivalent)
+6. No changes required to Claude Code
 
 ---
 
@@ -188,10 +347,25 @@ Claude Code receives HTTP 502, treats it as a generic upstream failure. No compa
 ```
 Claude Code receives `stop_reason: max_tokens` with text content only. If escalation fires, the retry with 64K budget succeeds. If it doesn't fire (edge cases), Claude Code enters a confused loop.
 
+**Observed behavior (Issue 4 — effort/thinking parameters dropped):**
+```
+User sets /effort high in Claude Code
+Claude Code sends:
+  POST /v1/messages
+  anthropic-beta: effort-2026-03-13,...
+  {"model":"claude-opus-4-6","output_config":{"effort":"high"},"thinking":{"type":"adaptive"},...}
+
+copilot-adapter: deserializes AnthropicRequest — output_config and thinking fields silently dropped
+copilot-adapter: forwards to Copilot API with no reasoning parameter
+```
+Model runs at default effort level. User's `/effort high` setting has no effect. If conversation history includes `thinking` content blocks, the request fails entirely with a deserialization error.
+
 **Impact:**
 - Long Claude Code sessions become unusable when the conversation approaches 168K tokens
 - Large file writes fail when the tool call arguments exceed the output token budget
 - 1M context selections in Claude Code have no effect — users get 168K even when they explicitly request 1M
+- Effort level settings (`/effort low|medium|high`) have no effect — model always uses its default
+- Conversations that include thinking content blocks in history fail with deserialization errors
 
 ---
 
@@ -206,6 +380,8 @@ Claude Code receives `stop_reason: max_tokens` with text content only. If escala
 | G3 | No regressions in normal streaming or tool call flows | All existing tests pass; non-error paths unchanged |
 | G4 | Works without Claude Code modifications | Adapter-only changes |
 | G5 | 1M context models are activated when Claude Code requests them | `anthropic-beta: context-1m-*` → model name has `-1m` suffix → Copilot API receives 1M model ID |
+| G6 | Effort level is forwarded to the Copilot API | `output_config.effort` → `reasoning.effort` in OpenAI request; model uses requested effort level |
+| G7 | Thinking content blocks in history don't break deserialization | `thinking` and `redacted_thinking` content blocks are accepted and gracefully stripped during translation |
 
 ### Non-Goals
 
@@ -215,6 +391,9 @@ Claude Code receives `stop_reason: max_tokens` with text content only. If escala
 | NG2 | Modifying Claude Code source | We control only the adapter |
 | NG3 | Handling all Copilot API error codes | Only `model_max_prompt_tokens_exceeded` is addressed |
 | NG4 | Changing the error format for all error types | Only prompt-too-long gets special treatment |
+| NG5 | Translating `thinking.budget_tokens` to an OpenAI equivalent | OpenAI has no `budget_tokens` parameter; effort level is the closest approximation |
+| NG6 | Returning `thinking` content blocks in responses | The Copilot API does not return thinking blocks; effort controls reasoning depth implicitly |
+| NG7 | Supporting the `"max"` effort level as a distinct OpenAI value | `"max"` maps to `"high"` — Opus 4.6-only semantics don't have a direct OpenAI equivalent |
 
 ---
 
@@ -352,7 +531,7 @@ anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...
 
 **The `betas` field is NOT in the JSON body** — it's an HTTP header set by the SDK.
 
-The specific beta header value is `context-1m-2025-08-07` (defined in `constants/betas.ts:6`). The date suffix may change in future versions. Detection should use a **prefix match** on `context-1m-` rather than an exact string match.
+The specific beta header value is `context-1m-2025-08-07` (defined in `constants/betas.ts:6`). The date suffix may change in future versions. Detection should use a **prefix match** on `context-1m` rather than an exact string match.
 
 ### Key Finding 8: Copilot API model discovery confirms 1M models
 
@@ -384,6 +563,89 @@ claude-opus-4-6-1m  →  claude-opus-4.6-1m
 This produces exactly the model name that the Copilot API expects. However, this code path is **never triggered** because Claude Code sends `claude-opus-4-6` (without `-1m`) and communicates the context size via the beta header instead.
 
 The fix (Option C) bridges this gap by detecting the beta header and **appending** `-1m` to the normalized model name after normalization. This makes the existing model_mapper context-preservation logic a secondary fallback (for hypothetical direct callers), while the primary path uses the beta header.
+
+### Key Finding 10: Claude Code's effort and thinking request structure
+
+Claude Code sends effort and thinking as **separate top-level fields** in the Anthropic API request body:
+
+```json
+{
+  "model": "claude-opus-4-6",
+  "max_tokens": 16384,
+  "output_config": { "effort": "high" },
+  "thinking": { "type": "adaptive" },
+  "messages": [...],
+  "system": [...],
+  "tools": [...]
+}
+```
+
+The `output_config` field is an object that can contain:
+- `effort` — string: `"low"`, `"medium"`, `"high"`, `"max"`
+- `format` — structured output format (separate feature, not in scope)
+- `task_budget` — API-side token budget (separate feature, not in scope)
+
+The `thinking` field has two forms:
+- `{"type": "adaptive"}` — for Opus 4.6+, Sonnet 4.6+ (adaptive thinking, no explicit budget)
+- `{"type": "enabled", "budget_tokens": 8000}` — for older models (explicit budget)
+
+Additionally, the `effort-2026-03-13` beta is sent via the `anthropic-beta` HTTP header. This is purely informational from the adapter's perspective — the effort value in `output_config.effort` is what controls behavior.
+
+### Key Finding 11: serde behavior with unknown fields
+
+Rust's serde `#[derive(Deserialize)]` **silently discards** unknown fields by default (without `#[serde(deny_unknown_fields)]`). The adapter's `AnthropicRequest` struct does not use `deny_unknown_fields`, so `output_config` and `thinking` top-level fields are silently ignored.
+
+However, the `ContentBlock` enum uses `#[serde(tag = "type")]` (internally tagged), which means a content block with `"type": "thinking"` will fail to match any variant and cause a deserialization error for the **entire request**. This is the critical failure mode — not the missing top-level fields, but the unrecognized content block types in conversation history.
+
+### Key Finding 12: OpenAI `reasoning` parameter structure
+
+The OpenAI Chat Completions API uses a `reasoning` object:
+
+```json
+{
+  "model": "claude-sonnet-4.6",
+  "messages": [...],
+  "reasoning": {
+    "effort": "medium"
+  }
+}
+```
+
+**Supported `reasoning.effort` values** (model-dependent): `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`.
+
+The `reasoning` object also supports:
+- `summary` — reasoning summaries: `"auto"`, `"concise"`, `"detailed"` (not in scope)
+
+**Effort value mapping (Anthropic → OpenAI):**
+
+| Anthropic `output_config.effort` | OpenAI `reasoning.effort` | Notes |
+|----------------------------------|--------------------------|-------|
+| `"low"` | `"low"` | Direct mapping |
+| `"medium"` | `"medium"` | Direct mapping |
+| `"high"` | `"high"` | Direct mapping |
+| `"max"` | `"high"` | No `"xhigh"` for Claude models on Copilot; `"high"` is best approximation |
+| (absent/undefined) | (omit field) | Let model use its default |
+
+**Whether the Copilot API actually forwards `reasoning.effort` to Claude models is unconfirmed.** The Copilot API may pass it through to the underlying model, ignore it, or translate it. Testing is required. However, sending the field is low-risk — if unsupported, the API will either ignore it or return a clear error.
+
+### Key Finding 13: `thinking` and `redacted_thinking` content blocks in conversation history
+
+Claude Code includes `thinking` and `redacted_thinking` blocks in assistant messages when sending conversation history back:
+
+```json
+{
+  "role": "assistant",
+  "content": [
+    {"type": "thinking", "thinking": "Let me analyze the code structure..."},
+    {"type": "redacted_thinking", "data": "base64encodeddata"},
+    {"type": "text", "text": "I'll help you with that."}
+  ]
+}
+```
+
+The adapter's `ContentBlock` enum has no variants for these types. With `#[serde(tag = "type")]`, encountering `"type": "thinking"` causes serde to fail the entire message deserialization.
+
+**The fix is to add catch-all variants** that accept these content blocks during deserialization but **strip them** during translation to OpenAI format (since OpenAI has no equivalent). This mirrors how the adapter already handles `Document` blocks — accepted in input, gracefully skipped in translation.
 
 ---
 
@@ -636,7 +898,7 @@ Add a helper function to check for the `context-1m-*` beta:
 /// Claude Code sends beta headers as a comma-separated list:
 ///   `anthropic-beta: context-1m-2025-08-07,interleaved-thinking-2025-05-14,...`
 ///
-/// Uses prefix matching (`context-1m-`) to be forward-compatible with
+/// Uses prefix matching (`context-1m`) to be forward-compatible with
 /// future date suffixes.
 fn has_1m_context_beta(headers: &HeaderMap) -> bool {
     headers
@@ -645,13 +907,13 @@ fn has_1m_context_beta(headers: &HeaderMap) -> bool {
         .any(|value| {
             value.to_str().ok().map_or(false, |s| {
                 s.split(',')
-                    .any(|beta| beta.trim().starts_with("context-1m-"))
+                    .any(|beta| beta.trim().starts_with("context-1m"))
             })
         })
 }
 ```
 
-**Why prefix matching:** The beta header value includes a date suffix (e.g., `context-1m-2025-08-07`). This date may change in future Claude Code versions. Prefix matching on `context-1m-` is forward-compatible without requiring adapter updates for each new beta version.
+**Why prefix matching:** The beta header value includes a date suffix (e.g., `context-1m-2025-08-07`). This date may change in future Claude Code versions. Prefix matching on `context-1m` is forward-compatible without requiring adapter updates for each new beta version.
 
 **Header format:** The `anthropic-beta` header can appear as:
 - A single header with comma-separated values: `anthropic-beta: context-1m-2025-08-07,other-beta`
@@ -749,7 +1011,366 @@ Both paths produce the same result (e.g., `claude-opus-4.6-1m`). The fallback ha
 
 **Note on missing 1M variants:** If Claude Code sends `context-1m-*` for a model that doesn't have a Copilot 1M variant (e.g., `claude-sonnet-4.6-1m` doesn't currently exist), the Copilot API will return an error. This is the correct behavior — the adapter shouldn't silently downgrade to the standard model, as that would give the user a false sense of extended context.
 
+**Note on missing 1M variants:** If Claude Code sends `context-1m-*` for a model that doesn't have a Copilot 1M variant (e.g., `claude-sonnet-4.6-1m` doesn't currently exist), the Copilot API will return an error. This is the correct behavior — the adapter shouldn't silently downgrade to the standard model, as that would give the user a false sense of extended context.
+
 ---
+
+### Option D: Translate effort parameters and handle thinking content blocks
+
+#### Overview
+
+The adapter needs to:
+1. **Accept** `output_config` and `thinking` fields from the Anthropic request (currently silently dropped)
+2. **Translate** `output_config.effort` → `reasoning.effort` in the OpenAI request
+3. **Accept** `thinking` and `redacted_thinking` content blocks in conversation history (currently causes deserialization failure)
+4. **Strip** thinking content blocks during translation (OpenAI has no equivalent)
+5. **Handle temperature interaction** — when thinking is present, don't forward temperature (Claude Code already omits it, but the adapter should be defensive)
+
+#### 1. Add `output_config` and `thinking` fields to `AnthropicRequest`
+
+**File: `src/anthropic/types.rs`**
+
+Add new fields to `AnthropicRequest`:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicRequest {
+    pub model: String,
+    pub max_tokens: u32,
+    pub messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemInput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<serde_json::Value>,
+
+    // --- NEW: Effort and thinking support ---
+
+    /// Output configuration including effort level.
+    ///
+    /// Claude Code sends `output_config.effort` as `"low"`, `"medium"`, `"high"`,
+    /// or `"max"` to control model reasoning depth. Translated to `reasoning.effort`
+    /// in the OpenAI request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<OutputConfig>,
+
+    /// Thinking configuration.
+    ///
+    /// Claude Code sends `thinking.type` as `"adaptive"` (Opus/Sonnet 4.6+) or
+    /// `"enabled"` with `budget_tokens` (older models). The adapter notes its
+    /// presence (to suppress temperature forwarding) but does not translate it
+    /// to OpenAI format — effort level is the closest approximation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+}
+```
+
+**Note:** `thinking` is typed as `Option<serde_json::Value>` rather than a strongly-typed struct. This is intentional — the adapter doesn't need to interpret the thinking configuration beyond detecting its presence (for temperature suppression). Using `Value` is forward-compatible with any future thinking parameter shapes.
+
+#### 2. Add `OutputConfig` struct
+
+**File: `src/anthropic/types.rs`**
+
+```rust
+/// Anthropic output configuration.
+///
+/// Currently only `effort` is used by the adapter. Other fields (`format`,
+/// `task_budget`) are accepted via serde's default behavior (silently ignored
+/// if not present in the struct) and not forwarded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputConfig {
+    /// Effort level: "low", "medium", "high", or "max".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+```
+
+**Why not include `format` and `task_budget`:** These are separate Anthropic API features (structured outputs and task budgets) that the adapter doesn't currently translate. Serde's default behavior silently ignores extra fields in the JSON that don't have corresponding struct fields, so adding them later is non-breaking.
+
+#### 3. Add `Thinking` and `RedactedThinking` variants to `ContentBlock`
+
+**File: `src/anthropic/types.rs`**
+
+Add new variants to handle thinking content blocks in conversation history:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    #[serde(rename = "image")]
+    Image {
+        source: ImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    #[serde(rename = "document")]
+    Document {
+        source: DocumentSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: ToolResultContent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+
+    // --- NEW: Thinking content blocks ---
+
+    /// Thinking content block from a prior assistant turn.
+    ///
+    /// Accepted during deserialization to avoid request failures when
+    /// conversation history includes thinking blocks. Stripped during
+    /// translation to OpenAI format (no equivalent exists).
+    #[serde(rename = "thinking")]
+    Thinking {
+        thinking: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Redacted thinking content block from a prior assistant turn.
+    ///
+    /// Contains opaque base64-encoded data. Like `Thinking`, accepted
+    /// during deserialization and stripped during translation.
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking {
+        data: String,
+    },
+}
+```
+
+**Why explicit variants instead of a catch-all `#[serde(other)]`:** The `Thinking` and `RedactedThinking` variants have specific field names (`thinking`, `data`, `signature`) that serde needs to parse. A catch-all `other` variant with `#[serde(tag = "type")]` wouldn't capture the fields. Explicit variants also provide clear documentation and enable type-safe matching in translation code.
+
+#### 4. Add `reasoning` field to `ChatCompletionRequest`
+
+**File: `src/copilot/types.rs`**
+
+```rust
+/// OpenAI-compatible chat completion request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionRequest {
+    pub model: String,
+    pub messages: Vec<Message>,
+    // ... existing fields ...
+
+    /// Reasoning configuration (effort level).
+    ///
+    /// Translated from Anthropic's `output_config.effort`. Controls the
+    /// model's reasoning depth via the OpenAI `reasoning.effort` parameter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Reasoning>,
+}
+```
+
+#### 5. Add `Reasoning` struct
+
+**File: `src/copilot/types.rs`**
+
+```rust
+/// OpenAI reasoning configuration.
+///
+/// Controls model reasoning behavior. Currently only `effort` is supported.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reasoning {
+    /// Reasoning effort level.
+    ///
+    /// Model-dependent values: "none", "minimal", "low", "medium", "high", "xhigh".
+    /// For Claude models via Copilot, typically "low", "medium", or "high".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+```
+
+#### 6. Update `to_chat_completion_request()` to translate effort and strip thinking blocks
+
+**File: `src/anthropic/types.rs` — `to_chat_completion_request()`**
+
+Two changes:
+
+**6a. Translate effort:**
+
+```rust
+// Map Anthropic effort to OpenAI reasoning
+let reasoning = self.output_config.as_ref()
+    .and_then(|oc| oc.effort.as_ref())
+    .map(|effort| {
+        let mapped_effort = match effort.as_str() {
+            "max" => "high".to_string(),  // "max" is Opus 4.6 only; best OpenAI approximation
+            other => other.to_string(),    // "low", "medium", "high" map directly
+        };
+        tracing::debug!(
+            anthropic_effort = %effort,
+            openai_effort = %mapped_effort,
+            "Translating effort level"
+        );
+        Reasoning {
+            effort: Some(mapped_effort),
+        }
+    });
+```
+
+**6b. Strip thinking content blocks from messages:**
+
+Update the message translation loop to filter out `Thinking` and `RedactedThinking` content blocks. This affects `extract_text()`, `has_multimodal_blocks()`, and the direct content translation paths.
+
+The simplest approach: add a pre-filter step that removes thinking blocks from each message's content before processing:
+
+```rust
+// In the message translation loop, before processing content blocks:
+// Filter out thinking content blocks (no OpenAI equivalent)
+fn strip_thinking_blocks(content: &ContentBlockInput) -> ContentBlockInput {
+    match content {
+        ContentBlockInput::Text(s) => ContentBlockInput::Text(s.clone()),
+        ContentBlockInput::Blocks(blocks) => {
+            let filtered: Vec<ContentBlock> = blocks.iter()
+                .filter(|b| !matches!(b, ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }))
+                .cloned()
+                .collect();
+            ContentBlockInput::Blocks(filtered)
+        }
+    }
+}
+```
+
+**6c. Handle temperature interaction:**
+
+When `thinking` is present in the request, suppress temperature forwarding. Claude Code already omits temperature when thinking is enabled, but the adapter should be defensive:
+
+```rust
+// Suppress temperature when thinking is active (API requires temperature=1 default)
+let temperature = if self.thinking.is_some() {
+    None
+} else {
+    self.temperature
+};
+```
+
+**6d. Updated `ChatCompletionRequest` construction:**
+
+```rust
+ChatCompletionRequest {
+    model: crate::model_mapper::normalize_model_name(&self.model),
+    messages,
+    stream: self.stream,
+    temperature,          // may be None when thinking is active
+    max_tokens: Some(self.max_tokens),
+    top_p: self.top_p,
+    n: None,
+    stop,
+    presence_penalty: None,
+    frequency_penalty: None,
+    tools: None,
+    tool_choice: None,
+    reasoning,            // NEW: translated from output_config.effort
+}
+```
+
+#### 7. Full request flow with Option D
+
+**With effort configured:**
+```
+Claude Code sends:
+  POST /v1/messages
+  anthropic-beta: effort-2026-03-13,interleaved-thinking-2025-05-14,...
+  {
+    "model": "claude-opus-4-6",
+    "output_config": {"effort": "high"},
+    "thinking": {"type": "adaptive"},
+    "messages": [
+      {"role": "user", "content": "Help me with this code"},
+      {"role": "assistant", "content": [
+        {"type": "thinking", "thinking": "Let me analyze..."},
+        {"type": "text", "text": "I'll help you..."}
+      ]},
+      {"role": "user", "content": "Thanks, now fix the bug"}
+    ],
+    ...
+  }
+    ↓
+Adapter: deserialize AnthropicRequest
+  - output_config.effort = "high" ✓
+  - thinking = {"type": "adaptive"} ✓ (captured as serde_json::Value)
+  - ContentBlock::Thinking accepted ✓ (new variant)
+    ↓
+Adapter: to_chat_completion_request()
+  1. Map effort: "high" → reasoning.effort = "high"
+  2. Strip thinking blocks from assistant message content
+  3. Suppress temperature (thinking present)
+    ↓
+Copilot API receives:
+  POST /chat/completions
+  {
+    "model": "claude-opus-4.6",
+    "messages": [
+      {"role": "user", "content": "Help me with this code"},
+      {"role": "assistant", "content": "I'll help you..."},
+      {"role": "user", "content": "Thanks, now fix the bug"}
+    ],
+    "reasoning": {"effort": "high"},
+    ...
+  }
+```
+
+**Without effort (default behavior, backward-compatible):**
+```
+Claude Code sends:
+  {"model": "claude-opus-4-6", "messages": [...], ...}
+    ↓
+Adapter: output_config = None, thinking = None
+    ↓
+Copilot API receives:
+  {"model": "claude-opus-4.6", "messages": [...], ...}
+  (no reasoning field — serde skips None with skip_serializing_if)
+```
+
+#### 8. Edge cases
+
+| Scenario | Input | Output | Notes |
+|----------|-------|--------|-------|
+| Effort "low" | `output_config.effort: "low"` | `reasoning.effort: "low"` | Direct mapping |
+| Effort "medium" | `output_config.effort: "medium"` | `reasoning.effort: "medium"` | Direct mapping |
+| Effort "high" | `output_config.effort: "high"` | `reasoning.effort: "high"` | Direct mapping |
+| Effort "max" | `output_config.effort: "max"` | `reasoning.effort: "high"` | Downgraded — no "xhigh" for Claude |
+| No effort | (field absent) | (field absent) | Backward-compatible |
+| Effort with no value | `output_config: {}` | (field absent) | Empty output_config |
+| Thinking adaptive | `thinking: {"type": "adaptive"}` | temperature=None, no reasoning change | Thinking noted, temperature suppressed |
+| Thinking with budget | `thinking: {"type": "enabled", "budget_tokens": 8000}` | temperature=None, no reasoning change | Same as adaptive |
+| Thinking blocks in history | `content: [{"type": "thinking", ...}, {"type": "text", ...}]` | Only text block forwarded | Thinking stripped |
+| Redacted thinking in history | `content: [{"type": "redacted_thinking", ...}]` | Content stripped | No content forwarded for that block |
+| All-thinking message | `content: [{"type": "thinking", ...}]` | Empty content → skipped | Message has no translatable content |
+| Unknown output_config fields | `output_config: {"effort": "high", "format": {...}}` | Only effort mapped | Extra fields silently ignored by serde |
+
+---
+
+### Option E: Emit text block for truncated tool calls
 
 #### 1. Add state tracking for emitted tool_use blocks
 
@@ -889,12 +1510,15 @@ This is a valid Anthropic streaming response.
 | `src/error.rs` | Modified | Add `PromptTooLong` variant, HTTP 400 mapping, `error_type()` arm |
 | `src/copilot/client.rs` | Modified | Add `parse_prompt_too_long()`, update `handle_error_response()` |
 | `src/handlers/messages.rs` | Modified | Extract `anthropic-beta` header, add `has_1m_context_beta()`, append `-1m` to model name when beta detected |
+| `src/anthropic/types.rs` | Modified | Add `OutputConfig` struct, `output_config` and `thinking` fields to `AnthropicRequest`, `Thinking` and `RedactedThinking` variants to `ContentBlock`, `strip_thinking_blocks()` helper, effort→reasoning translation in `to_chat_completion_request()` |
+| `src/copilot/types.rs` | Modified | Add `Reasoning` struct and `reasoning` field to `ChatCompletionRequest` |
 | `src/streaming/state.rs` | Modified | Add `has_emitted_tool_use` field, emit text block on truncation |
 | `tests/unit/error_tests.rs` | Modified | Add test for `PromptTooLong` error format |
 | `tests/unit/streaming_tests.rs` | Modified | Update truncation tests to expect text block |
 | `tests/unit/messages_tests.rs` | New/Modified | Add tests for `has_1m_context_beta()` and model name with 1M suffix |
+| `tests/unit/anthropic_types_tests.rs` | New/Modified | Add tests for effort translation, thinking block stripping, temperature suppression |
 | `tests/integration/error_tests.rs` | Modified | Add integration test for prompt-too-long translation |
-| `tests/integration/messages_tests.rs` | Modified | Add integration test for 1M model selection |
+| `tests/integration/messages_tests.rs` | Modified | Add integration test for 1M model selection and effort forwarding |
 
 ---
 
@@ -1097,6 +1721,122 @@ fn first_tool_complete_second_truncated_emits_notice() {
 }
 ```
 
+#### Effort translation tests (`tests/unit/anthropic_types_tests.rs`)
+
+```rust
+#[test]
+fn effort_low_translates_to_reasoning_low() {
+    let request = AnthropicRequest {
+        model: "claude-opus-4-6".to_string(),
+        max_tokens: 8192,
+        messages: vec![],
+        output_config: Some(OutputConfig { effort: Some("low".to_string()) }),
+        thinking: None,
+        // ... other fields None ...
+    };
+    let chat_req = request.to_chat_completion_request(false);
+    let reasoning = chat_req.reasoning.unwrap();
+    assert_eq!(reasoning.effort.unwrap(), "low");
+}
+
+#[test]
+fn effort_max_translates_to_reasoning_high() {
+    let request = AnthropicRequest {
+        model: "claude-opus-4-6".to_string(),
+        max_tokens: 8192,
+        messages: vec![],
+        output_config: Some(OutputConfig { effort: Some("max".to_string()) }),
+        thinking: None,
+        // ...
+    };
+    let chat_req = request.to_chat_completion_request(false);
+    let reasoning = chat_req.reasoning.unwrap();
+    assert_eq!(reasoning.effort.unwrap(), "high");
+}
+
+#[test]
+fn no_effort_produces_no_reasoning() {
+    let request = AnthropicRequest {
+        model: "claude-opus-4-6".to_string(),
+        max_tokens: 8192,
+        messages: vec![],
+        output_config: None,
+        thinking: None,
+        // ...
+    };
+    let chat_req = request.to_chat_completion_request(false);
+    assert!(chat_req.reasoning.is_none());
+}
+
+#[test]
+fn thinking_present_suppresses_temperature() {
+    let request = AnthropicRequest {
+        model: "claude-opus-4-6".to_string(),
+        max_tokens: 8192,
+        messages: vec![],
+        temperature: Some(0.7),
+        thinking: Some(serde_json::json!({"type": "adaptive"})),
+        // ...
+    };
+    let chat_req = request.to_chat_completion_request(false);
+    assert!(chat_req.temperature.is_none());
+}
+
+#[test]
+fn thinking_blocks_stripped_from_messages() {
+    let msg_content = serde_json::from_value::<Vec<ContentBlock>>(serde_json::json!([
+        {"type": "thinking", "thinking": "Let me analyze..."},
+        {"type": "text", "text": "Here's my answer"}
+    ])).unwrap();
+    // After stripping, only the text block should remain
+    let filtered: Vec<_> = msg_content.iter()
+        .filter(|b| !matches!(b, ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }))
+        .collect();
+    assert_eq!(filtered.len(), 1);
+    assert!(matches!(filtered[0], ContentBlock::Text { .. }));
+}
+
+#[test]
+fn redacted_thinking_blocks_stripped() {
+    let msg_content = serde_json::from_value::<Vec<ContentBlock>>(serde_json::json!([
+        {"type": "redacted_thinking", "data": "base64data"},
+        {"type": "text", "text": "Response"}
+    ])).unwrap();
+    let filtered: Vec<_> = msg_content.iter()
+        .filter(|b| !matches!(b, ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }))
+        .collect();
+    assert_eq!(filtered.len(), 1);
+}
+
+#[test]
+fn thinking_content_block_deserializes() {
+    let json = serde_json::json!({"type": "thinking", "thinking": "analysis text"});
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    assert!(matches!(block, ContentBlock::Thinking { .. }));
+}
+
+#[test]
+fn redacted_thinking_content_block_deserializes() {
+    let json = serde_json::json!({"type": "redacted_thinking", "data": "base64data"});
+    let block: ContentBlock = serde_json::from_value(json).unwrap();
+    assert!(matches!(block, ContentBlock::RedactedThinking { .. }));
+}
+
+#[test]
+fn request_with_output_config_deserializes() {
+    let json = serde_json::json!({
+        "model": "claude-opus-4-6",
+        "max_tokens": 8192,
+        "messages": [],
+        "output_config": {"effort": "high"},
+        "thinking": {"type": "adaptive"}
+    });
+    let request: AnthropicRequest = serde_json::from_value(json).unwrap();
+    assert_eq!(request.output_config.unwrap().effort.unwrap(), "high");
+    assert!(request.thinking.is_some());
+}
+```
+
 ### Integration Tests
 
 1. **Mock Copilot API returning 400 `model_max_prompt_tokens_exceeded`:**
@@ -1129,6 +1869,10 @@ fn first_tool_complete_second_truncated_emits_notice() {
 | `has_emitted_tool_use` tracking adds complexity | Low | Low | Simple boolean, tested in unit tests |
 | Other Copilot API 400 errors wrongly matched | Low | Very Low | We check the `code` field specifically, not just the message |
 | Edge case: tool_use block with no recorded name | Low | Low | Defaults to `"unknown"` in the notice text |
+| Copilot API ignores `reasoning.effort` for Claude models | Medium | Medium | If ignored, behavior is unchanged from today (default effort). No harm — model still works, just at default reasoning depth. Can be confirmed with trace-level logging. |
+| Copilot API rejects `reasoning.effort` for Claude models | Medium | Low | If rejected, the adapter would need to strip the field. Using `skip_serializing_if = "Option::is_none"` means absent effort produces no field. A CLI flag `--disable-reasoning` could be added as escape hatch. |
+| Unknown `ContentBlock` types beyond `thinking`/`redacted_thinking` | Low | Low | serde will still fail on truly unknown types. Adding a `#[serde(other)]` catch-all variant is a possible future improvement but changes serialization behavior. |
+| Thinking content blocks needed by model for context | Low | Medium | The Copilot API/model may not need thinking blocks — they are internal reasoning artifacts. Stripping them is consistent with how the Anthropic API treats them for 3P proxies. |
 
 ---
 
@@ -1139,6 +1883,9 @@ fn first_tool_complete_second_truncated_emits_notice() {
 3. **Tool truncation** — Text notice block is emitted; `stop_reason: max_tokens` preserved
 4. **No regressions** — All existing streaming and error tests pass
 5. **Conversation logging** — Truncated tool calls are still excluded from conversation logs (existing behavior)
+6. **Effort forwarding** — `output_config.effort` → `reasoning.effort` in outgoing Copilot requests; verifiable via `--log-level trace`
+7. **Thinking blocks accepted** — Requests with `thinking`/`redacted_thinking` content blocks in conversation history no longer fail with deserialization errors
+8. **Backward compatibility** — Requests without `output_config`, `thinking`, or thinking content blocks work identically to before
 
 ---
 
@@ -1152,10 +1899,16 @@ fn first_tool_complete_second_truncated_emits_notice() {
 | Emit text block for truncation (not partial tool_use) | Safety: partial tool_use blocks could cause Claude Code to execute incomplete tool calls. Text blocks are inert. |
 | Use `[square brackets]` for truncation notice | Matches common system-message formatting conventions. Clearly distinguishes from model-generated text. |
 | Don't change behavior when prior tool_use blocks exist | When tool A completed and tool B was truncated, Claude Code will process tool A's result normally. The truncation notice serves as context for the model's next turn, not as a recovery trigger. |
-| Detect `anthropic-beta` header with prefix match `context-1m-` | The beta header includes a date suffix that may change. Prefix matching is forward-compatible without adapter updates for each new beta version. |
+| Detect `anthropic-beta` header with prefix match `context-1m` | The beta header includes a date suffix that may change. Prefix matching is forward-compatible without adapter updates for each new beta version. |
 | Append `-1m` after normalization, not before | Appending to the normalized name (e.g., `claude-opus-4.6` → `claude-opus-4.6-1m`) is simpler and produces the exact model ID the Copilot API expects. Prepending or injecting before normalization would require the mapper to handle an additional format. |
 | Don't silently downgrade when a 1M model variant doesn't exist | If Copilot doesn't have `claude-sonnet-4.6-1m`, the API will return an error. This is correct — the user should know their 1M selection isn't available, not be silently downgraded to 168K. |
 | Apply `-1m` in the handler, not in `model_mapper.rs` | The model mapper normalizes model name syntax (dashes→dots, stripping datestamps). The 1M selection is a semantic decision based on an HTTP header, which belongs in the handler layer. |
+| Map `"max"` effort to `"high"` (not `"xhigh"`) | `"max"` is Opus 4.6-only in the Anthropic API. OpenAI's `"xhigh"` is an extreme setting unlikely to be supported for Claude models on Copilot. `"high"` is the safe, universal maximum. |
+| Use `serde_json::Value` for `thinking` field (not a typed struct) | The adapter only needs to detect thinking's **presence** (for temperature suppression), not interpret its structure. `Value` is forward-compatible with any future thinking parameter shapes without adapter code changes. |
+| Add explicit `Thinking`/`RedactedThinking` variants (not `#[serde(other)]`) | `#[serde(other)]` on a `#[serde(tag = "type")]` enum discards all fields and produces a unit variant — we need to preserve the `thinking` and `data` fields for correct deserialization. Explicit variants also provide clear documentation. |
+| Strip thinking blocks during translation (not forward them) | The OpenAI API has no equivalent of Anthropic thinking content blocks. Forwarding them would cause upstream errors. Stripping is consistent with the existing Document block handling pattern. |
+| Suppress temperature when `thinking` is present | The Anthropic API requires temperature=1 (default) when thinking is enabled. Claude Code already omits temperature, but defensive suppression prevents issues if future Claude Code changes or other clients send both. |
+| Accept `output_config` with only `effort` field | Other `output_config` sub-fields (`format`, `task_budget`) are separate features. serde silently ignores missing struct fields, so the adapter accepts them without error and without forwarding. Non-breaking to add later. |
 
 ---
 
@@ -1169,6 +1922,10 @@ fn first_tool_complete_second_truncated_emits_notice() {
 | 4 | Should the truncation notice include partial argument data (e.g., file_path)? | No — keeping it minimal reduces confusion |
 | 5 | Will `claude-sonnet-4.6-1m` appear in the Copilot models list in the future? | Open — currently only `claude-opus-4.6-1m` exists. The adapter will automatically support new 1M models when they appear. |
 | 6 | What happens when `-1m` is appended to a model that Copilot doesn't have a 1M variant for? | Expected: Copilot API returns a model-not-found error. The adapter passes this through as an error to Claude Code. |
+| 7 | Does the Copilot API forward `reasoning.effort` to Claude models? | **Unconfirmed** — needs testing with `--log-level trace`. If ignored, effort has no effect (same as today). If rejected, need to add a `--disable-reasoning` flag. |
+| 8 | Should `"max"` map to `"xhigh"` instead of `"high"`? | Deferred — `"high"` is the safe default. Can be revisited if testing shows `"xhigh"` is supported and beneficial for Claude Opus 4.6 via Copilot. |
+| 9 | Should the adapter return synthetic `thinking` content blocks in responses? | No for now — the Copilot API doesn't return thinking blocks, and Claude Code already handles their absence gracefully. |
+| 10 | Are there other Anthropic API fields the adapter should accept but currently rejects? | Open — `betas` (HTTP header, not body) is handled by Option C for `context-1m`. Other betas like `effort-2026-03-13` and `interleaved-thinking-*` are informational and don't require adapter-side processing. |
 
 ---
 
@@ -1195,6 +1952,9 @@ fn first_tool_complete_second_truncated_emits_notice() {
 - `src/services/api/errors.ts` — `isPromptTooLongMessage()` (lines 64-77), regex (lines 89-90), prompt-too-long handler (lines 560-574)
 - `src/services/api/errorUtils.ts` — `extractNestedErrorMessage()` (lines 169-198), SDK error shapes comment (lines 132-142)
 - `src/services/api/claude.ts` — max_tokens escalation (line ~1062), `needsFollowUp` guard, `model_context_window_exceeded` handling (lines 2279-2292)
+- `src/services/api/claude.ts` — `configureEffortParams()` (lines 440-466), thinking config (lines 1596-1630), `output_config` construction (lines 1559-1561, 1724-1726)
+- `src/utils/effort.ts` — `modelSupportsEffort()`, `EFFORT_LEVELS`, `EffortValue` type, effort resolution priority chain
+- `src/utils/thinking.ts` — `modelSupportsThinking()`, `modelSupportsAdaptiveThinking()`
 
 ### GitHub Copilot API
 - `GET https://api.githubcopilot.com/models` — Returns model list including `claude-opus-4.6-1m` as a distinct model ID
@@ -1302,6 +2062,60 @@ copilot-adapter sends to Copilot API:
   ↓
 Copilot API: routes to 1M context model variant
   → accepts prompts up to ~1M tokens
+  ↓
+Response flows back through adapter to Claude Code normally
+```
+
+### D: Full effort translation flow with fix applied
+
+```
+User runs: /effort high (in Claude Code)
+  ↓
+Claude Code: resolves effort = "high", configureEffortParams() sets output_config.effort
+  ↓
+Claude Code sends:
+  POST /v1/messages
+  anthropic-beta: effort-2026-03-13,interleaved-thinking-2025-05-14,...
+  {
+    "model": "claude-opus-4-6",
+    "max_tokens": 16384,
+    "output_config": {"effort": "high"},
+    "thinking": {"type": "adaptive"},
+    "messages": [
+      {"role": "user", "content": "Analyze this complex bug"},
+      {"role": "assistant", "content": [
+        {"type": "thinking", "thinking": "The bug is in the event loop..."},
+        {"type": "text", "text": "I found the issue in the event loop."}
+      ]},
+      {"role": "user", "content": "Fix it"}
+    ]
+  }
+  ↓
+copilot-adapter: deserialize AnthropicRequest
+  - output_config = Some(OutputConfig { effort: Some("high") })
+  - thinking = Some(Value::Object({"type": "adaptive"}))
+  - messages[1].content: Thinking block parsed via ContentBlock::Thinking variant
+  ↓
+copilot-adapter: to_chat_completion_request()
+  1. effort "high" → Reasoning { effort: Some("high") }
+  2. thinking present → temperature = None (suppressed)
+  3. messages[1].content: Thinking block stripped, only Text block retained
+  ↓
+copilot-adapter sends to Copilot API:
+  POST /chat/completions
+  {
+    "model": "claude-opus-4.6",
+    "messages": [
+      {"role": "user", "content": "Analyze this complex bug"},
+      {"role": "assistant", "content": "I found the issue in the event loop."},
+      {"role": "user", "content": "Fix it"}
+    ],
+    "reasoning": {"effort": "high"},
+    "max_tokens": 16384
+  }
+  ↓
+Copilot API: forwards reasoning.effort to Claude model (if supported)
+  → model reasons with higher effort budget
   ↓
 Response flows back through adapter to Claude Code normally
 ```
