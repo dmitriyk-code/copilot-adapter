@@ -212,7 +212,7 @@ pub fn build_message_start_response(id: &str, model: &str, input_tokens: u32) ->
 
 ### Epic 4: Update `StreamingState` to track and emit real counts (Day 1, ~3 hours)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** `StreamingState` gains fields for `input_tokens`, accumulated output text/tool JSON, and optional upstream usage override. All emission points are updated to use real values.
 
@@ -245,9 +245,9 @@ pub struct StreamingState {
 ```
 
 **Acceptance Criteria:**
-- [ ] All five fields present in the struct definition
-- [ ] `StreamingState::new()` signature updated to `(name_mapping: HashMap<String, String>, input_tokens: u32) -> Self`
-- [ ] `new()` initialises `output_text` and `output_tool_json` as empty `String::new()`, upstream fields as `None`
+- [x] All five fields present in the struct definition
+- [x] `StreamingState::new()` signature updated to `(name_mapping: HashMap<String, String>, input_tokens: u32) -> Self`
+- [x] `new()` initialises `output_text` and `output_tool_json` as empty `String::new()`, upstream fields as `None`
 
 #### Task 4.2: Accumulate output text in `handle_text_delta()`
 
@@ -268,8 +268,8 @@ fn handle_text_delta(&mut self, text: &str) -> Vec<StreamEvent> {
 ```
 
 **Acceptance Criteria:**
-- [ ] After processing N text chunks, `self.output_text` equals the concatenation of all non-empty text values
-- [ ] Empty-string text chunks (already filtered by the caller) do not contribute
+- [x] After processing N text chunks, `self.output_text` equals the concatenation of all non-empty text values
+- [x] Empty-string text chunks (already filtered by the caller) do not contribute
 
 #### Task 4.3: Accumulate tool call argument JSON in `handle_tool_call_delta()`
 
@@ -289,7 +289,7 @@ if let Some(func) = &tc.function {
 ```
 
 **Acceptance Criteria:**
-- [ ] After processing a tool call with three argument fragments `{"a":`, `1`, `}`, `self.output_tool_json` equals `{"a":1}`
+- [x] After processing a tool call with three argument fragments `{"a":`, `1`, `}`, `self.output_tool_json` equals `{"a":1}`
 
 #### Task 4.4: Capture upstream usage in `process_chunk()`
 
@@ -306,7 +306,7 @@ if let Some(upstream_usage) = &chunk.usage {
 ```
 
 **Acceptance Criteria:**
-- [ ] When a chunk carries `usage: { prompt_tokens: 100, completion_tokens: 50 }`, `self.upstream_input_tokens == Some(100)` and `self.upstream_output_tokens == Some(50)` after processing that chunk
+- [x] When a chunk carries `usage: { prompt_tokens: 100, completion_tokens: 50 }`, `self.upstream_input_tokens == Some(100)` and `self.upstream_output_tokens == Some(50)` after processing that chunk
 
 #### Task 4.5: Add `compute_output_tokens()` and `compute_input_tokens()` helpers
 
@@ -329,10 +329,10 @@ fn compute_input_tokens(&self) -> u32 {
 ```
 
 **Acceptance Criteria:**
-- [ ] `compute_output_tokens()` returns `upstream_output_tokens` when set
-- [ ] `compute_output_tokens()` returns tiktoken estimate of `output_text + output_tool_json` when upstream absent
-- [ ] `compute_input_tokens()` returns `upstream_input_tokens` when set
-- [ ] `compute_input_tokens()` returns `self.input_tokens` when upstream absent
+- [x] `compute_output_tokens()` returns `upstream_output_tokens` when set
+- [x] `compute_output_tokens()` returns tiktoken estimate of `output_text + output_tool_json` when upstream absent
+- [x] `compute_input_tokens()` returns `upstream_input_tokens` when set
+- [x] `compute_input_tokens()` returns `self.input_tokens` when upstream absent
 
 #### Task 4.6: Update `build_message_start()` to pass real `input_tokens`
 
@@ -353,8 +353,8 @@ fn build_message_start(&self) -> StreamEvent {
 ```
 
 **Acceptance Criteria:**
-- [ ] `message_start.message.usage.input_tokens` equals the value passed into `StreamingState::new()` when no upstream usage is present
-- [ ] `message_start.message.usage.input_tokens` equals the upstream `prompt_tokens` when upstream usage is present
+- [x] `message_start.message.usage.input_tokens` equals the value passed into `StreamingState::new()` when no upstream usage is present
+- [x] `message_start.message.usage.input_tokens` equals the upstream `prompt_tokens` when upstream usage is present
 
 #### Task 4.7: Update `handle_finish()` and `finalize()` to emit real `output_tokens`
 
@@ -386,9 +386,9 @@ events.push(StreamEvent::MessageDelta {
 Also remove the TODO comment from `handle_finish()`.
 
 **Acceptance Criteria:**
-- [ ] `message_delta.usage.output_tokens > 0` after any streaming response that contained text
-- [ ] `message_delta.usage.output_tokens > 0` after a tool call response
-- [ ] After a `finish_reason: "length"` truncation where the tool call buffer is discarded, `output_tokens` reflects only the truncation notice text (not the discarded arguments)
+- [x] `message_delta.usage.output_tokens > 0` after any streaming response that contained text
+- [x] `message_delta.usage.output_tokens > 0` after a tool call response
+- [x] After a `finish_reason: "length"` truncation where the tool call buffer is discarded, `output_tokens` reflects only the truncation notice text (not the discarded arguments)
 
 ---
 
@@ -720,7 +720,7 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 | Epic 1: Token counting helpers | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 2: `ChatCompletionChunk.usage` | DONE | 2026-04-06 | 2026-04-06 | |
 | Epic 3: `build_message_start_response()` signature | DONE | 2026-04-06 | 2026-04-06 | |
-| Epic 4: `StreamingState` accumulation | Not Started | - | - | Depends on Epics 1–3 |
+| Epic 4: `StreamingState` accumulation | DONE | 2026-04-06 | 2026-04-06 | Depends on Epics 1–3 |
 | Epic 5: Handler wiring | Not Started | - | - | Depends on Epic 4 |
 | Epic 6: Testing | Not Started | - | - | Depends on Epics 4–5 |
 | Epic 7: Documentation | Not Started | - | - | |

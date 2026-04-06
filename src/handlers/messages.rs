@@ -552,9 +552,9 @@ async fn handle_streaming(
         }
 
         // Emit message_delta with stop reason and usage.
-        // output_tokens is set to 0 because the upstream OpenAI SSE stream does not
-        // include per-chunk token counts, so an accurate count is unavailable during
-        // streaming. Reporting 0 is less misleading than an incorrect positive number.
+        // TODO(Epic 5): output_tokens is hardcoded to 0 in these non-tool and
+        // XML-buffered streaming paths. Epic 5 will wire in the tiktoken-based
+        // counting from StreamingState to provide real output token counts here.
         if message_started {
             let stop_reason = map_stop_reason(last_finish_reason.as_deref());
             let event = StreamEvent::MessageDelta {
@@ -1155,7 +1155,7 @@ async fn handle_native_tools_streaming(
     let conversation_logger = state.conversation_logger.clone();
 
     let event_stream = async_stream::stream! {
-        let mut streaming_state = StreamingState::new(name_mapping.clone());
+        let mut streaming_state = StreamingState::new(name_mapping.clone(), 0);
         let mut stream = std::pin::pin!(chunk_stream);
         let mut content_buffer = String::new();
         let mut last_finish_reason: Option<String> = None;
