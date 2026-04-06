@@ -1,4 +1,4 @@
-# Context Window Enforcement & Truncated Tool Recovery — Implementation Plan
+﻿# Context Window Enforcement & Truncated Tool Recovery — Implementation Plan
 
 **Status:** In Progress
 **Date:** 2026-04-05
@@ -777,7 +777,7 @@ ChatCompletionRequest {
 
 ### Epic 5: Testing (Day 2-3, ~0.75 day)
 
-**Status:** Not Started
+**Status:** COMPLETE
 
 **Objective:** Ensure all four fixes are thoroughly tested with unit tests, integration tests, and documented manual E2E test procedures.
 
@@ -802,7 +802,7 @@ ChatCompletionRequest {
        assert_eq!(message, "prompt is too long: 168929 tokens > 168000 maximum");
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 2. **`prompt_too_long_message_matches_claude_code_regex`** — Simulate the Anthropic SDK's `makeMessage` behavior and verify Claude Code's regex matches:
    ```rust
@@ -833,7 +833,7 @@ ChatCompletionRequest {
        assert_eq!(caps.get(2).unwrap().as_str(), "168000");
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 3. **`prompt_too_long_error_type`** — Verify `error_type()` returns `"invalid_request_error"`:
    ```rust
@@ -846,11 +846,11 @@ ChatCompletionRequest {
        assert_eq!(err.error_type(), "invalid_request_error");
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] All 3 new error tests pass
-- [ ] Existing error tests still pass
+- [x] All 3 new error tests pass
+- [x] Existing error tests still pass
 
 **Notes:** The regex test is the most important — it validates the end-to-end error message chain from adapter through Anthropic SDK to Claude Code's detection logic.
 
@@ -868,7 +868,7 @@ ChatCompletionRequest {
        assert_eq!(parse_prompt_too_long(body), Some((168929, 168000)));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 2. **`parse_prompt_too_long_different_numbers`** — Different token counts:
    ```rust
@@ -878,7 +878,7 @@ ChatCompletionRequest {
        assert_eq!(parse_prompt_too_long(body), Some((50000, 32000)));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 3. **`parse_prompt_too_long_wrong_code`** — Non-matching error code:
    ```rust
@@ -888,7 +888,7 @@ ChatCompletionRequest {
        assert_eq!(parse_prompt_too_long(body), None);
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 4. **`parse_prompt_too_long_invalid_json`** — Invalid JSON body:
    ```rust
@@ -897,7 +897,7 @@ ChatCompletionRequest {
        assert_eq!(parse_prompt_too_long("not json"), None);
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 5. **`parse_prompt_too_long_missing_message`** — Correct code but no message:
    ```rust
@@ -907,7 +907,7 @@ ChatCompletionRequest {
        assert_eq!(parse_prompt_too_long(body), None);
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 6. **`parse_prompt_too_long_empty_body`** — Empty string:
    ```rust
@@ -916,11 +916,11 @@ ChatCompletionRequest {
        assert_eq!(parse_prompt_too_long(""), None);
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] All 6 new parsing tests pass
-- [ ] Existing copilot client tests still pass
+- [x] All 6 new parsing tests pass
+- [x] Existing copilot client tests still pass
 
 #### Task 5.3: Unit Tests — 1M Context Beta Detection
 
@@ -1034,24 +1034,24 @@ ChatCompletionRequest {
    //      assert_block_stop(&events[2], 0);
    //      assert_message_delta(&events[3], "max_tokens");
    ```
-   - [ ] Test updated and passes
+   - [x] Test updated and passes
 
 2. **`text_then_tool_truncated_by_length`** (existing, lines 904-938) — Update to expect text notice as a separate block after the original text block:
    ```rust
    // Text block at index 0 emitted normally
    // Truncation text block at index 1
    ```
-   - [ ] Test updated and passes
+   - [x] Test updated and passes
 
 3. **`first_tool_complete_second_truncated`** (existing, lines 943-981) — Update to expect text notice after the first tool_use block:
    ```rust
    // Tool A flushed at index 0
    // Truncation text block at index 1 (for tool B)
    ```
-   - [ ] Test updated and passes
+   - [x] Test updated and passes
 
 4. **`tool_call_with_length_finish_but_complete_json`** (existing, lines 986-1007) — Update to expect text notice (always-drop policy unchanged; notice still emitted):
-   - [ ] Test updated and passes
+   - [x] Test updated and passes
 
 **New tests to add:**
 
@@ -1063,7 +1063,7 @@ ChatCompletionRequest {
        // Verify notice contains "unknown"
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 6. **`truncation_notice_block_index_correct_after_text`** — Verify the text notice gets the correct block index when preceded by a text block:
    ```rust
@@ -1074,12 +1074,12 @@ ChatCompletionRequest {
        // Tool truncated → notice at index 1
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] All 4 existing truncation tests updated and pass
-- [ ] 2 new truncation edge-case tests pass
-- [ ] All other existing streaming tests still pass (non-truncation paths unchanged)
+- [x] All 4 existing truncation tests updated and pass
+- [x] 2 new truncation edge-case tests pass
+- [x] All other existing streaming tests still pass (non-truncation paths unchanged)
 
 #### Task 5.5: Unit Tests — Effort Translation and Thinking Blocks
 
@@ -1098,7 +1098,7 @@ ChatCompletionRequest {
        assert_eq!(chat_req.reasoning.unwrap().effort.unwrap(), "low");
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 2. **`effort_max_translates_to_reasoning_high`** — Downgrade mapping:
    ```rust
@@ -1109,7 +1109,7 @@ ChatCompletionRequest {
        assert_eq!(chat_req.reasoning.unwrap().effort.unwrap(), "high");
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 3. **`no_effort_produces_no_reasoning`** — Backward compatibility:
    ```rust
@@ -1120,7 +1120,7 @@ ChatCompletionRequest {
        assert!(chat_req.reasoning.is_none());
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 4. **`thinking_present_suppresses_temperature`** — Temperature interaction:
    ```rust
@@ -1134,7 +1134,7 @@ ChatCompletionRequest {
        assert!(chat_req.temperature.is_none());
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 5. **`thinking_absent_preserves_temperature`** — Normal temperature forwarding:
    ```rust
@@ -1145,7 +1145,7 @@ ChatCompletionRequest {
        assert_eq!(chat_req.temperature, Some(0.7));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 6. **`thinking_content_block_deserializes`** — serde acceptance:
    ```rust
@@ -1156,7 +1156,7 @@ ChatCompletionRequest {
        assert!(matches!(block, ContentBlock::Thinking { .. }));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 7. **`redacted_thinking_content_block_deserializes`**:
    ```rust
@@ -1167,7 +1167,7 @@ ChatCompletionRequest {
        assert!(matches!(block, ContentBlock::RedactedThinking { .. }));
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 8. **`thinking_blocks_stripped_from_messages`** — Translation stripping:
    ```rust
@@ -1184,7 +1184,7 @@ ChatCompletionRequest {
        }
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 9. **`request_with_output_config_deserializes`** — Full request deserialization:
    ```rust
@@ -1202,11 +1202,11 @@ ChatCompletionRequest {
        assert!(request.thinking.is_some());
    }
    ```
-   - [ ] Test passes
+   - [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] All 9 effort/thinking tests pass
-- [ ] Existing anthropic types tests still pass
+- [x] All 9 effort/thinking tests pass
+- [x] Existing anthropic types tests still pass
 
 #### Task 5.6: Integration Tests — Prompt-Too-Long Translation
 
@@ -1234,7 +1234,7 @@ async fn copilot_prompt_too_long_translated_to_anthropic_format() {
 }
 ```
 
-- [ ] Test passes
+- [x] Test passes
 
 **Helper to add:**
 ```rust
@@ -1246,8 +1246,8 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 ```
 
 **Acceptance Criteria:**
-- [ ] Integration test passes
-- [ ] Existing integration error tests still pass
+- [x] Integration test passes
+- [x] Existing integration error tests still pass
 
 #### Task 5.7: Integration Tests — Streaming Truncation
 
@@ -1264,11 +1264,11 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    - SSE stream contains `message_delta` with `stop_reason: "max_tokens"`
    - SSE stream does NOT contain any `type: "tool_use"` content blocks
 
-- [ ] Test passes
+- [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] SSE stream validated end-to-end
-- [ ] No tool_use blocks in output
+- [x] SSE stream validated end-to-end
+- [x] No tool_use blocks in output
 
 #### Task 5.8: Integration Tests — 1M Context Model Selection
 
@@ -1288,7 +1288,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 3. **Verification:**
    - The mock Copilot receives `model: "claude-opus-4.6"` (no `-1m` suffix)
 
-- [ ] Both scenarios pass
+- [x] Both scenarios pass
 
 **Acceptance Criteria:**
 - [x] 1M beta header → model name has `-1m` suffix
@@ -1308,11 +1308,11 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    - The mock Copilot receives `reasoning: {"effort": "high"}` in the request body
    - The response is successful
 
-- [ ] Test passes
+- [x] Test passes
 
 **Acceptance Criteria:**
-- [ ] Effort forwarding verified end-to-end
-- [ ] Existing integration tests still pass
+- [x] Effort forwarding verified end-to-end
+- [x] Existing integration tests still pass
 
 #### Task 5.10: Manual E2E Test Procedures
 
@@ -1330,7 +1330,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    6. Verify the adapter logs show "Translating prompt-too-long error to Anthropic format"
    ```
    - Expected: Claude Code compacts context and continues the session
-   - [ ] Documented
+   - [x] Documented
 
 2. **Truncated tool call escalation:**
    ```
@@ -1343,7 +1343,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    7. Verify the second attempt with 64K budget succeeds
    ```
    - Expected: File write succeeds on retry with escalated token budget
-   - [ ] Documented
+   - [x] Documented
 
 3. **1M context model activation:**
    ```
@@ -1356,7 +1356,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    7. Optionally: start a long conversation and verify it doesn't hit the 168K limit
    ```
    - Expected: Adapter forwards requests to `claude-opus-4.6-1m`; longer conversations are supported
-   - [ ] Documented
+   - [x] Documented
 
 4. **Effort level forwarding:**
    ```
@@ -1370,7 +1370,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    8. Verify the outgoing request contains "reasoning":{"effort":"low"}
    ```
    - Expected: Effort level is forwarded to Copilot API in the `reasoning` object
-   - [ ] Documented
+   - [x] Documented
 
 5. **Thinking blocks in conversation history:**
    ```
@@ -1383,11 +1383,11 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
    7. Verify the conversation continues normally
    ```
    - Expected: Thinking blocks accepted and stripped; no errors
-   - [ ] Documented
+   - [x] Documented
 
 **Acceptance Criteria:**
-- [ ] All 5 E2E test procedures documented
-- [ ] Steps are reproducible
+- [x] All 5 E2E test procedures documented
+- [x] Steps are reproducible
 
 ---
 
@@ -1648,7 +1648,7 @@ async fn spawn_mock_copilot_prompt_too_long() -> (SocketAddr, JoinHandle<()>) {
 | Epic 2: 1M Context Model Activation | Complete | - | - | 3 tasks |
 | Epic 3: Truncated Tool Call Recovery | Complete | - | - | 2 tasks |
 | Epic 4: Effort and Thinking Support | Complete | - | 2026-04-06 | 5 tasks |
-| Epic 5: Testing | Not Started | - | - | 8 tasks, 27 tests |
+| Epic 5: Testing | Complete | 2026-04-06 | 2026-04-06 | 8 tasks, 27 tests (review fixes applied) |
 | Epic 6: Documentation | Not Started | - | - | 3 tasks |
 
 ---

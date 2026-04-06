@@ -1,5 +1,6 @@
 use axum::response::IntoResponse;
 use copilot_adapter::error::AppError;
+use regex;
 
 /// Helper to convert an AppError to (StatusCode, JSON body).
 async fn error_to_parts(error: AppError) -> (u16, serde_json::Value) {
@@ -227,4 +228,79 @@ async fn all_errors_share_openai_compatible_structure() {
         assert!(error_obj.get("type").is_some(), "error must have 'type'");
         assert!(error_obj.get("code").is_some(), "error must have 'code'");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Epic 5 Task 5.1: Prompt-too-long error tests
+// ---------------------------------------------------------------------------
+
+/// Distinct from `prompt_too_long_returns_400_with_correct_format` (which uses 168929/168000).
+/// Uses different token values and also verifies the Content-Type header is JSON.
+#[tokio::test]
+async fn prompt_too_long_returns_400_with_anthropic_format() {
+    let error = AppError::PromptTooLong {
+        actual_tokens: 250000,
+        limit_tokens: 200000,
+    };
+    let response = error.into_response();
+    assert_eq!(response.status().as_u16(), 400);
+
+    // Verify Content-Type header
+    let content_type = response
+        .headers()
+        .get("Content-Type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.contains("application/json"),
+        "Content-Type should be application/json, got: {content_type}"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["error"]["type"], "invalid_request_error");
+    assert_eq!(json["error"]["code"], "prompt_too_long");
+    let message = json["error"]["message"].as_str().unwrap();
+    assert_eq!(
+        message,
+        "prompt is too long: 250000 tokens > 200000 maximum"
+    );
+}
+
+#[test]
+fn prompt_too_long_message_matches_claude_code_regex_sdk_format() {
+    let err = AppError::PromptTooLong {
+        actual_tokens: 168929,
+        limit_tokens: 168000,
+    };
+    let message = err.to_string();
+    let body = serde_json::json!({
+        "error": {
+            "message": message,
+            "type": "invalid_request_error",
+            "code": "prompt_too_long"
+        }
+    });
+    let sdk_message = format!("400 {}", serde_json::to_string(&body).unwrap());
+    // Claude Code's regex from src/services/api/errors.ts:89-90
+    let re = regex::Regex::new(
+        r"(?i)prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)",
+    )
+    .unwrap();
+    let caps = re
+        .captures(&sdk_message)
+        .expect("regex must match SDK message");
+    assert_eq!(caps.get(1).unwrap().as_str(), "168929");
+    assert_eq!(caps.get(2).unwrap().as_str(), "168000");
+}
+
+#[test]
+fn prompt_too_long_error_type() {
+    let err = AppError::PromptTooLong {
+        actual_tokens: 100000,
+        limit_tokens: 50000,
+    };
+    assert_eq!(err.error_type(), "invalid_request_error");
 }

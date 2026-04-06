@@ -386,3 +386,21 @@ fn parse_prompt_too_long_small_values() {
     let body = r#"{"error":{"message":"prompt token count of 100 exceeds the limit of 50","code":"model_max_prompt_tokens_exceeded"}}"#;
     assert_eq!(parse_prompt_too_long(body), Some((100, 50)));
 }
+
+// ---------------------------------------------------------------------------
+// Epic 5 Task 5.2: Additional prompt-too-long parsing tests
+// ---------------------------------------------------------------------------
+
+/// Test with very large token numbers to verify no overflow issues.
+/// Distinct from `parse_prompt_too_long_standard_format`.
+#[test]
+fn parse_prompt_too_long_large_values() {
+    let body = r#"{"error":{"message":"prompt token count of 4294967000 exceeds the limit of 4000000000","code":"model_max_prompt_tokens_exceeded"}}"#;
+    assert_eq!(parse_prompt_too_long(body), Some((4294967000, 4000000000)));
+}
+
+#[test]
+fn parse_prompt_too_long_different_numbers() {
+    let body = r#"{"error":{"message":"prompt token count of 50000 exceeds the limit of 32000","code":"model_max_prompt_tokens_exceeded"}}"#;
+    assert_eq!(parse_prompt_too_long(body), Some((50000, 32000)));
+}

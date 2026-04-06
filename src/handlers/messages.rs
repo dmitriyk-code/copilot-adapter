@@ -1409,7 +1409,7 @@ fn is_tools_not_supported_error(error: &AppError) -> bool {
 ///
 /// Uses prefix matching (`context-1m`) to be forward-compatible with
 /// future date suffixes (the date portion may change across Claude Code versions).
-fn has_1m_context_beta(headers: &HeaderMap) -> bool {
+pub(crate) fn has_1m_context_beta(headers: &HeaderMap) -> bool {
     headers
         .get_all("anthropic-beta")
         .iter()

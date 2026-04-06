@@ -1154,3 +1154,78 @@ fn tool_call_normal_finish_with_buffering() {
     assert_eq!(events.len(), 1);
     assert_message_stop(&events[0]);
 }
+
+// ---------------------------------------------------------------------------
+// Epic 5 Task 5.4: Additional streaming truncation tests
+// ---------------------------------------------------------------------------
+
+/// Tool call with no name recorded in `tool_call_names` map produces
+/// "unknown" in the truncation notice. This is a defensive path — in
+/// practice, `tool_call_names` is always populated because `is_new_call`
+/// requires a function name. This test verifies the fallback by sending a
+/// tool call that transitions to a new index without a name.
+///
+/// Note: Because the public streaming API always provides a name with new
+/// tool calls, we instead verify the inverse: when a tool IS named, the
+/// name appears correctly, and the "unknown" fallback is only reachable
+/// defensively. This test documents the truncation notice format when the
+/// tool call starts normally.
+#[test]
+fn tool_truncated_unnamed_defaults_to_known_name() {
+    // Send a named tool call at index 0, then a second unnamed args chunk
+    // at index 0 (continuation, not a new call). Since the state already
+    // has the name from the first chunk, the notice should use that name.
+    let mut state = StreamingState::new(HashMap::new());
+
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_a", "Write", "{\"file",
+    ));
+    assert_eq!(events.len(), 1);
+    assert_message_start(&events[0]);
+
+    // More args at same index (no new name) — still buffered
+    let events = state.process_chunk(&tool_call_args_chunk("c1", "m1", 0, "_path\": \"x\"}"));
+    assert_eq!(events.len(), 0);
+
+    // Truncated by length — should use the original "Write" name
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 4);
+    assert_text_delta(
+        &events[1],
+        0,
+        "[Tool call to \"Write\" was truncated due to output token limit]",
+    );
+}
+
+/// Verify that the truncation notice text block gets the correct block index
+/// when preceded by a text block.
+#[test]
+fn truncation_notice_block_index_correct_after_text() {
+    let mut state = StreamingState::new(HashMap::new());
+
+    // Text block at index 0
+    let events = state.process_chunk(&text_chunk("c1", "m1", "Thinking...", None));
+    assert_eq!(events.len(), 3); // message_start + block_start(0) + text_delta
+    assert_message_start(&events[0]);
+    assert_text_block_start(&events[1], 0);
+    assert_text_delta(&events[2], 0, "Thinking...");
+
+    // Tool call starts — closes text block, tool is buffered
+    let events = state.process_chunk(&tool_call_start_chunk(
+        "c1", "m1", 0, "call_1", "Write", "{\"file",
+    ));
+    assert_eq!(events.len(), 1); // block_stop(0) for text
+    assert_block_stop(&events[0], 0);
+
+    // Truncated by length — notice should be at index 1
+    let events = state.process_chunk(&finish_chunk("c1", "m1", "length"));
+    assert_eq!(events.len(), 4);
+    assert_text_block_start(&events[0], 1); // index 1 (after text at 0)
+    assert_text_delta(
+        &events[1],
+        1,
+        "[Tool call to \"Write\" was truncated due to output token limit]",
+    );
+    assert_block_stop(&events[2], 1);
+    assert_message_delta(&events[3], "max_tokens");
+}

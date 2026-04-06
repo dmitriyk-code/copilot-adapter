@@ -13,6 +13,7 @@ mod native_tools_verification_tests;
 mod profile_tests;
 mod server_tests;
 mod storage_integration_test;
+mod streaming_tests;
 mod test_helpers;
 mod tools_e2e_tests;
 mod tools_messages_tests;
