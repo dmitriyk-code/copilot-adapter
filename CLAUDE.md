@@ -189,7 +189,7 @@ cargo test
 - The tools implementation lives in `src/tools/` (types, injector, parser, translator, registry)
 - Tool call parsing is best-effort; malformed XML is silently skipped (graceful degradation)
 - `tool_choice` only supports `"auto"` behavior; `parallel_tool_calls` is not supported
-- Copilot tokens expire in ~30 min; the adapter refreshes them proactively
+- Copilot tokens expire in ~30 min; `start_auto_refresh()` is called at server startup (in `src/server.rs`) to proactively refresh the token 5 minutes before expiry via a background task. On graceful shutdown, `stop_auto_refresh()` cancels the task. Incoming requests also check token validity as a fallback
 - Required Copilot headers: `Copilot-Integration-Id`, `Editor-Version`, `Editor-Plugin-Version`
 - All errors return structured JSON format
 - **Native tools** (default): Tool definitions are passed to the Copilot API in OpenAI format and responses stream progressively. Falls back to XML injection if not supported. Use `--disable-native-tools` to force XML-only mode.

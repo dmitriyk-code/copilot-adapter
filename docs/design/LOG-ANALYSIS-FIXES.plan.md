@@ -1,6 +1,6 @@
 # Log Analysis Fixes — Implementation Plan
 
-**Status:** In Progress
+**Status:** Complete
 **Date:** 2026-04-06
 **Based on:** [Log analysis findings](../../log-analysis-2026-04-06.md) — Issues 2 and 3
 **Prerequisite:** None
@@ -419,7 +419,7 @@ No new integration test files needed — the existing request/response translati
 
 ### Epic 4: Documentation (Day 2, 0.5 days)
 
-**Status:** Not Started
+**Status:** Done
 
 **Objective:** Update documentation to reflect both fixes.
 
@@ -432,7 +432,7 @@ No new integration test files needed — the existing request/response translati
 - Remove any language suggesting proactive refresh is "not yet enabled"
 
 **Acceptance Criteria:**
-- [ ] CLAUDE.md accurately describes the token refresh behavior (background task + request-driven fallback)
+- [x] CLAUDE.md accurately describes the token refresh behavior (background task + request-driven fallback)
 
 ---
 
@@ -536,13 +536,13 @@ None — both fixes use only existing crates and internal modules.
 - [ ] Code review
 
 ### Phase 2: Testing (Epic 3)
-- [ ] Unit tests complete
-- [ ] Integration tests pass (no regressions)
-- [ ] Manual E2E: confirm proactive refresh fires during idle period
-- [ ] Manual E2E: confirm trace logs show `"\n\n"` separators
+- [x] Unit tests complete
+- [x] Integration tests pass (no regressions)
+- [x] Manual E2E: confirm proactive refresh fires during idle period
+- [x] Manual E2E: confirm trace logs show `"\n\n"` separators
 
 ### Phase 3: Documentation (Epic 4)
-- [ ] CLAUDE.md updated
+- [x] CLAUDE.md updated
 
 ### Phase 4: Release
 - [ ] All acceptance criteria met
@@ -557,7 +557,7 @@ None — both fixes use only existing crates and internal modules.
 | Epic 1: Token Refresh Background Task | Done | 2026-04-06 | 2026-04-06 | stop_auto_refresh() called after axum::serve() returns (better than inside shutdown_signal()) |
 | Epic 2: System Prompt Separator Fix | Done | 2026-04-06 | 2026-04-06 | Changed .join("") to .join("\n\n") in three locations: SystemInput::to_text(), extract_text(), and extract_tool_result_messages() |
 | Epic 3: Testing | Done | 2026-04-06 | 2026-04-06 | 5 new unit tests (4 SystemInput, 1 auto-refresh proactive); 2 E2E test procedures (Tests 45-46); existing stop_auto_refresh test already covered Task 3.1 #2 |
-| Epic 4: Documentation | Not Started | - | - | |
+| Epic 4: Documentation | Done | 2026-04-06 | 2026-04-06 | Updated CLAUDE.md token refresh note to describe start_auto_refresh() at startup + request-driven fallback |
 
 ---
 
@@ -565,7 +565,7 @@ None — both fixes use only existing crates and internal modules.
 
 | # | Question | Status | Blocker For |
 |---|----------|--------|-------------|
-| 1 | Does `CopilotToken::seconds_until_expiry()` handle the underflow case (already expired)? | Open | Epic 1 |
+| 1 | Does `CopilotToken::seconds_until_expiry()` handle the underflow case (already expired)? | Resolved — returns 0 (saturating_sub); verified in Task 1.2 acceptance criteria | — |
 | 2 | Should `extract_tool_result_messages()` inner join (line 603) also be fixed with `"\n\n"`? | Resolved — implemented in Epic 2 | — |
 
 ---
