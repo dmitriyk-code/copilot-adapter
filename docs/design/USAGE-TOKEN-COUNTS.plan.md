@@ -529,7 +529,7 @@ For each path:
 
 ### Epic 7: Documentation (Day 2, ~30 min)
 
-**Status:** Not Started
+**Status:** DONE
 
 **Objective:** Update `CLAUDE.md` and `docs/known-issues.md` to reflect the new behaviour.
 
@@ -542,7 +542,7 @@ For each path:
 - Clarify that `count_tokens_for_request()` and `count_output_tokens()` are the new helpers in `src/token_counter.rs`
 
 **Acceptance Criteria:**
-- [ ] No longer implies streaming usage is always zero
+- [x] No longer implies streaming usage is always zero
 
 #### Task 7.2: Update `CLAUDE.md` — Streaming state machine note
 
@@ -553,7 +553,7 @@ For each path:
 - Mention the upstream usage override path (`ChatCompletionChunk.usage`)
 
 **Acceptance Criteria:**
-- [ ] Note updated
+- [x] Note updated
 
 #### Task 7.3: Update `docs/known-issues.md`
 
@@ -563,7 +563,7 @@ For each path:
 - Remove or resolve any entry that states the `/model` view always shows zero token counts
 
 **Acceptance Criteria:**
-- [ ] Known-issues file no longer lists zero token counts as an open issue
+- [x] Known-issues file no longer lists zero token counts as an open issue
 
 ---
 
@@ -702,9 +702,9 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 - [ ] Manual E2E: `/model` view shows non-zero counts
 
 ### Phase 5: Documentation and release (Epic 7)
-- [ ] `CLAUDE.md` updated
-- [ ] `docs/known-issues.md` updated
-- [ ] All acceptance criteria met
+- [x] `CLAUDE.md` updated
+- [x] `docs/known-issues.md` updated
+- [x] All acceptance criteria met
 - [ ] Final review
 - [ ] Merge to main
 - [ ] Archive design/plan docs to `docs/design/archive/`
@@ -721,7 +721,7 @@ No new external dependencies. `tiktoken-rs` is already in `Cargo.toml`.
 | Epic 4: `StreamingState` accumulation | DONE | 2026-04-06 | 2026-04-06 | Depends on Epics 1–3 |
 | Epic 5: Handler wiring | DONE | 2026-04-06 | 2026-04-06 | Depends on Epic 4 |
 | Epic 6: Testing | DONE | - | - | Depends on Epics 4–5 |
-| Epic 7: Documentation | Not Started | - | - | |
+| Epic 7: Documentation | DONE | 2026-04-07 | 2026-04-07 | |
 
 ---
 

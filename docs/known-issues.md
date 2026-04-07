@@ -222,3 +222,26 @@ thinking is active to avoid API errors.
 
 Implementation: `OutputConfig` and `strip_thinking_blocks()` in
 `src/anthropic/types.rs`, `Reasoning` struct in `src/copilot/types.rs`.
+
+---
+
+## Streaming Token Counts Always Zero (Resolved)
+
+### Description
+Claude Code's `/model` view always showed `0/Nm tokens (0%)` for streaming
+responses. The GitHub Copilot API does not return `usage` data in its SSE
+chunks, and the adapter emitted `input_tokens: 0` / `output_tokens: 0` in
+`message_start` and `message_delta` events.
+
+### Resolution
+**Fixed.** The adapter now estimates token counts locally using `tiktoken-rs`
+(`cl100k_base` encoding). `count_tokens_for_request()` counts input tokens
+from the full `AnthropicRequest` before the stream starts, and
+`count_output_tokens()` counts accumulated output text and tool-call JSON at
+stream finalization. If the upstream Copilot API ever starts returning real
+usage data in `ChatCompletionChunk.usage`, those values automatically override
+the local estimates.
+
+Implementation: `count_tokens_for_request()` and `count_output_tokens()` in
+`src/token_counter.rs`, accumulation fields (`output_text`, `output_tool_json`,
+`upstream_input_tokens`, `upstream_output_tokens`) in `src/streaming/state.rs`.
