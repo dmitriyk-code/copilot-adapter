@@ -305,3 +305,328 @@ async fn streaming_truncated_tool_emits_text_notice_not_tool_use() {
         "stop_reason should be max_tokens for truncated tool call"
     );
 }
+
+// ===========================================================================
+// Epic 6-T4: Integration tests for streaming usage fields
+// ===========================================================================
+
+/// Spawn a mock Copilot API that returns a simple text streaming response
+/// (no upstream `usage` in chunks).
+async fn spawn_mock_copilot_text_response() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            let chunks = vec![
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-test",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+                    })
+                ),
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-test",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [{"index": 0, "delta": {"content": "Hello from the adapter!"}, "finish_reason": null}]
+                    })
+                ),
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-test",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+                    })
+                ),
+                "data: [DONE]\n\n".to_string(),
+            ];
+
+            axum::http::Response::builder()
+                .status(200)
+                .header("Content-Type", "text/event-stream")
+                .body(Body::from(chunks.concat()))
+                .unwrap()
+                .into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+/// Spawn a mock Copilot API that includes upstream `usage` in the final chunk.
+async fn spawn_mock_copilot_with_usage() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            let chunks = vec![
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-override",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+                    })
+                ),
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-override",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [{"index": 0, "delta": {"content": "Response text"}, "finish_reason": null}]
+                    })
+                ),
+                // Usage arrives before finish_reason
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-override",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [],
+                        "usage": {"prompt_tokens": 999, "completion_tokens": 888, "total_tokens": 1887}
+                    })
+                ),
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-usage-override",
+                        "object": "chat.completion.chunk",
+                        "created": 1700000000,
+                        "model": "claude-sonnet-4.5",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+                    })
+                ),
+                "data: [DONE]\n\n".to_string(),
+            ];
+
+            axum::http::Response::builder()
+                .status(200)
+                .header("Content-Type", "text/event-stream")
+                .body(Body::from(chunks.concat()))
+                .unwrap()
+                .into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+/// Helper to build a standard streaming request body for integration tests.
+fn streaming_request_body() -> serde_json::Value {
+    json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 8192,
+        "messages": [{"role": "user", "content": "Hello, how are you?"}],
+        "stream": true
+    })
+}
+
+/// Helper to send a streaming request and collect parsed SSE events.
+async fn send_streaming_request(
+    app: Router,
+    body: &serde_json::Value,
+) -> Vec<(String, serde_json::Value)> {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_text = String::from_utf8_lossy(&bytes);
+    parse_anthropic_sse(&body_text)
+}
+
+/// `message_start.message.usage.input_tokens > 0` when the Copilot API
+/// returns a simple text response with no upstream usage data.
+#[tokio::test]
+async fn streaming_response_has_nonzero_input_tokens() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_text_response().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state =
+        super::test_helpers::create_test_state(format!("http://{copilot_addr}/chat/completions"), github_addr)
+            .await;
+    let app = build_router(state);
+
+    let events = send_streaming_request(app, &streaming_request_body()).await;
+
+    let msg_start = events
+        .iter()
+        .find(|(t, _)| t == "message_start")
+        .expect("should have message_start event");
+
+    let input_tokens = msg_start.1["message"]["usage"]["input_tokens"]
+        .as_u64()
+        .expect("input_tokens should be a number");
+    assert!(
+        input_tokens > 0,
+        "input_tokens should be > 0, got {input_tokens}"
+    );
+}
+
+/// `message_delta.usage.output_tokens > 0` when the Copilot API returns
+/// text content (no upstream usage data).
+#[tokio::test]
+async fn streaming_response_has_nonzero_output_tokens() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_text_response().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state =
+        super::test_helpers::create_test_state(format!("http://{copilot_addr}/chat/completions"), github_addr)
+            .await;
+    let app = build_router(state);
+
+    let events = send_streaming_request(app, &streaming_request_body()).await;
+
+    let msg_delta = events
+        .iter()
+        .find(|(t, _)| t == "message_delta")
+        .expect("should have message_delta event");
+
+    let output_tokens = msg_delta.1["usage"]["output_tokens"]
+        .as_u64()
+        .expect("output_tokens should be a number");
+    assert!(
+        output_tokens > 0,
+        "output_tokens should be > 0, got {output_tokens}"
+    );
+}
+
+/// The `input_tokens` from a streaming `message_start` should match the
+/// count from the `POST /v1/messages/count_tokens` endpoint for the same body.
+#[tokio::test]
+async fn streaming_input_token_count_consistent_with_count_tokens_endpoint() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_text_response().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state =
+        super::test_helpers::create_test_state(format!("http://{copilot_addr}/chat/completions"), github_addr)
+            .await;
+
+    let request_body = streaming_request_body();
+
+    // 1. Get count from /v1/messages/count_tokens
+    let count_response = build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages/count_tokens")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&request_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(count_response.status(), StatusCode::OK);
+
+    let count_bytes = axum::body::to_bytes(count_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let count_json: serde_json::Value = serde_json::from_slice(&count_bytes).unwrap();
+    let count_tokens_value = count_json["input_tokens"]
+        .as_u64()
+        .expect("count_tokens should return input_tokens");
+
+    // 2. Get count from streaming message_start
+    let app = build_router(state);
+    let events = send_streaming_request(app, &request_body).await;
+
+    let msg_start = events
+        .iter()
+        .find(|(t, _)| t == "message_start")
+        .expect("should have message_start event");
+    let streaming_input_tokens = msg_start.1["message"]["usage"]["input_tokens"]
+        .as_u64()
+        .expect("input_tokens should be a number");
+
+    // 3. Both should agree
+    assert_eq!(
+        count_tokens_value, streaming_input_tokens,
+        "count_tokens endpoint ({count_tokens_value}) should match streaming input_tokens ({streaming_input_tokens})"
+    );
+}
+
+/// When the Copilot API returns upstream `usage` in a chunk, those values
+/// should override the tiktoken estimates in the emitted events.
+/// This test includes tools in the request to trigger the native tools
+/// streaming path (which uses `StreamingState` with upstream usage capture).
+#[tokio::test]
+async fn upstream_usage_in_chunk_overrides_tiktoken() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_with_usage().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state =
+        super::test_helpers::create_test_state(format!("http://{copilot_addr}/chat/completions"), github_addr)
+            .await;
+    let app = build_router(state);
+
+    // Include tools so the request goes through the native tools streaming
+    // path, which uses StreamingState and captures upstream usage.
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 8192,
+        "messages": [{"role": "user", "content": "Hello, how are you?"}],
+        "stream": true,
+        "tools": [{
+            "name": "test_tool",
+            "description": "A test tool",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "arg": {"type": "string"}
+                }
+            }
+        }]
+    });
+
+    let events = send_streaming_request(app, &body).await;
+
+    // message_delta should use the upstream completion_tokens (888)
+    let msg_delta = events
+        .iter()
+        .find(|(t, _)| t == "message_delta")
+        .expect("should have message_delta event");
+
+    let output_tokens = msg_delta.1["usage"]["output_tokens"]
+        .as_u64()
+        .expect("output_tokens should be a number");
+    assert_eq!(
+        output_tokens, 888,
+        "output_tokens should be overridden by upstream completion_tokens, got {output_tokens}"
+    );
+}

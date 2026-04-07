@@ -1,5 +1,5 @@
 use copilot_adapter::anthropic::types::*;
-use copilot_adapter::token_counter::count_tokens;
+use copilot_adapter::token_counter::{count_tokens, count_tokens_for_request, count_output_tokens};
 
 // ---------------------------------------------------------------------------
 // E3-T10: Unit test: count simple text message
@@ -534,4 +534,78 @@ fn token_count_error_encoder_init_formats_message() {
     );
     let display = format!("{err}");
     assert_eq!(display, "Failed to initialize tokenizer: vocab not found");
+}
+
+// ---------------------------------------------------------------------------
+// Epic 6-T1: count_tokens_for_request & count_output_tokens tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn count_tokens_for_request_matches_count_tokens() {
+    let text = "Hello, world!";
+    let anthropic_req = AnthropicRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        max_tokens: 1024,
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: ContentBlockInput::Text(text.to_string()),
+        }],
+        system: None,
+        stream: None,
+        temperature: None,
+        top_p: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        output_config: None,
+        thinking: None,
+    };
+    let count_req = CountTokensRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: ContentBlockInput::Text(text.to_string()),
+        }],
+        system: None,
+        tools: None,
+    };
+
+    let from_request = count_tokens_for_request(&anthropic_req);
+    let from_count = count_tokens(&count_req).unwrap();
+    assert_eq!(
+        from_request, from_count,
+        "count_tokens_for_request should match count_tokens: for_request={from_request}, count={from_count}"
+    );
+}
+
+#[test]
+fn count_output_tokens_empty_string() {
+    assert_eq!(
+        count_output_tokens(""),
+        0,
+        "Empty string should produce 0 output tokens"
+    );
+}
+
+#[test]
+fn count_output_tokens_nonempty_string() {
+    let count = count_output_tokens("Hello, world!");
+    assert!(
+        count > 0,
+        "Non-empty string should produce > 0 output tokens, got {count}"
+    );
+}
+
+#[test]
+fn count_output_tokens_increases_with_length() {
+    let short = count_output_tokens("Hi");
+    let long = count_output_tokens(
+        "The quick brown fox jumps over the lazy dog. \
+         This is a much longer sentence with many more tokens \
+         that should produce a significantly higher count.",
+    );
+    assert!(
+        long > short,
+        "Longer text should produce more output tokens: short={short}, long={long}"
+    );
 }

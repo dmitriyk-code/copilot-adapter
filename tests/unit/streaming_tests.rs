@@ -1591,3 +1591,59 @@ fn finalize_emits_real_output_tokens() {
         "finalize output_tokens should be > 0 after text, got {output_tokens}"
     );
 }
+
+// ===========================================================================
+// Epic 6-T2: Additional streaming token counting tests
+// ===========================================================================
+
+/// `StreamingState::new(HashMap::new(), 0)` produces `message_start` with
+/// `usage.input_tokens: 0` — verifies zero is not treated specially.
+#[test]
+fn message_start_zero_input_tokens_ok() {
+    let mut state = StreamingState::new(HashMap::new(), 0);
+
+    let events = state.process_chunk(&text_chunk("c1", "m1", "Hi", None));
+    assert!(events.len() >= 1);
+    match &events[0] {
+        StreamEvent::MessageStart { message } => {
+            assert_eq!(
+                message.usage.input_tokens, 0,
+                "input_tokens should be 0 when constructed with 0"
+            );
+        }
+        other => panic!("Expected MessageStart, got: {:?}", other),
+    }
+}
+
+/// A longer text response produces a higher `output_tokens` than a shorter one.
+#[test]
+fn output_tokens_increase_with_response_length() {
+    // Short response
+    let mut state_short = StreamingState::new(HashMap::new(), 0);
+    state_short.process_chunk(&text_chunk("c1", "m1", "Hi", None));
+    let events = state_short.process_chunk(&finish_chunk("c1", "m1", "stop"));
+    let short_output = assert_message_delta(events.last().unwrap(), "end_turn");
+
+    // Long response
+    let mut state_long = StreamingState::new(HashMap::new(), 0);
+    state_long.process_chunk(&text_chunk(
+        "c1",
+        "m1",
+        "The quick brown fox jumps over the lazy dog. \
+         This is a much longer sentence with many more tokens \
+         that should produce a significantly higher output token count \
+         compared to the short response above.",
+        None,
+    ));
+    let events = state_long.process_chunk(&finish_chunk("c1", "m1", "stop"));
+    let long_output = assert_message_delta(events.last().unwrap(), "end_turn");
+
+    assert!(
+        short_output > 0,
+        "Short response should have > 0 output_tokens, got {short_output}"
+    );
+    assert!(
+        long_output > short_output,
+        "Longer response should have more output_tokens: short={short_output}, long={long_output}"
+    );
+}
