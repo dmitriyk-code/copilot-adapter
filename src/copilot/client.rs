@@ -22,6 +22,22 @@ const COPILOT_INTEGRATION_ID: &str = "vscode-chat";
 /// Maximum number of retries for transient errors (5xx, network timeouts).
 const MAX_RETRIES: u32 = 3;
 
+/// Regex-based fallback parser for prompt-too-long errors.
+///
+/// Handles edge cases where the primary JSON parser (`parse_prompt_too_long`) fails
+/// — e.g., invisible characters, BOM prefix, unexpected whitespace, or the body
+/// being wrapped in SSE framing.
+fn parse_prompt_too_long_regex(body: &str) -> Option<(u32, u32)> {
+    let re = regex::Regex::new(
+        r"prompt token count of (\d+) exceeds the limit of (\d+)",
+    )
+    .ok()?;
+    let caps = re.captures(body)?;
+    let actual: u32 = caps.get(1)?.as_str().parse().ok()?;
+    let limit: u32 = caps.get(2)?.as_str().parse().ok()?;
+    Some((actual, limit))
+}
+
 /// Parse a Copilot API error body for `model_max_prompt_tokens_exceeded`.
 ///
 /// Returns `(actual_tokens, limit_tokens)` if the error matches the expected format:
@@ -153,6 +169,35 @@ impl CopilotClient {
                     actual_tokens: actual,
                     limit_tokens: limit,
                 };
+            }
+
+            // Primary parser failed. Try regex fallback — handles edge cases
+            // like BOM, invisible characters, or SSE-wrapped error bodies.
+            if body.contains("model_max_prompt_tokens_exceeded")
+                || body.contains("exceeds the limit of")
+            {
+                tracing::warn!(
+                    body_len = body.len(),
+                    body_first_bytes = ?body.as_bytes().iter().take(40).copied().collect::<Vec<_>>(),
+                    "parse_prompt_too_long JSON parser failed despite body containing expected error markers, trying regex fallback"
+                );
+
+                if let Some((actual, limit)) = parse_prompt_too_long_regex(&body) {
+                    tracing::info!(
+                        actual_tokens = actual,
+                        limit_tokens = limit,
+                        "Regex fallback: translating prompt-too-long error to Anthropic format"
+                    );
+                    return AppError::PromptTooLong {
+                        actual_tokens: actual,
+                        limit_tokens: limit,
+                    };
+                } else {
+                    tracing::error!(
+                        body = %body,
+                        "Both JSON and regex parsers failed to extract token counts from prompt-too-long error"
+                    );
+                }
             }
         }
 
@@ -505,5 +550,53 @@ where
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regex_fallback_standard_format() {
+        let body = r#"{"error":{"message":"prompt token count of 168929 exceeds the limit of 168000","code":"model_max_prompt_tokens_exceeded"}}"#;
+        assert_eq!(parse_prompt_too_long_regex(body), Some((168929, 168000)));
+    }
+
+    #[test]
+    fn regex_fallback_with_bom_prefix() {
+        let body = "\u{FEFF}{\"error\":{\"message\":\"prompt token count of 168929 exceeds the limit of 168000\",\"code\":\"model_max_prompt_tokens_exceeded\"}}";
+        // Primary parser fails on BOM prefix
+        assert_eq!(parse_prompt_too_long(body), None);
+        // Regex fallback succeeds
+        assert_eq!(parse_prompt_too_long_regex(body), Some((168929, 168000)));
+    }
+
+    #[test]
+    fn regex_fallback_sse_wrapped() {
+        let body = "data: {\"error\":{\"message\":\"prompt token count of 200000 exceeds the limit of 168000\",\"code\":\"model_max_prompt_tokens_exceeded\"}}\n\n";
+        // Primary parser fails on SSE framing
+        assert_eq!(parse_prompt_too_long(body), None);
+        // Regex fallback succeeds
+        assert_eq!(parse_prompt_too_long_regex(body), Some((200000, 168000)));
+    }
+
+    #[test]
+    fn regex_fallback_with_trailing_whitespace() {
+        let body = "{\"error\":{\"message\":\"prompt token count of 168178 exceeds the limit of 168000\",\"code\":\"model_max_prompt_tokens_exceeded\"}}  \n";
+        // Primary parser may or may not handle trailing whitespace
+        // Regex should handle it regardless
+        assert_eq!(parse_prompt_too_long_regex(body), Some((168178, 168000)));
+    }
+
+    #[test]
+    fn regex_fallback_no_match() {
+        assert_eq!(parse_prompt_too_long_regex("totally unrelated error"), None);
+    }
+
+    #[test]
+    fn regex_fallback_partial_match_no_numbers() {
+        let body = "prompt token count of abc exceeds the limit of def";
+        assert_eq!(parse_prompt_too_long_regex(body), None);
     }
 }

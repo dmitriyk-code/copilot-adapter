@@ -117,6 +117,28 @@ pub async fn messages(
     let has_tools = request.tools.as_ref().is_some_and(|t| !t.is_empty());
     let wants_1m = has_1m_context_beta(&headers);
 
+    // Diagnostic: always log the anthropic-beta header value so we can
+    // debug 1M-context activation issues (see CONTEXT-SIZE-MISMATCH.design.md).
+    {
+        let beta_values: Vec<&str> = headers
+            .get_all("anthropic-beta")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .collect();
+        if beta_values.is_empty() {
+            tracing::debug!(
+                wants_1m = wants_1m,
+                "No anthropic-beta header present in request"
+            );
+        } else {
+            tracing::debug!(
+                wants_1m = wants_1m,
+                anthropic_beta = ?beta_values,
+                "anthropic-beta header values"
+            );
+        }
+    }
+
     // --- Native tools path ---
     // When native_tools is enabled and the request has tools, try the native
     // OpenAI function calling path first. Falls back to XML injection on
