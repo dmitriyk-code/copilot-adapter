@@ -201,6 +201,17 @@ impl CopilotClient {
             }
         }
 
+        // For 4xx errors (other than 429 and prompt-too-long which are handled
+        // above), preserve the upstream status code. This prevents the adapter
+        // from converting client errors (400) into server errors (502), which
+        // would cause Claude Code to retry indefinitely.
+        if status.is_client_error() {
+            return AppError::UpstreamClientError {
+                status: status.as_u16(),
+                message: format!("Copilot API returned HTTP {status}: {body}"),
+            };
+        }
+
         AppError::CopilotError(format!("Copilot API returned HTTP {status}: {body}"))
     }
 

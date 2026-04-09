@@ -1394,34 +1394,35 @@ fn stream_event_type(event: &StreamEvent) -> &'static str {
 /// Check if an error indicates the upstream API does not support native
 /// tools, in which case the caller should fall back to XML injection.
 ///
-/// Matches `CopilotError` responses where the body unambiguously indicates
-/// that the tools/function-calling feature is unsupported. Avoids broad
-/// keywords like "function" that could match unrelated error messages.
+/// Matches `CopilotError` and `UpstreamClientError` responses where the body
+/// unambiguously indicates that the tools/function-calling feature is
+/// unsupported. Avoids broad keywords like "function" that could match
+/// unrelated error messages.
 ///
 /// Checks both literal double-quoted forms (`"tools"`) and JSON-escaped
 /// forms (`\"tools\"`) since error messages from JSON API responses will
 /// have inner double quotes escaped with backslashes in the raw body text.
 fn is_tools_not_supported_error(error: &AppError) -> bool {
-    match error {
-        AppError::CopilotError(msg) => {
-            let msg_lower = msg.to_lowercase();
-            msg_lower.contains("tools is not supported")
-                || msg_lower.contains("tools are not supported")
-                || msg_lower.contains("tool_choice is not supported")
-                || msg_lower.contains("functions is not supported")
-                || msg_lower.contains("functions are not supported")
-                || msg_lower.contains("unsupported_parameter")
-                || msg_lower.contains("unrecognized_parameter")
-                || (msg_lower.contains("'tools'") && msg_lower.contains("not supported"))
-                || (msg_lower.contains("'tool_choice'") && msg_lower.contains("not supported"))
-                || (msg_lower.contains("\"tools\"") && msg_lower.contains("not supported"))
-                || (msg_lower.contains("\"tool_choice\"") && msg_lower.contains("not supported"))
-                // JSON-escaped double quotes: raw body contains \"tools\" (backslash-quote)
-                || (msg_lower.contains("\\\"tools\\\"") && msg_lower.contains("not supported"))
-                || (msg_lower.contains("\\\"tool_choice\\\"") && msg_lower.contains("not supported"))
-        }
-        _ => false,
-    }
+    let msg = match error {
+        AppError::CopilotError(msg) => msg,
+        AppError::UpstreamClientError { message, .. } => message,
+        _ => return false,
+    };
+    let msg_lower = msg.to_lowercase();
+    msg_lower.contains("tools is not supported")
+        || msg_lower.contains("tools are not supported")
+        || msg_lower.contains("tool_choice is not supported")
+        || msg_lower.contains("functions is not supported")
+        || msg_lower.contains("functions are not supported")
+        || msg_lower.contains("unsupported_parameter")
+        || msg_lower.contains("unrecognized_parameter")
+        || (msg_lower.contains("'tools'") && msg_lower.contains("not supported"))
+        || (msg_lower.contains("'tool_choice'") && msg_lower.contains("not supported"))
+        || (msg_lower.contains("\"tools\"") && msg_lower.contains("not supported"))
+        || (msg_lower.contains("\"tool_choice\"") && msg_lower.contains("not supported"))
+        // JSON-escaped double quotes: raw body contains \"tools\" (backslash-quote)
+        || (msg_lower.contains("\\\"tools\\\"") && msg_lower.contains("not supported"))
+        || (msg_lower.contains("\\\"tool_choice\\\"") && msg_lower.contains("not supported"))
 }
 
 /// Check if the `anthropic-beta` header contains the 1M context beta.

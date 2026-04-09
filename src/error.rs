@@ -23,6 +23,13 @@ pub enum AppError {
     #[error("Copilot API error: {0}")]
     CopilotError(String),
 
+    /// A 4xx client error from the upstream Copilot API that doesn't match
+    /// any specific variant (not 429, not prompt-too-long). Preserves the
+    /// original HTTP status code so the adapter forwards it as a 4xx to
+    /// Claude Code instead of converting it to 502.
+    #[error("Copilot API client error (HTTP {status}): {message}")]
+    UpstreamClientError { status: u16, message: String },
+
     #[error("Rate limited, retry after {0}s")]
     RateLimited(u64),
 
@@ -80,6 +87,16 @@ impl IntoResponse for AppError {
                 json!({
                     "error": {
                         "message": msg,
+                        "type": "upstream_error",
+                        "code": "copilot_error"
+                    }
+                }),
+            ),
+            AppError::UpstreamClientError { status, message } => (
+                StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_REQUEST),
+                json!({
+                    "error": {
+                        "message": message,
                         "type": "upstream_error",
                         "code": "copilot_error"
                     }
@@ -165,7 +182,9 @@ impl AppError {
     pub fn error_type(&self) -> &'static str {
         match self {
             AppError::NotAuthenticated | AppError::TokenExpired => "authentication_error",
-            AppError::GitHubError(_) | AppError::CopilotError(_) => "upstream_error",
+            AppError::GitHubError(_) | AppError::CopilotError(_) | AppError::UpstreamClientError { .. } => {
+                "upstream_error"
+            }
             AppError::RateLimited(_) => "rate_limit_error",
             AppError::InvalidRequest(_) | AppError::PromptTooLong { .. } => "invalid_request_error",
             AppError::ModelNotFound(_) => "not_found_error",

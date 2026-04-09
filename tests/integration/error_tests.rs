@@ -257,3 +257,309 @@ async fn copilot_prompt_too_long_translated_to_anthropic_format() {
     assert_eq!(caps.get(1).unwrap().as_str(), "168929");
     assert_eq!(caps.get(2).unwrap().as_str(), "168000");
 }
+
+/// Mock that returns a BOM-prefixed error body — the JSON parser will fail,
+/// but the regex fallback should still extract token counts and produce
+/// HTTP 400 (not 502).
+async fn spawn_mock_copilot_prompt_too_long_bom(
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    use axum::response::IntoResponse;
+
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            // BOM prefix (\u{FEFF}) causes serde_json::from_str to fail
+            let body = "\u{FEFF}{\"error\":{\"message\":\"prompt token count of 200000 exceeds the limit of 168000\",\"code\":\"model_max_prompt_tokens_exceeded\"}}";
+            (
+                StatusCode::BAD_REQUEST,
+                [("content-type", "application/json")],
+                body,
+            )
+                .into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+/// Regression test: when the Copilot API returns a prompt-too-long error
+/// with a BOM prefix (or other invisible characters that break JSON parsing),
+/// the adapter should still translate it to HTTP 400 with `prompt_too_long`
+/// — never HTTP 502 `CopilotError`.
+///
+/// This is the exact scenario that caused sessions to get permanently stuck:
+/// the adapter returned 502, Claude Code retried 10 times, all failed.
+#[tokio::test]
+async fn copilot_prompt_too_long_with_bom_still_returns_400() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_prompt_too_long_bom().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // The critical assertion: must be 400, not 502.
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "BOM-prefixed prompt-too-long must return 400, not 502"
+    );
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+    assert_eq!(json["error"]["type"], "invalid_request_error");
+    assert_eq!(json["error"]["code"], "prompt_too_long");
+
+    let message = json["error"]["message"].as_str().unwrap();
+    assert_eq!(
+        message,
+        "prompt is too long: 200000 tokens > 168000 maximum"
+    );
+
+    // Verify Claude Code's regex can parse it
+    let re = regex::Regex::new(
+        r"(?i)prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)",
+    )
+    .unwrap();
+    let caps = re.captures(message).expect("Claude Code regex must match");
+    assert_eq!(caps.get(1).unwrap().as_str(), "200000");
+    assert_eq!(caps.get(2).unwrap().as_str(), "168000");
+}
+
+// ---------------------------------------------------------------------------
+// 4xx status preservation tests
+// ---------------------------------------------------------------------------
+
+/// Mock that returns HTTP 400 with a bare string body (no JSON).
+/// This is the exact error pattern observed in logs6.txt from the Copilot API.
+async fn spawn_mock_copilot_400_bare_string() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
+{
+    use axum::response::IntoResponse;
+
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            (StatusCode::BAD_REQUEST, "Bad Request").into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+/// Regression test: when the Copilot API returns HTTP 400 with a bare string
+/// body ("Bad Request"), the adapter must forward it as HTTP 400 — not 502.
+///
+/// Previously, all non-prompt-too-long errors from Copilot were wrapped as
+/// `CopilotError` (HTTP 502). Claude Code treats 502 as a transient server
+/// error and retries up to 10 times, turning a single client error into a
+/// retry storm.
+#[tokio::test]
+async fn copilot_400_bare_string_returns_400_not_502() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_400_bare_string().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // The critical assertion: must be 400, not 502.
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "Copilot 400 must be forwarded as 400, not converted to 502"
+    );
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+    assert_eq!(json["error"]["type"], "upstream_error");
+    assert_eq!(json["error"]["code"], "copilot_error");
+}
+
+/// Mock that returns HTTP 422 with a JSON error body.
+async fn spawn_mock_copilot_422() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    use axum::response::IntoResponse;
+
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "error": {
+                        "message": "Invalid parameter: temperature must be between 0 and 2",
+                        "code": "invalid_parameter"
+                    }
+                })),
+            )
+                .into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+/// Verify that other 4xx errors (e.g., 422) are also preserved, not converted
+/// to 502.
+#[tokio::test]
+async fn copilot_422_returns_422_not_502() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_422().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "Copilot 422 must be forwarded as 422, not converted to 502"
+    );
+}
+
+/// Mock that returns HTTP 500 (server error).
+async fn spawn_mock_copilot_500() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    use axum::response::IntoResponse;
+
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal Server Error",
+            )
+                .into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+/// Verify that 5xx errors still return 502 (BAD_GATEWAY) — only 4xx should
+/// preserve the upstream status code.
+#[tokio::test]
+async fn copilot_500_still_returns_502() {
+    let (copilot_addr, _h1) = spawn_mock_copilot_500().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // 5xx from Copilot should remain 502 (BAD_GATEWAY) — these are genuine
+    // upstream server errors that Claude Code should retry.
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_GATEWAY,
+        "Copilot 500 should still be forwarded as 502"
+    );
+}
