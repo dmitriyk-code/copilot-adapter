@@ -1,5 +1,59 @@
 # Known Issues
 
+## Claude Opus 4.7 Variants and Context Windows
+
+### Description
+GitHub Copilot exposes Claude Opus 4.7 as **four distinct model SKUs**, each
+with effort level and context window encoded in the model name (rather than as
+separate `reasoning.effort` API fields, the way opus 4.6 worked). The variants
+have **different and unequal context window sizes** that are not documented
+publicly anywhere — neither the GitHub Copilot supported-models page nor
+Anthropic's documentation publishes the per-variant limits.
+
+The values below were determined empirically by sending oversized prompts to
+each variant via the adapter and reading the `prompt_too_long` error from the
+Copilot API.
+
+| Variant                          | Effort | Context window     | Routed when Claude Code sends...                       |
+|----------------------------------|--------|--------------------|--------------------------------------------------------|
+| `claude-opus-4.7`                | (none) | **168,000 tokens** | model `claude-opus-4-7`, no `output_config.effort`     |
+| `claude-opus-4.7-high`           | high   | **168,000 tokens** | model `claude-opus-4-7`, `output_config.effort=high`   |
+| `claude-opus-4.7-xhigh`          | xhigh  | **168,000 tokens** | model `claude-opus-4-7`, `output_config.effort=xhigh`  |
+| `claude-opus-4.7-1m-internal`    | (none) | **≥396,000 tokens** (likely 1M, name implies it) | model `claude-opus-4-7` + `anthropic-beta: context-1m-*` |
+
+### Important caveats
+
+1. **Base / high / xhigh all share the same 168K limit** — picking high or
+   xhigh does **not** unlock more context. (Note that 168K is also smaller
+   than the 200K typically associated with Anthropic Claude models, so even
+   the base 4.7 variant has less context than 4.6 base.)
+
+2. **No combined effort + 1M variant exists** — Copilot only publishes
+   `claude-opus-4.7-1m-internal` (no `-1m-high` or `-1m-xhigh`). When the
+   adapter receives both 1M context beta + an effort level, **1M wins** and
+   the effort is dropped. If you need extended reasoning *and* a large
+   context, you currently have to pick one.
+
+3. **Adapter request size cap** — The adapter itself has an HTTP body size
+   limit (axum default) that prevents sending requests larger than ~~2MB
+   (~500K tokens of plain text). Hitting `claude-opus-4.7-1m-internal`'s
+   full theoretical 1M-token capacity through the adapter requires raising
+   this limit; we have only confirmed it accepts ≥396K tokens, not the full
+   1M.
+
+### Why this matters
+A user picking "Opus 4.7 with high effort" expecting full Opus 4 context
+gets silently capped at 168K tokens — surprisingly tight for a flagship
+model and a likely source of unexpected `prompt_too_long` errors.
+
+### Status
+Documented. The adapter routes correctly per the table above (see
+`apply_model_modifiers()` in `src/model_mapper.rs`). No code change planned
+unless Copilot publishes a combined `-1m-high` / `-1m-xhigh` variant or
+raises the 168K cap on the high/xhigh variants.
+
+---
+
 ## Multiple Responses from Claude Code
 
 ### Description

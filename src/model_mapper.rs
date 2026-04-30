@@ -84,6 +84,53 @@ pub fn normalize_model_name(model: &str) -> String {
     }
 }
 
+/// Apply effort and 1M-context modifiers to an already-normalized model name.
+///
+/// GitHub Copilot's opus 4.7 series encodes effort level and context size as
+/// **model name suffixes** rather than accepting them as separate API fields:
+/// - `claude-opus-4.7`           — standard (no modifiers)
+/// - `claude-opus-4.7-high`      — high effort
+/// - `claude-opus-4.7-xhigh`     — xhigh effort
+/// - `claude-opus-4.7-1m-internal` — 1M context (no combined effort+1M variant)
+///
+/// Earlier models (e.g. opus 4.6) use the older convention: `reasoning.effort`
+/// is sent as a separate request field, and 1M context appends `-1m`.
+///
+/// Returns `(final_model_name, suppress_reasoning)`.
+/// `suppress_reasoning` is `true` when effort is encoded in the model name —
+/// in that case the caller must clear the `reasoning` field from the request
+/// body to avoid sending a redundant (and potentially rejected) parameter.
+pub fn apply_model_modifiers(
+    model: &str,
+    effort: Option<&str>,
+    wants_1m: bool,
+) -> (String, bool) {
+    // opus 4.7 — effort and 1M context are encoded as model name suffixes.
+    if model == "claude-opus-4.7" {
+        if wants_1m {
+            // The 1M-context model is a single fixed variant; no effort combinations
+            // are available for 1M context in the current Copilot model catalogue.
+            return ("claude-opus-4.7-1m-internal".to_string(), true);
+        }
+        match effort {
+            Some("xhigh") => return ("claude-opus-4.7-xhigh".to_string(), true),
+            // "max" maps to "high" for consistency with the older effort mapping
+            Some("high") | Some("max") => return ("claude-opus-4.7-high".to_string(), true),
+            _ => return (model.to_string(), false),
+        }
+    }
+
+    // All other models: append `-1m` when 1M context is requested, and pass
+    // effort separately via `reasoning.effort` (handled by the request builder).
+    let final_model = if wants_1m && !model.contains("-1m") {
+        format!("{}-1m", model)
+    } else {
+        model.to_string()
+    };
+
+    (final_model, false)
+}
+
 /// Helper function to check if a string looks like a datestamp (8 digits)
 fn is_datestamp(s: &str) -> bool {
     s.len() == 8 && s.chars().all(|c| c.is_ascii_digit())
@@ -190,5 +237,71 @@ mod tests {
             normalize_model_name("claude-opus-4.6-1m"),
             "claude-opus-4.6-1m"
         );
+    }
+
+    // --- apply_model_modifiers tests ---
+
+    #[test]
+    fn test_opus47_xhigh_effort() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.7", Some("xhigh"), false);
+        assert_eq!(model, "claude-opus-4.7-xhigh");
+        assert!(suppress);
+    }
+
+    #[test]
+    fn test_opus47_high_effort() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.7", Some("high"), false);
+        assert_eq!(model, "claude-opus-4.7-high");
+        assert!(suppress);
+    }
+
+    #[test]
+    fn test_opus47_max_effort_maps_to_high() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.7", Some("max"), false);
+        assert_eq!(model, "claude-opus-4.7-high");
+        assert!(suppress);
+    }
+
+    #[test]
+    fn test_opus47_no_effort() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.7", None, false);
+        assert_eq!(model, "claude-opus-4.7");
+        assert!(!suppress);
+    }
+
+    #[test]
+    fn test_opus47_1m_context() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.7", None, true);
+        assert_eq!(model, "claude-opus-4.7-1m-internal");
+        assert!(suppress);
+    }
+
+    #[test]
+    fn test_opus47_1m_context_with_effort_ignored() {
+        // 1M context takes priority; no combined effort+1M variant available
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.7", Some("xhigh"), true);
+        assert_eq!(model, "claude-opus-4.7-1m-internal");
+        assert!(suppress);
+    }
+
+    #[test]
+    fn test_opus46_1m_context() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.6", None, true);
+        assert_eq!(model, "claude-opus-4.6-1m");
+        assert!(!suppress);
+    }
+
+    #[test]
+    fn test_opus46_no_modifiers() {
+        let (model, suppress) = apply_model_modifiers("claude-opus-4.6", None, false);
+        assert_eq!(model, "claude-opus-4.6");
+        assert!(!suppress);
+    }
+
+    #[test]
+    fn test_non_claude_model_no_change() {
+        let (model, suppress) = apply_model_modifiers("gpt-4o", None, false);
+        assert_eq!(model, "gpt-4o");
+        assert!(!suppress);
     }
 }

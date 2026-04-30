@@ -179,14 +179,30 @@ pub async fn messages(
     // XML injection path does not need native tool_calls translation
     let mut openai_request = request.to_chat_completion_request(false);
 
-    // If Claude Code requested 1M context via the anthropic-beta header,
-    // select the Copilot API's 1M model variant.
-    if wants_1m && !openai_request.model.contains("-1m") {
-        tracing::info!(
-            original_model = %openai_request.model,
-            "1M context beta detected, selecting Copilot 1M model variant"
-        );
-        openai_request.model = format!("{}-1m", openai_request.model);
+    // Apply effort / 1M-context model modifiers.
+    // For opus 4.7 these are encoded as model name suffixes; for other models
+    // 1M context appends `-1m` and effort is passed via `reasoning.effort`.
+    {
+        let effort = request
+            .output_config
+            .as_ref()
+            .and_then(|oc| oc.effort.as_deref());
+        let (modified_model, suppress_reasoning) =
+            crate::model_mapper::apply_model_modifiers(&openai_request.model, effort, wants_1m);
+        if modified_model != openai_request.model {
+            tracing::info!(
+                original_model = %openai_request.model,
+                final_model = %modified_model,
+                wants_1m,
+                effort = ?effort,
+                suppress_reasoning,
+                "Model modifiers applied"
+            );
+            openai_request.model = modified_model;
+        }
+        if suppress_reasoning {
+            openai_request.reasoning = None;
+        }
     }
 
     // Log model normalization if it happened
@@ -982,14 +998,28 @@ async fn handle_with_native_tools(
     // Native tools mode: translate assistant tool_use blocks to proper tool_calls format
     let mut openai_request = request.to_chat_completion_request(true);
 
-    // If Claude Code requested 1M context via the anthropic-beta header,
-    // select the Copilot API's 1M model variant.
-    if wants_1m && !openai_request.model.contains("-1m") {
-        tracing::info!(
-            original_model = %openai_request.model,
-            "1M context beta detected, selecting Copilot 1M model variant"
-        );
-        openai_request.model = format!("{}-1m", openai_request.model);
+    // Apply effort / 1M-context model modifiers.
+    {
+        let effort = request
+            .output_config
+            .as_ref()
+            .and_then(|oc| oc.effort.as_deref());
+        let (modified_model, suppress_reasoning) =
+            crate::model_mapper::apply_model_modifiers(&openai_request.model, effort, wants_1m);
+        if modified_model != openai_request.model {
+            tracing::info!(
+                original_model = %openai_request.model,
+                final_model = %modified_model,
+                wants_1m,
+                effort = ?effort,
+                suppress_reasoning,
+                "Model modifiers applied (native tools path)"
+            );
+            openai_request.model = modified_model;
+        }
+        if suppress_reasoning {
+            openai_request.reasoning = None;
+        }
     }
 
     openai_request.tools = Some(translation.tools);
