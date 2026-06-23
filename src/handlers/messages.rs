@@ -147,7 +147,7 @@ pub async fn messages(
     if has_tools && state.config.native_tools {
         tracing::debug!("Native tools enabled, attempting native function calling path");
 
-        match handle_with_native_tools(&request, &state, cycle_builder, wants_1m).await {
+        match handle_with_native_tools(&request, &state, cycle_builder).await {
             Ok(response) => return Ok(response),
             Err((e, returned_builder)) => {
                 if is_tools_not_supported_error(&e) {
@@ -179,31 +179,12 @@ pub async fn messages(
     // XML injection path does not need native tool_calls translation
     let mut openai_request = request.to_chat_completion_request(false);
 
-    // Apply effort / 1M-context model modifiers.
-    // For opus 4.7 these are encoded as model name suffixes; for other models
-    // 1M context appends `-1m` and effort is passed via `reasoning.effort`.
-    {
-        let effort = request
-            .output_config
-            .as_ref()
-            .and_then(|oc| oc.effort.as_deref());
-        let (modified_model, suppress_reasoning) =
-            crate::model_mapper::apply_model_modifiers(&openai_request.model, effort, wants_1m);
-        if modified_model != openai_request.model {
-            tracing::info!(
-                original_model = %openai_request.model,
-                final_model = %modified_model,
-                wants_1m,
-                effort = ?effort,
-                suppress_reasoning,
-                "Model modifiers applied"
-            );
-            openai_request.model = modified_model;
-        }
-        if suppress_reasoning {
-            openai_request.reasoning = None;
-        }
-    }
+    // Note: the model name (via `normalize_model_name`) and effort (via
+    // `reasoning.effort`) are fully resolved inside `to_chat_completion_request`.
+    // The `context-1m` beta header is detected for diagnostics (see `wants_1m`
+    // logging above) but no longer rewrites the model name: GitHub Copilot's
+    // current Claude SKUs are 1M-native under their base names and no longer
+    // expose `-1m` / effort-suffixed model IDs.
 
     // Log model normalization if it happened
     if openai_request.model != request.model {
@@ -970,7 +951,6 @@ async fn handle_with_native_tools(
     request: &AnthropicRequest,
     state: &AppState,
     cycle_builder: Option<ConversationCycleBuilder>,
-    wants_1m: bool,
 ) -> Result<Response, (AppError, Option<ConversationCycleBuilder>)> {
     let tools = match request.tools.as_ref() {
         Some(t) => t,
@@ -998,29 +978,10 @@ async fn handle_with_native_tools(
     // Native tools mode: translate assistant tool_use blocks to proper tool_calls format
     let mut openai_request = request.to_chat_completion_request(true);
 
-    // Apply effort / 1M-context model modifiers.
-    {
-        let effort = request
-            .output_config
-            .as_ref()
-            .and_then(|oc| oc.effort.as_deref());
-        let (modified_model, suppress_reasoning) =
-            crate::model_mapper::apply_model_modifiers(&openai_request.model, effort, wants_1m);
-        if modified_model != openai_request.model {
-            tracing::info!(
-                original_model = %openai_request.model,
-                final_model = %modified_model,
-                wants_1m,
-                effort = ?effort,
-                suppress_reasoning,
-                "Model modifiers applied (native tools path)"
-            );
-            openai_request.model = modified_model;
-        }
-        if suppress_reasoning {
-            openai_request.reasoning = None;
-        }
-    }
+    // Note: the model name (via `normalize_model_name`) and effort (via
+    // `reasoning.effort`) are fully resolved inside `to_chat_completion_request`.
+    // The `context-1m` beta header no longer rewrites the model name — see the
+    // XML injection path for the rationale.
 
     openai_request.tools = Some(translation.tools);
     openai_request.tool_choice = Some(serde_json::json!("auto"));

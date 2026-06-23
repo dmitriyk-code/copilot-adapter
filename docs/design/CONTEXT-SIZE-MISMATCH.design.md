@@ -5,6 +5,14 @@
 **Severity:** High
 **Related:** `docs/design/CONTEXT-WINDOW-AND-TRUNCATION.design.md`
 
+> **⚠️ Partially superseded (2026-06):** Failure 1 in this document (1M model
+> activation via a `-1m` model-name suffix) no longer applies. GitHub Copilot
+> consolidated its Claude SKUs — there are no `-1m` model IDs and the base
+> models are 1M-native, so the adapter no longer appends `-1m`. The diagnostic
+> header logging (Fix 1) and the `prompt_too_long` error-translation robustness
+> (Fix 2) remain valid. See
+> `docs/design/COPILOT-1M-MODEL-CONSOLIDATION.design.md`.
+
 ---
 
 ## Executive Summary

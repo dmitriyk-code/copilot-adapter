@@ -723,7 +723,7 @@ async fn messages_streaming_event_order_is_correct() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn messages_1m_context_beta_appends_suffix_non_streaming() {
+async fn messages_1m_context_beta_keeps_base_model_non_streaming() {
     let (copilot_addr, _h1) = spawn_mock_copilot_api().await;
     let (github_addr, _h2) = spawn_mock_github().await;
 
@@ -760,8 +760,9 @@ async fn messages_1m_context_beta_appends_suffix_non_streaming() {
         .unwrap();
     let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
 
-    // The mock echoes back the model name it received — should have -1m suffix
-    assert_eq!(resp.model, "claude-opus-4.6-1m");
+    // The mock echoes back the model name it received. The context-1m beta no
+    // longer appends a `-1m` suffix — the base model name is 1M-native.
+    assert_eq!(resp.model, "claude-opus-4.6");
 }
 
 #[tokio::test]
@@ -806,7 +807,7 @@ async fn messages_without_1m_beta_no_suffix() {
 }
 
 #[tokio::test]
-async fn messages_1m_beta_no_double_append() {
+async fn messages_in_name_1m_marker_preserved() {
     let (copilot_addr, _h1) = spawn_mock_copilot_api().await;
     let (github_addr, _h2) = spawn_mock_github().await;
 
@@ -817,7 +818,8 @@ async fn messages_1m_beta_no_double_append() {
     .await;
     let app = build_router(state);
 
-    // Model already has -1m in its name
+    // Model already has -1m in its name (direct API callers may still send it;
+    // Claude Code never does — it strips [1m] and uses the beta header).
     let body = json!({
         "model": "claude-opus-4-6-1m-20251120",
         "max_tokens": 1024,
@@ -844,7 +846,9 @@ async fn messages_1m_beta_no_double_append() {
         .unwrap();
     let resp: AnthropicResponse = serde_json::from_slice(&bytes).unwrap();
 
-    // Should not double-append: still just -1m, not -1m-1m
+    // The `-1m` marker present in the incoming model name is preserved by
+    // `normalize_model_name`. This is independent of the beta header (which no
+    // longer mutates the model name at all).
     assert_eq!(resp.model, "claude-opus-4.6-1m");
 }
 
@@ -888,7 +892,8 @@ async fn messages_1m_context_beta_streaming() {
     let body_text = String::from_utf8(bytes.to_vec()).unwrap();
     let events = parse_anthropic_sse(&body_text);
 
-    // Find message_start event and verify the model has -1m suffix
+    // Find message_start event and verify the model is the 1M-native base name
+    // (the context-1m beta no longer appends a `-1m` suffix).
     let msg_start = events
         .iter()
         .find(|(t, _)| t == "message_start")
@@ -896,7 +901,7 @@ async fn messages_1m_context_beta_streaming() {
     let model = msg_start.1["message"]["model"]
         .as_str()
         .expect("model field");
-    assert_eq!(model, "claude-opus-4.6-1m");
+    assert_eq!(model, "claude-opus-4.6");
 }
 
 // ---------------------------------------------------------------------------
@@ -989,8 +994,8 @@ async fn messages_1m_beta_verified_in_captured_request() {
     assert_eq!(requests.len(), 1);
     assert_eq!(
         requests[0]["model"].as_str().unwrap(),
-        "claude-opus-4.6-1m",
-        "Mock Copilot should receive model with -1m suffix"
+        "claude-opus-4.6",
+        "Mock Copilot should receive the 1M-native base model name (no -1m suffix)"
     );
 }
 
@@ -1076,5 +1081,56 @@ async fn messages_effort_forwarded_to_copilot() {
         requests[0]["reasoning"]["effort"].as_str().unwrap(),
         "high",
         "Mock Copilot should receive reasoning.effort='high'"
+    );
+}
+
+/// Opus 4.7 effort is no longer encoded as a model-name SKU suffix
+/// (`-high` / `-xhigh`). The adapter sends the plain base model name and carries
+/// effort via `reasoning.effort`, the same as every other model.
+#[tokio::test]
+async fn messages_opus47_effort_uses_base_model_and_reasoning() {
+    let (copilot_addr, _h1, captured) = spawn_mock_copilot_capturing().await;
+    let (github_addr, _h2) = spawn_mock_github().await;
+
+    let state = create_test_state(
+        format!("http://{copilot_addr}/chat/completions"),
+        github_addr,
+    )
+    .await;
+    let app = build_router(state);
+
+    let body = json!({
+        "model": "claude-opus-4-7",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "output_config": {"effort": "xhigh"}
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Content-Type", "application/json")
+                .header("anthropic-beta", "context-1m-2025-08-07")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let requests = captured.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0]["model"].as_str().unwrap(),
+        "claude-opus-4.7",
+        "Opus 4.7 should use the plain base model name, not a -xhigh / -1m SKU"
+    );
+    assert_eq!(
+        requests[0]["reasoning"]["effort"].as_str().unwrap(),
+        "xhigh",
+        "Opus 4.7 effort should be carried via reasoning.effort"
     );
 }

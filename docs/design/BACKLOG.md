@@ -1,6 +1,6 @@
 # Copilot Adapter Backlog
-Version: 0.4
-Last updated: Apr 2 2026
+Version: 0.5
+Last updated: Jun 22 2026
 
 ## ToDo
 Items that are yet to be fixed
@@ -11,6 +11,11 @@ Items that are yet to be fixed
 Items that are done
 
 ### Bugs
+- 1M-context selection and Opus 4.7 effort no longer send non-existent Copilot
+  model names. Copilot consolidated its Claude SKUs (no `-1m` / `-1m-internal` /
+  `-high` / `-xhigh` model IDs), so the adapter stopped rewriting the model name
+  for the `context-1m` header and routes Opus 4.7 effort via `reasoning.effort`.
+  - **Design:** [COPILOT-1M-MODEL-CONSOLIDATION.design.md](./COPILOT-1M-MODEL-CONSOLIDATION.design.md), [COPILOT-1M-MODEL-CONSOLIDATION.plan.md](./COPILOT-1M-MODEL-CONSOLIDATION.plan.md)
 - Authentication flow in --daemon mode now leads through auth experience (same as foreground)
   - **Design:** [DAEMON-AUTH.design.md](./DAEMON-AUTH.design.md)
 

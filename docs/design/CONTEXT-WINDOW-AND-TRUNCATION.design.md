@@ -862,6 +862,14 @@ pub fn error_type(&self) -> &'static str {
 
 ### Option C: Detect `anthropic-beta` header and activate 1M context models
 
+> **⚠️ Superseded (2026-06):** The `-1m` model-name append described in this
+> option no longer applies. GitHub Copilot consolidated its Claude SKUs and no
+> longer exposes `-1m` model IDs; the base Claude models are 1M-native. The
+> adapter now detects the `context-1m` header for diagnostics only and does not
+> modify the model name. See
+> `docs/design/COPILOT-1M-MODEL-CONSOLIDATION.design.md`. The header-detection
+> mechanism (`has_1m_context_beta()`) below is still accurate.
+
 #### Overview
 
 The adapter needs to bridge two different mechanisms for requesting extended context:

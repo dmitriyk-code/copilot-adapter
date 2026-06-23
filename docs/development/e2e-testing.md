@@ -2339,7 +2339,7 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 | 39 | Corrupted XOR Credential File | Credential Migration |
 | 40 | Prompt-Too-Long Recovery | Context Window |
 | 41 | Truncated Tool Call Escalation | Context Window |
-| 42 | 1M Context Model Activation | Context Window |
+| 42 | 1M Context Header Handling | Context Window |
 | 43 | Effort Level Forwarding | Effort / Thinking |
 | 44 | Thinking Blocks in Conversation History | Effort / Thinking |
 
@@ -2439,13 +2439,15 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 
 ---
 
-## Test 42: 1M Context Model Activation
+## Test 42: 1M Context Header Handling
 
-**Purpose:** Verify that the `anthropic-beta: context-1m-*` header triggers the adapter to append `-1m` to the model name sent to Copilot API.
+**Purpose:** Verify the `anthropic-beta: context-1m-*` header is detected for
+diagnostics but does **not** mutate the outgoing model name (Copilot's base
+Claude models are 1M-native; no `-1m` model IDs exist).
 
 > **Prerequisites:**
 > - The adapter is built and authenticated
-> - A Copilot subscription with access to 1M context models
+> - A Copilot subscription with access to a 1M-native Claude model
 
 ### Steps
 
@@ -2458,32 +2460,33 @@ Get-ChildItem -Recurse "$env:USERPROFILE\.copilot-adapter" -File | Select-Object
 
 3. **Send a message** and observe the adapter logs.
 
-4. **Verify the adapter log shows:**
+4. **Verify the adapter log shows the diagnostic line** with the detected beta
+   value, e.g.:
    ```
-   1M context beta detected, selecting Copilot 1M model variant
-   ```
-
-5. **Verify the adapter log shows the outgoing request model:**
-   ```
-   model="claude-opus-4.6-1m"
+   wants_1m=true anthropic_beta=["context-1m-2025-08-07", ...] anthropic-beta header values
    ```
 
-6. **Verify the conversation works normally** with the 1M model.
+5. **Verify the outgoing request model is the unmodified base name** (no `-1m`
+   suffix), e.g.:
+   ```
+   model="claude-opus-4.6"
+   ```
 
-7. **Optionally:** Start a very long conversation and verify it doesn't hit the
-   standard 168K limit (the 1M model should support up to ~1M tokens).
+6. **Verify the conversation works normally** — Copilot accepts the request
+   (it would reject a non-existent `claude-opus-4.6-1m`).
 
 ### Expected Result
 
-- Adapter forwards requests to `claude-opus-4.6-1m`.
-- Longer conversations are supported without hitting the standard token limit.
+- Adapter forwards requests to the base model name (e.g., `claude-opus-4.6`).
+- The `context-1m` header is logged but does not change the model name.
+- Longer conversations are supported by the base model's native 1M window.
 
 ### Verification Checklist
 
-- [ ] Adapter log shows "1M context beta detected"
-- [ ] Outgoing request uses model name with `-1m` suffix
-- [ ] Conversation works normally with 1M model
-- [ ] No double-appending of `-1m` suffix if model already contains it
+- [ ] Adapter log shows the `anthropic-beta` diagnostic with `wants_1m=true`
+- [ ] Outgoing request uses the base model name (no `-1m` suffix)
+- [ ] Conversation works normally
+- [ ] No model-not-found error from Copilot
 
 ---
 

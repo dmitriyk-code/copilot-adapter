@@ -1,56 +1,26 @@
 # Known Issues
 
-## Claude Opus 4.7 Variants and Context Windows
+## Claude Opus 4.7 Variants and Context Windows (Obsolete)
 
 ### Description
-GitHub Copilot exposes Claude Opus 4.7 as **four distinct model SKUs**, each
-with effort level and context window encoded in the model name (rather than as
-separate `reasoning.effort` API fields, the way opus 4.6 worked). The variants
-have **different and unequal context window sizes** that are not documented
-publicly anywhere — neither the GitHub Copilot supported-models page nor
-Anthropic's documentation publishes the per-variant limits.
+GitHub Copilot **previously** exposed Claude Opus 4.7 as four distinct model
+SKUs, each with effort level and context window encoded in the model name
+(`claude-opus-4.7`, `-high`, `-xhigh`, `-1m-internal`) rather than as separate
+`reasoning.effort` API fields. The adapter routed to these SKUs via a special
+case in `apply_model_modifiers()`.
 
-The values below were determined empirically by sending oversized prompts to
-each variant via the adapter and reading the `prompt_too_long` error from the
-Copilot API.
+### Resolution / current state
+**Obsolete — Copilot consolidated these SKUs.** The live
+`GET https://api.githubcopilot.com/models` response now exposes only the base
+name `claude-opus-4.7` (no `-high` / `-xhigh` / `-1m-internal` variants). The
+adapter no longer encodes effort or context in the model name: it sends the
+plain base model name and carries effort via the standard `reasoning.effort`
+field, the same as every other model. The `apply_model_modifiers()` function has
+been removed. See `docs/design/COPILOT-1M-MODEL-CONSOLIDATION.design.md`.
 
-| Variant                          | Effort | Context window     | Routed when Claude Code sends...                       |
-|----------------------------------|--------|--------------------|--------------------------------------------------------|
-| `claude-opus-4.7`                | (none) | **168,000 tokens** | model `claude-opus-4-7`, no `output_config.effort`     |
-| `claude-opus-4.7-high`           | high   | **168,000 tokens** | model `claude-opus-4-7`, `output_config.effort=high`   |
-| `claude-opus-4.7-xhigh`          | xhigh  | **168,000 tokens** | model `claude-opus-4-7`, `output_config.effort=xhigh`  |
-| `claude-opus-4.7-1m-internal`    | (none) | **≥396,000 tokens** (likely 1M, name implies it) | model `claude-opus-4-7` + `anthropic-beta: context-1m-*` |
-
-### Important caveats
-
-1. **Base / high / xhigh all share the same 168K limit** — picking high or
-   xhigh does **not** unlock more context. (Note that 168K is also smaller
-   than the 200K typically associated with Anthropic Claude models, so even
-   the base 4.7 variant has less context than 4.6 base.)
-
-2. **No combined effort + 1M variant exists** — Copilot only publishes
-   `claude-opus-4.7-1m-internal` (no `-1m-high` or `-1m-xhigh`). When the
-   adapter receives both 1M context beta + an effort level, **1M wins** and
-   the effort is dropped. If you need extended reasoning *and* a large
-   context, you currently have to pick one.
-
-3. **Adapter request size cap** — The adapter itself has an HTTP body size
-   limit (axum default) that prevents sending requests larger than ~~2MB
-   (~500K tokens of plain text). Hitting `claude-opus-4.7-1m-internal`'s
-   full theoretical 1M-token capacity through the adapter requires raising
-   this limit; we have only confirmed it accepts ≥396K tokens, not the full
-   1M.
-
-### Why this matters
-A user picking "Opus 4.7 with high effort" expecting full Opus 4 context
-gets silently capped at 168K tokens — surprisingly tight for a flagship
-model and a likely source of unexpected `prompt_too_long` errors.
-
-### Status
-Documented. The adapter routes correctly per the table above (see
-`apply_model_modifiers()` in `src/model_mapper.rs`). No code change planned
-unless Copilot publishes a combined `-1m-high` / `-1m-xhigh` variant or
-raises the 168K cap on the high/xhigh variants.
+The empirically-measured per-variant context windows documented here previously
+no longer apply — there is a single `claude-opus-4.7` model. (Per Anthropic's
+model docs, Opus 4.7 is 1M-native.)
 
 ---
 
@@ -240,21 +210,28 @@ streaming state machine.
 
 ---
 
-## 1M Context Models Not Activated (Resolved)
+## 1M Context Model Handling
 
 ### Description
-When Claude Code's user selected "Opus (1M context)" or similar, Claude Code
-communicated this via the `anthropic-beta: context-1m-*` HTTP header, not via
-the model name. The adapter ignored this header. Meanwhile, the Copilot API
-exposes 1M context as a separate model (e.g., `claude-opus-4.6-1m`). Users
-selecting 1M context were silently getting the standard context window.
+When Claude Code's user selects "Opus (1M context)" or similar, Claude Code
+communicates this via the `anthropic-beta: context-1m-*` HTTP header, not via
+the model name (it strips `[1m]` before sending).
 
-### Resolution
-**Fixed.** The adapter now detects the `context-1m-*` beta in the
-`anthropic-beta` header and appends `-1m` to the normalized Copilot model name.
-A guard prevents double-append for models that already contain `-1m`.
+### History
+An earlier adapter version detected this header and **appended `-1m`** to the
+normalized Copilot model name, because Copilot then exposed 1M context as a
+separate model ID (e.g., `claude-opus-4.6-1m`).
 
-Implementation: `has_1m_context_beta()` in `src/handlers/messages.rs`.
+### Current behavior
+GitHub Copilot consolidated its Claude SKUs — the live `/models` list no longer
+contains any `-1m` IDs, and the base models are 1M-native (Opus 4.6/4.7/4.8 and
+Sonnet 4.6 per Anthropic's model docs; 1M is a context-size toggle per the
+Copilot docs). Appending `-1m` would now select a non-existent model. The
+adapter therefore **detects the `context-1m` header for diagnostic logging only
+and no longer modifies the model name** — the normalized base name is forwarded
+unchanged. Implementation: `has_1m_context_beta()` in
+`src/handlers/messages.rs`. See
+`docs/design/COPILOT-1M-MODEL-CONSOLIDATION.design.md`.
 
 ---
 
